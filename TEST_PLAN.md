@@ -170,6 +170,12 @@ Run these after every significant code change:
 
 ## Run History
 
+### Run 2 — 2026-04-10 (market hours)
+- **Result:** 5/5 passed
+- **Tests run:** P-01 (AAPL filled @ $259.65) · P-02 (AAPL sold @ $259.65) · P-12 (MSFT callback) · S-06 (IBM auto-fill event) · POS-02 (positions visible)
+
+---
+
 ### Run 1 — 2026-04-10 (pre-market)
 - **Result:** 40/40 passed
 - **Tests run:** C-01,03,05,06,08 · D-01,04,07 · V-01–09 · P-03,04,05,07,08 · DUP-01–03,05 · X-01,03,04,05,06 · S-03,05 · POS-01 · E-01,04,05,08
