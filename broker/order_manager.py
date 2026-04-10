@@ -70,8 +70,9 @@ class OrderManager:
         self._ib.cancelOrderEvent += self._handle_cancel_order  # cancels from any source
         self._ib.errorEvent += self._handle_error
 
-        # Pull all currently open orders on startup
-        self.sync()
+        # Pull all currently open orders on startup (only if connected)
+        if client.is_connected:
+            self.sync()
 
     # ------------------------------------------------------------------
     # Public: sync
@@ -166,11 +167,14 @@ class OrderManager:
         Cancel a specific order by its IBKR order ID.
 
         Returns:
-            True if cancellation was sent, False if order not found.
+            True if cancellation was sent, False if order not found or not active.
         """
         trade = self._orders.get(order_id) or self._find_trade(order_id)
         if trade is None:
             logger.warning("cancel_order: order %s not found in cache or TWS.", order_id)
+            return False
+        if trade.orderStatus.status not in _ACTIVE_STATUSES:
+            logger.warning("cancel_order: order %s is not active (status=%s).", order_id, trade.orderStatus.status)
             return False
         self._ib.cancelOrder(trade.order)
         self._ib.sleep(0.5)

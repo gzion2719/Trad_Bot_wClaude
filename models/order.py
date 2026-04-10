@@ -51,6 +51,10 @@ class OrderRequest:
     def __post_init__(self):
         if self.quantity <= 0:
             raise ValueError(f"Quantity must be positive, got {self.quantity}")
+        if self.limit_price is not None and self.limit_price <= 0:
+            raise ValueError(f"limit_price must be positive, got {self.limit_price}")
+        if self.stop_price is not None and self.stop_price <= 0:
+            raise ValueError(f"stop_price must be positive, got {self.stop_price}")
         if self.order_type == OrderType.LIMIT and self.limit_price is None:
             raise ValueError("limit_price is required for LIMIT orders")
         if self.order_type == OrderType.STOP and self.stop_price is None:
