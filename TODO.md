@@ -78,11 +78,50 @@ Legend: `[ ]` pending · `[x]` done · `[~]` in progress · `[!]` blocked
 
 ---
 
+## QA Audit Fixes (external audit — 25 issues found)
+
+### Critical — Block Live Trading (fix before any live use)
+
+| # | Status | File | Issue |
+|---|--------|------|-------|
+| QA-01 | [ ] | `order_manager.py:145` | Race condition: order events may fire before trade is added to `self._orders` |
+| QA-02 | [ ] | `order_manager.py:21` | `self._orders` modified from both event callbacks and user calls — not thread-safe, can crash |
+| QA-03 | [ ] | `ibkr_client.py:49` | `connect()` proceeds before connection is ready — account state undefined on fast calls |
+| QA-04 | [ ] | `ibkr_client.py:137` | Dead code — bid/ask midpoint in `_best_price()` can never execute; loop returns early |
+| QA-05 | [ ] | `ibkr_client.py:49` | No heartbeat — silent disconnections go undetected; bot keeps running on dead connection |
+| QA-06 | [ ] | `main.py:16` | `connect()` failure is uncaught — no retry, bot just crashes |
+| QA-07 | [ ] | `ibkr_client.py:107` | Hard-coded 2-second wait for market data — no retry, fails silently under load |
+| QA-08 | [ ] | `config/settings.py` | No warning when connecting to live port (7496) — accidental live trading risk |
+| QA-09 | [ ] | `strategies/` | No risk management — a buggy strategy can blow the entire account |
+
+### High — Fix Before Intensive Testing
+
+| # | Status | File | Issue |
+|---|--------|------|-------|
+| QA-10 | [ ] | `order_manager.py:206` | `get_positions()` and `get_open_orders()` don't check if connection is alive |
+| QA-11 | [ ] | `order_manager.py:295` | `avg_fill_price` can be `0.0` or `NaN` for unfilled orders — no guard |
+| QA-12 | [ ] | `order_manager.py:21` | Error 202 silently swallowed — cancelled order stays in cache as "Submitted" forever |
+| QA-13 | [ ] | `models/order.py:84` | `submitted_at` set when `OrderResult` is created, not when order was actually submitted |
+| QA-14 | [ ] | `ibkr_client.py:147` | `qualify_contract()` blindly takes first result — could return wrong exchange |
+
+### Structural / Design
+
+| # | Status | Issue |
+|---|--------|-------|
+| QA-15 | [ ] | No warning to strategies that delayed data is 15-min stale |
+| QA-16 | [ ] | No market hours check — DAY orders placed after hours fail silently |
+| QA-17 | [ ] | `backtester/` modules are empty stubs — misleading, should be clearly marked WIP |
+| QA-18 | [ ] | `quantity: float` with no asset-type validation — could place 0.5 shares on non-fractional stocks |
+
+---
+
 ## Bugs & Improvements Log
 
 | # | Severity | Description | Status |
 |---|----------|-------------|--------|
-| — | — | *No bugs logged yet — test plan pending* | — |
+| B-01 | S1 | `limit_price=0` and negative `limit_price` not rejected | Fixed |
+| B-02 | S1 | `OrderManager.__init__` crashed when not connected | Fixed |
+| B-03 | S2 | `cancel_order()` returned `True` for already-cancelled orders | Fixed |
 
 ---
 
