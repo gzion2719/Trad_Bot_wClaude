@@ -34,16 +34,22 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 - Logging — rotating file + console
 - Project structure — README, .gitignore, .env.example, main.py, BaseStrategy
 - Git repo initialized and pushed to GitHub: https://github.com/gzion2719/Trad_Bot_wClaude
-- QA audit completed (25 issues) — all Critical and High issues fixed
+- QA audit round 1 (25 issues) + round 2 (13 issues) — all fixed
 - Test suite: 40/40 passing (`tests/run_tests.py`) + 5/5 market-hours tests (`tests/run_market_tests.py`)
+- Architect reviewed Sprint 2 & 3 — full implementation plan logged in TODO.md
 - No strategies implemented yet
 
 **Next tasks (check TODO.md for full list):**
-1. Sprint 2: auto-reconnect on TWS drop, RiskManager class, position sizing, config validation
-2. Sprint 3: live data feed, historical data loader, backtesting engine
-3. Sprint 4: first strategy implementation
-4. Task 1.14: review and improve documentation
-5. Sprint 6: research financial data sources (Polygon.io, Alpaca, MCP servers)
+1. **START HERE → Sprint 2.1:** `ReconnectManager` in `broker/reconnect.py`
+2. Sprint 2.2: `RiskManager` in `risk/risk_manager.py`
+3. Sprint 2.3: `PositionSizer` in `risk/position_sizer.py`
+4. Sprint 2.5: `validate_config()` in `config/validator.py`
+5. Sprint 2.6: venv setup docs
+6. Then Sprint 3: DataFeed, HistoricalDataLoader, BacktestEngine
+
+**Owner decisions needed before Sprint 4 (not urgent):**
+- Decision A: Pay for IBKR live data (~$10–25/mo) or use free delayed data?
+- Decision B: Multi-strategy positions — independent or combined?
 
 ---
 
