@@ -168,11 +168,23 @@ Run these after every significant code change:
 
 ---
 
+## Run History
+
+### Run 1 — 2026-04-10 (pre-market)
+- **Result:** 40/40 passed
+- **Tests run:** C-01,03,05,06,08 · D-01,04,07 · V-01–09 · P-03,04,05,07,08 · DUP-01–03,05 · X-01,03,04,05,06 · S-03,05 · POS-01 · E-01,04,05,08
+- **Skipped (needs market open):** P-01, P-02, P-12, S-06, POS-02 → `tests/run_market_tests.py`
+- **Skipped (needs manual TWS action):** C-02, C-04, C-07
+
+---
+
 ## Bug Log
 
 | ID | Severity | Test | Description | Status |
 |----|----------|------|-------------|--------|
-| — | — | — | *No bugs logged yet* | — |
+| B-01 | S1 | V-08, V-09 | `limit_price=0` and negative `limit_price` not rejected by `OrderRequest` | Fixed |
+| B-02 | S1 | P-08 | `OrderManager.__init__` called `sync()` when not connected — crashed before `place_order` | Fixed |
+| B-03 | S2 | X-03 | `cancel_order()` returned `True` for already-cancelled orders | Fixed |
 
 ---
 
