@@ -28,22 +28,22 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 **Last session completed:**
 - IBKR connection working (paper account DUE090987, port 7497)
-- `IBKRClient` — connection, market data (delayed mode auto-set for paper), contract qualification
-- `OrderManager` — place/cancel orders, duplicate prevention, real-time TWS sync via events
+- `IBKRClient` — connection, market data (delayed mode auto-set for paper), contract qualification, heartbeat, retry with backoff
+- `OrderManager` — place/cancel orders, duplicate prevention, real-time TWS sync via events, thread-safe order cache
 - Data models — `OrderRequest`, `OrderResult`, `Position`
 - Logging — rotating file + console
 - Project structure — README, .gitignore, .env.example, main.py, BaseStrategy
-- TODO.md created for task tracking
-- Git repo not yet initialized (Task 1.12)
-- Test plan not yet written (Task 1.15)
+- Git repo initialized and pushed to GitHub: https://github.com/gzion2719/Trad_Bot_wClaude
+- QA audit completed (25 issues) — all Critical and High issues fixed
+- Test suite: 40/40 passing (`tests/run_tests.py`) + 5/5 market-hours tests (`tests/run_market_tests.py`)
 - No strategies implemented yet
 
 **Next tasks (check TODO.md for full list):**
-1. Push to GitHub (Task 1.12)
-2. Execute test plan (Tasks 1.15, 1.16)
-3. Sprint 2: auto-reconnect, risk manager
-4. Sprint 3: live data feed, backtesting engine
-5. Sprint 4: first strategy
+1. Sprint 2: auto-reconnect on TWS drop, RiskManager class, position sizing, config validation
+2. Sprint 3: live data feed, historical data loader, backtesting engine
+3. Sprint 4: first strategy implementation
+4. Task 1.14: review and improve documentation
+5. Sprint 6: research financial data sources (Polygon.io, Alpaca, MCP servers)
 
 ---
 

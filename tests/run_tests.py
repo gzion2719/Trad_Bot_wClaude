@@ -12,7 +12,7 @@ from config.logging_config import setup_logging
 setup_logging()
 
 import logging
-logging.disable(logging.CRITICAL)  # suppress logs during tests for clean output
+logging.disable(logging.INFO)  # show WARNING / ERROR / CRITICAL; suppress INFO and DEBUG
 
 from broker.ibkr_client import IBKRClient
 from broker.order_manager import OrderManager, DuplicateOrderError
@@ -77,8 +77,12 @@ def get_client():
 # Cancel all leftover orders from previous sessions before starting
 print("\nCleaning up any leftover open orders from previous sessions...")
 _c, _o = get_client()
-_o.cancel_all()
-_c.ib.sleep(1)
+_leftovers = _o.cancel_all()
+if _leftovers:
+    print(f"  Cancelled {_leftovers} leftover order(s) — waiting for TWS confirmation...")
+    _c.ib.sleep(2)
+else:
+    _c.ib.sleep(0.5)
 print("Clean.\n")
 
 
@@ -140,6 +144,10 @@ c05()
 c06()
 c08()
 
+# Allow TWS to settle after multiple connect/disconnect cycles before data tests
+_settle_client, _ = get_client()
+_settle_client.ib.sleep(3)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 2: MARKET DATA TESTS
@@ -147,10 +155,10 @@ c08()
 
 section("2. MARKET DATA TESTS")
 
-@test("D-01", "Get price for AAPL returns positive float")
+@test("D-01", "Get price for MSFT returns positive float")
 def d01():
     c, _ = get_client()
-    price = c.get_market_price("AAPL")
+    price = c.get_market_price("MSFT")
     assert isinstance(price, float), f"Expected float, got {type(price)}"
     assert price > 0, f"Expected positive price, got {price}"
     import math
@@ -181,7 +189,7 @@ def d04():
 def d07():
     c, _ = get_client()
     for _ in range(5):
-        price = c.get_market_price("AAPL")
+        price = c.get_market_price("MSFT")
         assert price > 0
     # if subscriptions leaked, TWS would return error 10182 (already subscribed)
     # passing without error means clean cancellation each time
@@ -279,8 +287,8 @@ section("4. ORDER PLACEMENT TESTS")
 @test("P-03", "Limit BUY far below market sits as PreSubmitted")
 def p03():
     c, o = get_client()
-    price = c.get_market_price("AAPL")
-    r = OrderRequest(symbol="AAPL", action=OrderAction.BUY, quantity=1,
+    price = c.get_market_price("GE")
+    r = OrderRequest(symbol="GE", action=OrderAction.BUY, quantity=1,
                      order_type=OrderType.LIMIT, limit_price=round(price * 0.5, 2),
                      tif=TimeInForce.GTC)
     result = o.place_order(r)
@@ -323,12 +331,14 @@ def p08():
     except ConnectionError:
         pass
 
-@test("P-05", "GTC market order placed when market closed stays open")
+@test("P-05", "GTC limit order far below market stays open (not filled)")
 def p05():
     c, o = get_client()
     o.cancel_all("IBM")  # clean slate for this symbol
     c.ib.sleep(0.5)
+    price = c.get_market_price("IBM")
     r = OrderRequest(symbol="IBM", action=OrderAction.BUY, quantity=1,
+                     order_type=OrderType.LIMIT, limit_price=round(price * 0.5, 2),
                      tif=TimeInForce.GTC)
     result = o.place_order(r)
     assert result.order_id > 0
@@ -348,8 +358,8 @@ section("5. DUPLICATE PREVENTION TESTS")
 @test("DUP-01", "Placing same BUY twice raises DuplicateOrderError")
 def dup01():
     c, o = get_client()
-    price = c.get_market_price("AAPL")
-    r = OrderRequest(symbol="AAPL", action=OrderAction.BUY, quantity=1,
+    price = c.get_market_price("GE")
+    r = OrderRequest(symbol="GE", action=OrderAction.BUY, quantity=1,
                      order_type=OrderType.LIMIT, limit_price=round(price * 0.5, 2),
                      tif=TimeInForce.GTC)
     result = o.place_order(r)
@@ -400,14 +410,14 @@ def dup03():
 @test("DUP-05", "allow_duplicate=True bypasses check")
 def dup05():
     c, o = get_client()
-    price = c.get_market_price("AAPL")
-    r = OrderRequest(symbol="AAPL", action=OrderAction.BUY, quantity=1,
+    price = c.get_market_price("GE")
+    r = OrderRequest(symbol="GE", action=OrderAction.BUY, quantity=1,
                      order_type=OrderType.LIMIT, limit_price=round(price * 0.5, 2),
                      tif=TimeInForce.GTC)
     r1 = o.place_order(r)
     r2 = o.place_order(r, allow_duplicate=True)  # should NOT raise
     assert r2.order_id > 0
-    o.cancel_all("AAPL")
+    o.cancel_all("GE")
     c.ib.sleep(0.5)
 
 dup01(); dup02(); dup03(); dup05()
@@ -422,10 +432,11 @@ section("6. CANCELLATION TESTS")
 @test("X-01", "Cancel open order returns True and fires on_cancel")
 def x01():
     c, o = get_client()
+    o._clear_callbacks()  # prevent stale callbacks from earlier tests from firing
     fired = []
     o.on_cancel(lambda r: fired.append(r))
-    price = c.get_market_price("AAPL")
-    r = OrderRequest(symbol="AAPL", action=OrderAction.BUY, quantity=1,
+    price = c.get_market_price("GE")
+    r = OrderRequest(symbol="GE", action=OrderAction.BUY, quantity=1,
                      order_type=OrderType.LIMIT, limit_price=round(price * 0.5, 2),
                      tif=TimeInForce.GTC)
     result = o.place_order(r)
@@ -461,20 +472,20 @@ def x05():
     count = o.cancel_all()
     assert count == 0
 
-@test("X-06", "cancel_all('AAPL') only cancels AAPL orders")
+@test("X-06", "cancel_all('GE') only cancels GE orders")
 def x06():
     c, o = get_client()
-    price_aapl = c.get_market_price("AAPL")
+    price_ge = c.get_market_price("GE")
     price_msft = c.get_market_price("MSFT")
-    aapl = OrderRequest(symbol="AAPL", action=OrderAction.BUY, quantity=1,
-                        order_type=OrderType.LIMIT, limit_price=round(price_aapl * 0.5, 2),
-                        tif=TimeInForce.GTC)
+    ge = OrderRequest(symbol="GE", action=OrderAction.BUY, quantity=1,
+                      order_type=OrderType.LIMIT, limit_price=round(price_ge * 0.5, 2),
+                      tif=TimeInForce.GTC)
     msft = OrderRequest(symbol="MSFT", action=OrderAction.BUY, quantity=1,
                         order_type=OrderType.LIMIT, limit_price=round(price_msft * 0.5, 2),
                         tif=TimeInForce.GTC)
-    r_aapl = o.place_order(aapl)
+    r_ge = o.place_order(ge)
     r_msft = o.place_order(msft)
-    cancelled = o.cancel_all("AAPL")
+    cancelled = o.cancel_all("GE")
     c.ib.sleep(1)
     assert cancelled == 1
     remaining = o.get_open_orders("MSFT")
@@ -494,8 +505,8 @@ section("7. SYNC TESTS")
 @test("S-03", "sync() returns count of open orders")
 def s03():
     c, o = get_client()
-    price = c.get_market_price("AAPL")
-    r = OrderRequest(symbol="AAPL", action=OrderAction.BUY, quantity=1,
+    price = c.get_market_price("GE")
+    r = OrderRequest(symbol="GE", action=OrderAction.BUY, quantity=1,
                      order_type=OrderType.LIMIT, limit_price=round(price * 0.5, 2),
                      tif=TimeInForce.GTC)
     o.place_order(r)
@@ -540,10 +551,11 @@ section("9. ERROR HANDLING TESTS")
 @test("E-01", "Error code 202 does not trigger on_error callback")
 def e01():
     c, o = get_client()
+    o._clear_callbacks()  # prevent stale callbacks from earlier tests from firing
     errors = []
     o.on_error(lambda rid, code, msg: errors.append(code))
-    price = c.get_market_price("AAPL")
-    r = OrderRequest(symbol="AAPL", action=OrderAction.BUY, quantity=1,
+    price = c.get_market_price("GE")
+    r = OrderRequest(symbol="GE", action=OrderAction.BUY, quantity=1,
                      order_type=OrderType.LIMIT, limit_price=round(price * 0.5, 2),
                      tif=TimeInForce.GTC)
     result = o.place_order(r)
@@ -554,10 +566,10 @@ def e01():
 @test("E-04", "10 rapid orders placed without crash or cache corruption")
 def e04():
     c, o = get_client()
-    price = c.get_market_price("AAPL")
+    price = c.get_market_price("GE")
     order_ids = []
     for i in range(10):
-        r = OrderRequest(symbol="AAPL", action=OrderAction.BUY, quantity=1,
+        r = OrderRequest(symbol="GE", action=OrderAction.BUY, quantity=1,
                          order_type=OrderType.LIMIT,
                          limit_price=round(price * 0.5 - i * 0.01, 2),
                          tif=TimeInForce.GTC,
@@ -565,14 +577,14 @@ def e04():
         result = o.place_order(r, allow_duplicate=True)
         order_ids.append(result.order_id)
     assert len(set(order_ids)) == 10, "Duplicate order IDs detected"
-    o.cancel_all("AAPL")
+    o.cancel_all("GE")
     c.ib.sleep(1)
 
 @test("E-05", "NaN price is never passed to place_order")
 def e05():
     import math
     c, o = get_client()
-    price = c.get_market_price("AAPL")
+    price = c.get_market_price("MSFT")
     assert not math.isnan(price), "get_market_price returned NaN"
     limit = round(price * 0.9, 2)
     assert not math.isnan(limit), "Limit price is NaN"

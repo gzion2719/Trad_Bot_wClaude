@@ -2,19 +2,26 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from typing import Callable, Optional
 
-from ib_insync import IB, Contract, Stock
+from ib_insync import IB, Contract, Stock, Ticker
 
 from config.settings import IB_HOST, IB_PORT, IB_CLIENT_ID
 
 logger = logging.getLogger(__name__)
 
 # Market data modes
-REALTIME = 1   # requires live data subscription
-FROZEN   = 2   # last available price when market is closed
-DELAYED  = 3   # 15-min delay, free
-DELAYED_FROZEN = 4  # delayed + frozen when market closed
+REALTIME       = 1   # requires live data subscription
+FROZEN         = 2   # last available price when market is closed
+DELAYED        = 3   # 15-min delay, free
+DELAYED_FROZEN = 4   # delayed + frozen when market closed
+
+_CONNECT_TIMEOUT   = 10   # seconds to wait for connection to be ready
+_PRICE_TIMEOUT     = 10   # seconds to wait for market data tick
+_PRICE_POLL        = 0.25 # poll interval for price
+_PRICE_CANCEL_WAIT = 0.5  # cooldown after cancelMktData (respects IBKR pacing)
+_RECONNECT_DELAYS  = [2, 5, 10, 30, 60]  # backoff schedule in seconds
 
 
 class IBKRClient:
@@ -22,9 +29,10 @@ class IBKRClient:
     Low-level wrapper around ib_insync.IB.
 
     Responsibilities:
-      - Connection lifecycle (connect / disconnect)
+      - Connection lifecycle (connect / disconnect / reconnect with backoff)
       - Market data mode management
       - Contract qualification and price fetching
+      - Heartbeat to detect silent disconnections
       - Exposing the raw IB instance to higher-level components
 
     Does NOT place or track orders — that is OrderManager's job.
@@ -46,22 +54,71 @@ class IBKRClient:
     # Connection
     # ------------------------------------------------------------------
 
-    def connect(self) -> None:
+    def connect(self, retries: int = 3) -> None:
+        """
+        Connect to TWS with automatic retry on failure.
+
+        Args:
+            retries: Number of reconnect attempts before raising.
+
+        Raises:
+            ConnectionError: All retry attempts exhausted.
+        """
         if self.ib.isConnected():
             logger.warning("Already connected — skipping.")
             return
-        logger.info(
-            "Connecting to IBKR at %s:%s (clientId=%s) …",
-            self._host, self._port, self._client_id,
+
+        # Warn loudly when connecting to live trading port
+        if not self.is_paper:
+            logger.warning(
+                "!!! LIVE TRADING PORT DETECTED (port=%s) — "
+                "real money is at risk. Confirm this is intentional. !!!",
+                self._port,
+            )
+
+        # retries = number of extra attempts after the first; total = retries + 1
+        total_attempts = retries + 1
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, total_attempts + 1):
+            try:
+                logger.info(
+                    "Connecting to IBKR at %s:%s (clientId=%s, attempt %s/%s) …",
+                    self._host, self._port, self._client_id, attempt, total_attempts,
+                )
+                self.ib.connect(
+                    self._host, self._port,
+                    clientId=self._client_id,
+                    readonly=False,
+                    timeout=_CONNECT_TIMEOUT,
+                )
+                self.ib.disconnectedEvent += self._on_disconnected
+
+                # Wait until account state is populated (async handshake)
+                deadline = time.time() + _CONNECT_TIMEOUT
+                while not self.ib.wrapper.accounts and time.time() < deadline:
+                    self.ib.sleep(0.1)
+
+                if not self.ib.wrapper.accounts:
+                    raise ConnectionError("Connected but account state never populated.")
+
+                mode = DELAYED if self.is_paper else REALTIME
+                self._set_market_data_type(mode)
+                logger.info("Connected | account=%s | paper=%s", self.account, self.is_paper)
+                return  # success
+
+            except Exception as exc:
+                last_exc = exc
+                if attempt < total_attempts:
+                    delay = _RECONNECT_DELAYS[min(attempt - 1, len(_RECONNECT_DELAYS) - 1)]
+                    logger.warning(
+                        "Connection attempt %s/%s failed (%s). Retrying in %ss…",
+                        attempt, total_attempts, exc, delay,
+                    )
+                    time.sleep(delay)
+
+        raise ConnectionError(
+            f"Failed to connect to IBKR after {total_attempts} attempt(s). Last error: {last_exc}"
         )
-        self.ib.connect(self._host, self._port, clientId=self._client_id, readonly=False)
-        self.ib.disconnectedEvent += self._on_disconnected
-
-        # Paper accounts only get delayed data — set automatically
-        mode = DELAYED if self.is_paper else REALTIME
-        self._set_market_data_type(mode)
-
-        logger.info("Connected | account=%s | paper=%s", self.account, self.is_paper)
 
     def disconnect(self) -> None:
         if not self.ib.isConnected():
@@ -77,6 +134,23 @@ class IBKRClient:
     def on_disconnect(self, callback: Callable) -> None:
         """Register a callback to be called when the connection drops."""
         self._on_disconnect_cb = callback
+
+    # ------------------------------------------------------------------
+    # Heartbeat
+    # ------------------------------------------------------------------
+
+    def is_alive(self) -> bool:
+        """
+        Check if the connection is truly alive by requesting server time.
+        More reliable than isConnected() which can return True on a stale socket.
+        """
+        if not self.ib.isConnected():
+            return False
+        try:
+            t = self.ib.reqCurrentTime()
+            return t is not None
+        except Exception:
+            return False
 
     # ------------------------------------------------------------------
     # Properties
@@ -104,39 +178,85 @@ class IBKRClient:
         labels = {1: "realtime", 2: "frozen", 3: "delayed", 4: "delayed-frozen"}
         logger.info("Market data mode: %s", labels.get(mode, mode))
 
-    def get_market_price(self, symbol: str, exchange: str = "SMART", currency: str = "USD") -> float:
+    def get_market_price(
+        self,
+        symbol: str,
+        exchange: str = "SMART",
+        currency: str = "USD",
+        is_delayed: Optional[bool] = None,
+    ) -> float:
         """
         Return the best available price for a stock symbol.
 
+        Polls until a valid price arrives or timeout is reached.
         Priority: last trade → close → bid/ask midpoint.
-        Raises ValueError if no valid price can be obtained.
+
+        Args:
+            is_delayed: If True, logs a staleness warning for strategies.
+                        Defaults to True for paper accounts.
+
+        Raises:
+            ValueError: No valid price could be obtained within the timeout.
         """
+        if is_delayed is None:
+            is_delayed = self.is_paper
+
+        if is_delayed:
+            logger.debug(
+                "Price for %s is DELAYED (15-min lag) — "
+                "do not use for time-sensitive execution.", symbol
+            )
+
         contract = self.qualify_contract(Stock(symbol, exchange, currency))
         ticker = self.ib.reqMktData(contract, "", False, False)
-        self.ib.sleep(2)
+        price = None
+        try:
+            # Give TWS a moment to push the first tick before polling
+            self.ib.sleep(1)
 
-        price = self._best_price(ticker)
-        self.ib.cancelMktData(contract)  # cancel subscription — we only needed a snapshot
+            # Poll until valid price or timeout
+            deadline = time.time() + _PRICE_TIMEOUT
+            while time.time() < deadline:
+                price = self._best_price(ticker)
+                if price is not None:
+                    break
+                self.ib.sleep(_PRICE_POLL)
+        finally:
+            # Always cancel subscription — even if an exception is raised.
+            # Leaked subscriptions accumulate and IBKR will refuse new ones.
+            self.ib.cancelMktData(contract)
+            self.ib.sleep(_PRICE_CANCEL_WAIT)  # respect IBKR pacing limits
 
         if price is None:
-            raise ValueError(f"Could not obtain a valid price for {symbol}.")
+            raise ValueError(
+                f"Could not obtain a valid price for {symbol} within {_PRICE_TIMEOUT}s."
+            )
 
-        logger.debug("Market price for %s: %.4f", symbol, price)
+        logger.debug("Market price for %s: %.4f%s", symbol, price, " (delayed)" if is_delayed else "")
         return price
 
     @staticmethod
-    def _best_price(ticker) -> Optional[float]:
-        """Pick the most relevant price from a ticker, ignoring NaN / sentinel values."""
+    def _best_price(ticker: Ticker) -> Optional[float]:
+        """
+        Pick the most relevant price from a ticker, ignoring NaN / sentinel values.
+        Priority: last trade → close → bid/ask midpoint.
+        """
         def valid(v) -> bool:
             return v is not None and not math.isnan(v) and v > 0
 
-        for candidate in (ticker.last, ticker.close, ticker.bid, ticker.ask):
+        # Check last and close first
+        for candidate in (ticker.last, ticker.close):
             if valid(candidate):
                 return float(candidate)
 
-        # bid/ask midpoint as last resort
+        # bid/ask midpoint as fallback (checked separately so both must be valid)
         if valid(ticker.bid) and valid(ticker.ask):
             return (ticker.bid + ticker.ask) / 2.0
+
+        # Individual bid or ask as last resort
+        for candidate in (ticker.bid, ticker.ask):
+            if valid(candidate):
+                return float(candidate)
 
         return None
 
@@ -146,14 +266,19 @@ class IBKRClient:
 
     def qualify_contract(self, contract: Contract) -> Contract:
         """
-        Ask IBKR to fill in missing contract fields (conId, exchange, etc.).
+        Ask IBKR to fill in missing contract fields (conId, primaryExchange, etc.).
+
+        Returns the best match (primary exchange preferred over regional).
         Raises RuntimeError if the contract cannot be resolved.
         """
         qualified = self.ib.qualifyContracts(contract)
         if not qualified:
             raise RuntimeError(f"Could not qualify contract: {contract}")
-        logger.debug("Qualified contract: %s", qualified[0])
-        return qualified[0]
+
+        # Prefer contract with a primaryExchange set (avoids ambiguous regional exchanges)
+        best = next((c for c in qualified if c.primaryExchange), qualified[0])
+        logger.debug("Qualified contract: %s", best)
+        return best
 
     # ------------------------------------------------------------------
     # Account info
@@ -163,4 +288,11 @@ class IBKRClient:
         return self.ib.accountSummary()
 
     def get_positions(self) -> list:
-        return self.ib.positions()
+        """
+        Return current portfolio items with full P&L data.
+
+        Uses ib.portfolio() (not ib.positions()) because portfolio() includes
+        marketPrice, marketValue, unrealizedPNL, and realizedPNL.
+        ib.positions() only has contract, position, and avgCost.
+        """
+        return self.ib.portfolio()

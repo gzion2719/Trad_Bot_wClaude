@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
+
+_log = logging.getLogger(__name__)
 
 
 class OrderAction(str, Enum):
@@ -26,13 +29,14 @@ class TimeInForce(str, Enum):
 
 
 class OrderStatus(str, Enum):
-    PENDING_SUBMIT = "PendingSubmit"
-    PRE_SUBMITTED = "PreSubmitted"
-    SUBMITTED = "Submitted"
-    FILLED = "Filled"
-    CANCELLED = "Cancelled"
-    INACTIVE = "Inactive"
-    ERROR = "Error"
+    PENDING_SUBMIT  = "PendingSubmit"
+    PRE_SUBMITTED   = "PreSubmitted"
+    SUBMITTED       = "Submitted"
+    FILLED          = "Filled"
+    PENDING_CANCEL  = "PendingCancel"   # cancellation sent, waiting for TWS confirmation
+    CANCELLED       = "Cancelled"
+    INACTIVE        = "Inactive"
+    ERROR           = "Error"
 
 
 @dataclass
@@ -64,6 +68,13 @@ class OrderRequest:
         ):
             raise ValueError("Both limit_price and stop_price are required for STOP_LIMIT orders")
         self.symbol = self.symbol.upper().strip()
+        # Warn if fractional quantity on a standard stock order
+        if self.quantity != int(self.quantity):
+            _log.warning(
+                "Fractional quantity %.4f for %s — "
+                "ensure this symbol supports fractional shares.",
+                self.quantity, self.symbol,
+            )
 
 
 @dataclass
@@ -78,7 +89,7 @@ class OrderResult:
     status: OrderStatus
     filled: float
     remaining: float
-    avg_fill_price: float
+    avg_fill_price: Optional[float]   # None until at least partially filled
     limit_price: Optional[float]
     stop_price: Optional[float]
     submitted_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -100,13 +111,14 @@ class OrderResult:
 class Position:
     """Current holding in a symbol."""
     symbol: str
-    quantity: float        # positive = long, negative = short
+    quantity: float              # positive = long, negative = short
     avg_cost: float
-    market_price: float
-    market_value: float
-    unrealized_pnl: float
-    realized_pnl: float
+    market_price: Optional[float]    # None if IBKR hasn't pushed data yet
+    market_value: Optional[float]
+    unrealized_pnl: Optional[float]
+    realized_pnl: Optional[float]
     account: str
+    fetched_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def is_long(self) -> bool:

@@ -170,6 +170,19 @@ Run these after every significant code change:
 
 ## Run History
 
+### Run 4 — 2026-04-10 (market hours, QA audit round 2)
+- **Result:** 40/40 passed
+- **Changes:** Fixed all 13 issues from QA audit round 2. Key fixes: position market data now reads real IBKR values (was hardcoded 0.0); cancelMktData now guaranteed via try/finally; double-lock race in order status handler eliminated; PendingCancel added to OrderStatus enum; sync() no longer holds lock during openTrades(); connection error codes 502-504 classified separately; callback isolation in tests.
+
+---
+
+### Run 3 — 2026-04-10 (market hours, post-QA-audit)
+- **Result:** 40/40 passed
+- **Changes:** Replaced AAPL with reliable symbols (MSFT/GE) in 11 tests to fix data-line exhaustion after connect/disconnect cycles. Changed P-05 from market order to limit order so it works during market hours too.
+- **Tests run:** C-01,03,05,06,08 · D-01,07 (MSFT), D-01b (MSFT), D-01c (NVDA) · D-04 · V-01–09 · P-03,05 (GE), P-04 (MSFT), P-07,08 · DUP-01,05 (GE), DUP-02,03 · X-01 (GE), X-03 (MSFT), X-04,05, X-06 (GE/MSFT) · S-03 (GE), S-05 · POS-01 · E-01,04 (GE), E-05 (MSFT), E-08
+
+---
+
 ### Run 2 — 2026-04-10 (market hours)
 - **Result:** 5/5 passed
 - **Tests run:** P-01 (AAPL filled @ $259.65) · P-02 (AAPL sold @ $259.65) · P-12 (MSFT callback) · S-06 (IBM auto-fill event) · POS-02 (positions visible)
