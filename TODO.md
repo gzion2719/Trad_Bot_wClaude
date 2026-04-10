@@ -22,7 +22,7 @@ Legend: `[ ]` pending · `[x]` done · `[~]` in progress · `[!]` blocked
 | 1.12 | [ ] | P0 | Set up Git repo → github.com/gzion2719/Trad_Bot_wClaude |
 | 1.13 | [ ] | P0 | `CLAUDE.md` — full context handoff for new Claude sessions |
 | 1.14 | [ ] | P1 | Review and improve all documentation |
-| 1.15 | [~] | P1 | Define and document test plan |
+| 1.15 | [x] | P1 | Define and document test plan → see `TEST_PLAN.md` |
 | 1.16 | [ ] | P1 | Execute test plan, log bugs by severity |
 
 ---
@@ -83,6 +83,17 @@ Legend: `[ ]` pending · `[x]` done · `[~]` in progress · `[!]` blocked
 | # | Severity | Description | Status |
 |---|----------|-------------|--------|
 | — | — | *No bugs logged yet — test plan pending* | — |
+
+---
+
+## Sprint 6 — Intelligence & Tooling
+
+| # | Status | Priority | Task |
+|---|--------|----------|------|
+| 6.1 | [ ] | P1 | Research best MCP servers / APIs for live and historical market data (Polygon.io, Alpaca, FMP, yfinance) |
+| 6.2 | [ ] | P1 | Research best sources for trading logic: books, papers, quant blogs (identify top 5–10 references) |
+| 6.3 | [ ] | P2 | Evaluate connecting Claude to a financial data MCP for real-time reasoning during sessions |
+| 6.4 | [ ] | P2 | Build a reference doc (`RESOURCES.md`) with vetted sources for strategies, risk management, and market microstructure |
 
 ---
 
