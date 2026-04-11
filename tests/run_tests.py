@@ -16,7 +16,11 @@ logging.disable(logging.INFO)  # show WARNING / ERROR / CRITICAL; suppress INFO 
 
 from broker.ibkr_client import IBKRClient
 from broker.order_manager import OrderManager, DuplicateOrderError
+from broker.reconnect import ReconnectManager
+from config.validator import validate_config, ConfigError
 from models.order import OrderAction, OrderRequest, OrderType, TimeInForce
+from risk.risk_manager import RiskManager, RiskViolationError
+from risk.position_sizer import PositionSizer
 
 # ── Test framework ──────────────────────────────────────────────────────────
 
@@ -604,6 +608,254 @@ def e08():
         assert log_dir.exists(), "logs/ not created"
 
 e01(); e04(); e05(); e08()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 10: CONFIG VALIDATION TESTS (no connection needed)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("10. CONFIG VALIDATION TESTS")
+
+@test("CFG-01", "validate_config() passes with default paper settings")
+def cfg01():
+    validate_config()   # should not raise
+
+@test("CFG-02", "ConfigError raised for invalid port")
+def cfg02():
+    import config.validator as v
+    original = v.IB_PORT
+    try:
+        v.IB_PORT = 9999
+        import importlib
+        # Patch at module level for the call
+        import config.settings as s
+        orig_port = s.IB_PORT
+        s.IB_PORT = 9999
+        try:
+            validate_config()
+            assert False, "Should have raised ConfigError"
+        except ConfigError:
+            pass
+    finally:
+        s.IB_PORT = orig_port
+
+@test("CFG-03", "ConfigError raised for empty host")
+def cfg03():
+    import config.settings as s
+    orig = s.IB_HOST
+    s.IB_HOST = ""
+    try:
+        validate_config()
+        assert False, "Should have raised ConfigError"
+    except ConfigError:
+        pass
+    finally:
+        s.IB_HOST = orig
+
+cfg01(); cfg02(); cfg03()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 11: RISK MANAGER TESTS (no connection needed for most)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("11. RISK MANAGER TESTS")
+
+def _make_rm(c, o, **kwargs):
+    defaults = dict(
+        max_order_value=1_000.0,
+        max_position_value=2_000.0,
+        max_daily_loss=-200.0,
+        max_open_orders=5,
+    )
+    defaults.update(kwargs)
+    return RiskManager(client=c, order_manager=o, **defaults)
+
+@test("RM-01", "Order within all limits passes check")
+def rm01():
+    c, o = get_client()
+    rm = _make_rm(c, o)
+    r = OrderRequest(symbol="GE", action=OrderAction.BUY, quantity=1, tif=TimeInForce.GTC)
+    rm.check(r, current_price=10.0)   # $10 order, well within $1,000 limit
+
+@test("RM-02", "Order exceeding max_order_value raises RiskViolationError")
+def rm02():
+    c, o = get_client()
+    rm = _make_rm(c, o, max_order_value=500.0)
+    r = OrderRequest(symbol="GE", action=OrderAction.BUY, quantity=100, tif=TimeInForce.GTC)
+    try:
+        rm.check(r, current_price=10.0)   # $1,000 order > $500 limit
+        assert False, "Should have raised RiskViolationError"
+    except RiskViolationError:
+        pass
+
+@test("RM-03", "Daily loss ceiling breach halts trading")
+def rm03():
+    c, o = get_client()
+    rm = _make_rm(c, o, max_daily_loss=-100.0)
+    rm.update_daily_pnl(-150.0)   # already past the limit
+    assert rm.is_halted() is True
+    r = OrderRequest(symbol="GE", action=OrderAction.BUY, quantity=1, tif=TimeInForce.GTC)
+    try:
+        rm.check(r, current_price=10.0)
+        assert False, "Should have raised RiskViolationError"
+    except RiskViolationError:
+        pass
+
+@test("RM-04", "reset_daily() clears halted state")
+def rm04():
+    c, o = get_client()
+    rm = _make_rm(c, o, max_daily_loss=-100.0)
+    rm.update_daily_pnl(-150.0)
+    assert rm.is_halted() is True
+    rm.reset_daily()
+    assert rm.is_halted() is False
+
+@test("RM-05", "Too many open orders raises RiskViolationError")
+def rm05():
+    c, o = get_client()
+    o._clear_callbacks()
+    rm = _make_rm(c, o, max_open_orders=0)  # cap at 0 — always triggers
+    r = OrderRequest(symbol="GE", action=OrderAction.BUY, quantity=1, tif=TimeInForce.GTC)
+    try:
+        rm.check(r, current_price=10.0)
+        assert False, "Should have raised RiskViolationError"
+    except RiskViolationError:
+        pass
+
+@test("RM-06", "max_daily_loss must be negative — constructor raises on bad value")
+def rm06():
+    c, o = get_client()
+    try:
+        RiskManager(client=c, order_manager=o, max_daily_loss=100.0)
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+rm01(); rm02(); rm03(); rm04(); rm05(); rm06()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 12: POSITION SIZER TESTS (no connection needed)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("12. POSITION SIZER TESTS")
+
+@test("PS-01", "fixed() returns the share count unchanged")
+def ps01():
+    assert PositionSizer.fixed(10) == 10
+    assert PositionSizer.fixed(1) == 1
+
+@test("PS-02", "fixed() enforces minimum of 1")
+def ps02():
+    assert PositionSizer.fixed(0) == 1
+
+@test("PS-03", "percent_of_equity() returns correct floor division")
+def ps03():
+    # $50,000 × 2% = $1,000 / $150 = 6.66 → 6
+    result = PositionSizer.percent_of_equity(equity=50_000, price=150.0, pct=0.02)
+    assert result == 6, f"Expected 6, got {result}"
+
+@test("PS-04", "percent_of_equity() enforces minimum of 1")
+def ps04():
+    # Very small pct → less than 1 share → should return 1
+    result = PositionSizer.percent_of_equity(equity=100, price=10_000.0, pct=0.001)
+    assert result == 1
+
+@test("PS-05", "percent_of_equity() raises on invalid inputs")
+def ps05():
+    try:
+        PositionSizer.percent_of_equity(equity=0, price=100.0, pct=0.05)
+        assert False, "Should raise ValueError for equity=0"
+    except ValueError:
+        pass
+    try:
+        PositionSizer.percent_of_equity(equity=10_000, price=100.0, pct=1.5)
+        assert False, "Should raise ValueError for pct > 1"
+    except ValueError:
+        pass
+
+@test("PS-06", "kelly() returns positive shares for positive-EV strategy")
+def ps06():
+    # win_rate=0.6, W/L=2.0: kelly_f = 0.6 - 0.4/2.0 = 0.6 - 0.2 = 0.4
+    # capped at 0.25 → $50,000 × 0.25 = $12,500 / $100 = 125 shares
+    result = PositionSizer.kelly(
+        win_rate=0.6, win_loss_ratio=2.0,
+        equity=50_000, price=100.0, max_fraction=0.25,
+    )
+    assert result == 125, f"Expected 125, got {result}"
+
+@test("PS-07", "kelly() returns 1 for negative-EV strategy")
+def ps07():
+    # win_rate=0.3, W/L=0.5: kelly_f = 0.3 - 0.7/0.5 = 0.3 - 1.4 = -1.1 (negative)
+    result = PositionSizer.kelly(
+        win_rate=0.3, win_loss_ratio=0.5,
+        equity=50_000, price=100.0,
+    )
+    assert result == 1
+
+ps01(); ps02(); ps03(); ps04(); ps05(); ps06(); ps07()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 13: RECONNECT MANAGER TESTS (no real disconnect — logic tests only)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("13. RECONNECT MANAGER TESTS")
+
+@test("RCN-01", "ReconnectManager starts and reports connected")
+def rcn01():
+    c, o = get_client()
+    rcn = ReconnectManager(client=c, order_manager=o, max_attempts=3)
+    rcn.start()
+    assert rcn.is_connected is True
+    assert rcn.is_halted is False
+    rcn.stop()
+
+@test("RCN-02", "wait_for_connection() returns True when connected")
+def rcn02():
+    c, o = get_client()
+    rcn = ReconnectManager(client=c, order_manager=o)
+    rcn.start()
+    result = rcn.wait_for_connection(timeout=2.0)
+    assert result is True
+    rcn.stop()
+
+@test("RCN-03", "wait_for_connection() returns False after timeout when disconnected")
+def rcn03():
+    import time
+    c, o = get_client()
+    rcn = ReconnectManager(client=c, order_manager=o, max_attempts=1)
+    rcn.start()
+    # Manually clear the event to simulate a disconnect without an actual drop
+    rcn._connected_event.clear()
+    start = time.time()
+    result = rcn.wait_for_connection(timeout=1.0)
+    elapsed = time.time() - start
+    assert result is False, "Should have timed out"
+    assert elapsed >= 0.9, f"Should have waited ~1s, waited {elapsed:.2f}s"
+    rcn._connected_event.set()   # restore before stop
+    rcn.stop()
+
+@test("RCN-04", "stop() unblocks any waiting threads")
+def rcn04():
+    import threading, time
+    c, o = get_client()
+    rcn = ReconnectManager(client=c, order_manager=o)
+    rcn.start()
+    rcn._connected_event.clear()   # simulate disconnect
+    unblocked = []
+    def waiter():
+        rcn.wait_for_connection(timeout=10.0)
+        unblocked.append(True)
+    t = threading.Thread(target=waiter, daemon=True)
+    t.start()
+    time.sleep(0.2)
+    rcn.stop()   # should unblock the waiter
+    t.join(timeout=2.0)
+    assert unblocked, "stop() did not unblock waiting thread"
+
+rcn01(); rcn02(); rcn03(); rcn04()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
