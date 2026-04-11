@@ -71,6 +71,7 @@ class BacktestPortfolio:
         """
         cost = quantity * price
         commission = self.commission
+        sell_cost_basis: Optional[float] = None  # set in the SELL branch below
 
         if action == OrderAction.BUY:
             total_cost = cost + commission
@@ -115,6 +116,9 @@ class BacktestPortfolio:
                     avg_fill_price=None, limit_price=None, stop_price=None,
                     submitted_at=submitted_at or datetime.now(timezone.utc),
                 )
+            # Capture cost basis NOW (before popping _avg_cost) so win_rate /
+            # profit_factor can use it even after the position is fully closed.
+            sell_cost_basis = self._avg_cost.get(symbol)
             proceeds = actual_qty * price - commission
             self._cash += proceeds
             self._positions[symbol] = held - actual_qty
@@ -137,6 +141,7 @@ class BacktestPortfolio:
             limit_price=None,
             stop_price=None,
             submitted_at=submitted_at or datetime.now(timezone.utc),
+            cost_basis=sell_cost_basis if action == OrderAction.SELL else None,
         )
         self._fills.append(result)
 
@@ -156,10 +161,22 @@ class BacktestPortfolio:
 
     def current_equity(self) -> float:
         """Cash + market value of all positions."""
-        position_value = sum(
-            qty * self._current_prices.get(sym, self._avg_cost.get(sym, 0.0))
-            for sym, qty in self._positions.items()
-        )
+        position_value = 0.0
+        for sym, qty in self._positions.items():
+            if sym in self._current_prices:
+                position_value += qty * self._current_prices[sym]
+            else:
+                # No mark-to-market price available — fall back to cost basis.
+                # This understates equity if price has risen since purchase.
+                # The engine always calls update_prices() before snapshot_equity(),
+                # so this path should only be hit in unusual circumstances.
+                fallback = self._avg_cost.get(sym, 0.0)
+                logger.warning(
+                    "current_equity: no market price for %s "
+                    "— using cost basis %.4f as fallback (equity may be understated).",
+                    sym, fallback,
+                )
+                position_value += qty * fallback
         return self._cash + position_value
 
     def snapshot_equity(self) -> None:

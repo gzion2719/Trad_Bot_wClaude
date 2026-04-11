@@ -72,18 +72,17 @@ Legend: `[ ]` pending · `[x]` done · `[~]` in progress · `[!]` blocked
 
 ---
 
-## Sprint 2 — Stability & Risk
-### Architect plan logged 2026-04-10. Ready to implement.
+## Sprint 2 — Stability & Risk ✅ COMPLETE
 
-| # | Status | Priority | Task | Detail |
-|---|--------|----------|------|--------|
-| 2.1 | [ ] | P0 | Auto-reconnect on TWS disconnect | New class `ReconnectManager` in `broker/reconnect.py`. Background daemon thread watches for disconnect event, retries `connect()` with backoff [5,10,30,60,120]s. On success: calls `sync()`, fires `on_reconnected` callback. All strategies pause via `threading.Event.wait()` during gap. Max attempts configurable. |
-| 2.2 | [ ] | P0 | RiskManager class | New class `RiskManager` in `risk/risk_manager.py`. Sits between Strategy and OrderManager — Strategy calls `risk_manager.check(request, price)` before `place_order()`. Three enforcement levels: (1) per-order max USD value, (2) per-symbol max exposure, (3) daily loss ceiling. Raises `RiskViolationError` on breach. `record_fill()` updates daily P&L via `on_fill` callback. `reset_daily()` called at market open. `is_halted()` returns True if ceiling breached. |
-| 2.3 | [ ] | P1 | PositionSizer helper | New static class `PositionSizer` in `risk/position_sizer.py`. Three methods: `fixed(shares)`, `percent_of_equity(equity, price, pct)`, `kelly(win_rate, win_loss_ratio, equity, price, max_fraction=0.25)`. All return int (number of shares). |
-| 2.4 | [x] | P1 | Heartbeat / health check | Done — `is_alive()` via `reqCurrentTime()` |
-| 2.5 | [ ] | P1 | Config validation on startup | New function `validate_config()` + `ConfigError` in `config/validator.py`. Checks: IB_HOST non-empty, IB_PORT is 7496 or 7497, IB_CLIENT_ID is positive int, loud warning if live port. Called as first line of `main()`. |
-| 2.6 | [ ] | P2 | Virtual environment setup | Add `docs/setup.md`. Commands: `python -m venv venv`, `venv\Scripts\activate`, `pip install ib_insync python-dotenv`. Update `.gitignore` to exclude `venv/`. |
-| 2.7 | [ ] | P2 | Alert system (email/Slack on fill, error, loss breach) | Defer to after Sprint 3 |
+| # | Status | Priority | Task |
+|---|--------|----------|------|
+| 2.1 | [x] | P0 | `ReconnectManager` — daemon thread, backoff [5,10,30,60,120]s, `sync()` after reconnect, strategies pause via `wait_for_connection()` |
+| 2.2 | [x] | P0 | `RiskManager` — per-order cap, per-symbol exposure, daily loss ceiling, `plan_trade()` (validate + size atomically), `validate_setup()` supports longs and shorts |
+| 2.3 | [x] | P1 | `PositionSizer` — `risk_based()` (primary, 2% rule), `fixed()`, `percent_of_equity()`, `kelly()` |
+| 2.4 | [x] | P1 | Heartbeat — `is_alive()` via `reqCurrentTime()` |
+| 2.5 | [x] | P1 | `validate_config()` + `ConfigError` — called first in `main()`, warns loudly on live port |
+| 2.6 | [ ] | P2 | Virtual environment setup — `docs/setup.md` (deferred to Sprint 5.2) |
+| 2.7 | [ ] | P2 | Alert system (email/Slack) — deferred to Sprint 6+ |
 
 **New file layout for Sprint 2:**
 ```
@@ -122,17 +121,16 @@ if self.risk_manager.is_halted(): return
 
 ---
 
-## Sprint 3 — Data & Backtesting
-### Architect plan logged 2026-04-10. Starts after Sprint 2 complete.
+## Sprint 3 — Data & Backtesting ✅ COMPLETE
 
-| # | Status | Priority | Task | Detail |
-|---|--------|----------|------|--------|
-| 3.1 | [ ] | P0 | DataFeed abstraction + IBKRFeed | New `data/feed.py` + `data/bar.py`. `Bar` dataclass: symbol, timestamp, OHLCV, is_delayed. Abstract `DataFeed`: subscribe/unsubscribe/get_latest/is_live. `IBKRFeed` uses `reqRealTimeBars` or `reqHistoricalData(keepUpToDate=True)`. `BarScheduler` timer wrapper calls `strategy.on_tick()` every N seconds. Abstraction allows Polygon.io/Alpaca to be plugged in later without changing strategy code. |
-| 3.2 | [ ] | P0 | Historical data loader | New `data/historical.py`. `HistoricalDataLoader` with two methods: `load_yfinance(symbol, start, end, interval)` and `load_ibkr(symbol, duration, bar_size, client)`. Both return `pd.DataFrame` with standard OHLCV columns + DatetimeIndex. Add `yfinance` to dependencies. |
-| 3.3 | [ ] | P0 | Backtesting engine | New `backtester/engine.py` + `backtester/portfolio.py`. `MockOrderManager` implements same interface as real `OrderManager` — strategies run unchanged. `BacktestPortfolio` tracks cash, positions, equity curve, trade history. `BacktestEngine.run()`: injects `MockOrderManager` + `BacktestDataFeed`, replays bars, calls `strategy.on_tick()` each bar. Returns `BacktestResult`. Same strategy class runs live and in backtest — no code changes needed. |
-| 3.4 | [ ] | P1 | Performance metrics | New `backtester/metrics.py`. Pure functions: `sharpe_ratio()`, `max_drawdown()`, `win_rate()`, `profit_factor()`, `summary()`. `summary()` prints formatted table. |
-| 3.5 | [ ] | P1 | Trade history persistence | New `data/trade_log.py`. `TradeLog` class backed by SQLite (stdlib `sqlite3`, no extra dependency). Schema: id, strategy_name, symbol, action, quantity, fill_price, filled_at, pnl, account. Methods: `record(result, strategy_name)`, `get_history(symbol, since, strategy)`, `daily_summary()`. Wired via `om.on_fill(lambda r: trade_log.record(r, "StrategyName"))`. |
-| 3.6 | [ ] | P2 | Paper simulation mode (no TWS required) | Defer — covered by BacktestEngine |
+| # | Status | Priority | Task |
+|---|--------|----------|------|
+| 3.1 | [x] | P0 | `DataFeed` / `IBKRFeed` / `BarScheduler` — abstract feed, 5-sec real-time bars, timer-driven `on_tick()`, clean subscribe/unsubscribe |
+| 3.2 | [x] | P0 | `HistoricalDataLoader` — `load_yfinance()`, `load_ibkr()` (11s rate limit), `load_csv()` |
+| 3.3 | [x] | P0 | `BacktestEngine` + `MockOrderManager` + `BacktestDataFeed` — same strategy class runs live and in backtest, fills at next-bar open (no look-ahead bias) |
+| 3.4 | [x] | P1 | `backtester/metrics.py` — `sharpe_ratio()`, `max_drawdown()`, `win_rate()`, `profit_factor()`, `summary()` |
+| 3.5 | [x] | P1 | `TradeLog` (SQLite WAL) — `record()`, `get_history()`, `daily_summary()`, schema: cost_basis, realized_pnl, strategy_params |
+| 3.6 | [x] | P2 | Paper simulation covered by BacktestEngine |
 
 **New file layout for Sprint 3:**
 ```
@@ -151,51 +149,88 @@ backtester/
 
 ---
 
-## Sprint 4 — Strategies
-### Blocked on: Sprint 2 complete + owner Decision A (data source)
+## Sprint 4 — Implement Strategy
+### Goal: Pick a strategy → backtest it → run it on paper
 
 | # | Status | Priority | Task |
 |---|--------|----------|------|
-| 4.1 | [ ] | P0 | Discuss and select first strategy |
-| 4.2 | [ ] | P0 | Implement and backtest strategy #1 |
-| 4.3 | [ ] | P1 | Implement and backtest strategy #2 |
-| 4.4 | [ ] | P2 | Strategy parameter management (config-driven, no code changes) |
-| 4.5 | [!] | P2 | Multi-strategy runner — blocked on Decision B (see below) |
+| 4.1 | [ ] | P0 | Select first strategy (architect recommends SMA crossover or RSI on daily bars — works with delayed data) |
+| 4.2 | [ ] | P0 | Implement strategy in `strategies/` using `BaseStrategy` — use `self.feed`, `self.symbol`, `safe_place_order()` |
+| 4.3 | [ ] | P0 | Backtest strategy with `BacktestEngine` + `HistoricalDataLoader.load_yfinance()` — validate metrics |
+| 4.4 | [ ] | P0 | Run strategy on paper account — watch fills and equity in `TradeLog` for at least 1 week |
+| 4.5 | [ ] | P1 | Tune strategy parameters based on backtest + paper results |
+| 4.6 | [ ] | P2 | Implement and backtest a second strategy |
+| 4.7 | [ ] | P2 | Strategy parameter management (YAML/JSON config, no code changes to switch params) |
+| 4.8 | [!] | P2 | Multi-strategy runner — blocked on Decision B (see below) |
 
 ---
 
-## Sprint 5 — Deployment
+## Sprint 5 — Wire Risk + Deploy to VPS
+### Goal: Activate the daily loss ceiling, set up venv, deploy to Hostinger
 
 | # | Status | Priority | Task |
 |---|--------|----------|------|
-| 5.1 | [ ] | P1 | Hostinger VPS setup guide |
-| 5.2 | [ ] | P1 | IBC (headless IB Gateway) setup on VPS |
-| 5.3 | [ ] | P1 | `systemd` process supervisor for auto-restart |
-| 5.4 | [ ] | P2 | Monitoring dashboard (simple web UI or Grafana) |
-| 5.5 | [ ] | P2 | CI/CD pipeline (auto-run tests on push) |
+| 5.1 | [x] | P0 | `PnLPoller` daemon — wired and active in `main.py`. Calls `reset_daily()` at 9:30 AM ET, polls `update_daily_pnl()` every 60s, shuts down cleanly on exit |
+| 5.2 | [ ] | P0 | Set up Python virtual environment (`python -m venv venv`) and document in `docs/setup.md` |
+| 5.3 | [ ] | P0 | Hostinger VPS setup — provision server, install Python, copy project |
+| 5.4 | [ ] | P0 | IBC (headless IB Gateway) setup on VPS — replaces TWS, runs without a display |
+| 5.5 | [ ] | P0 | `systemd` service unit — auto-start bot on boot, auto-restart on crash, `TimeoutStopSec=120` |
+| 5.6 | [ ] | P1 | File-based health heartbeat — `on_tick()` writes timestamp to `data/health.txt`, cron job alerts if stale > 5 min |
+| 5.7 | [ ] | P2 | Monitoring dashboard (simple web UI or Grafana) |
+| 5.8 | [ ] | P2 | CI/CD pipeline (auto-run tests on push to GitHub) |
 
-**VPS readiness checklist (must be done before first live strategy):**
+**VPS readiness checklist (must all be done before going live):**
 
-| Requirement | Sprint |
-|---|---|
-| Virtual environment | 2.6 |
-| Config validation (no accidental live trading) | 2.5 |
-| RiskManager with daily loss ceiling | 2.2 |
-| Auto-reconnect + strategy pause during gap | 2.1 |
-| IBC (headless IB Gateway on VPS) | 5.2 |
-| systemd process supervisor | 5.3 |
-| Strategy backtested and validated | 3.3 |
+| Requirement | Status | Sprint |
+|---|---|---|
+| Config validation (no accidental live port) | ✅ Done | 2.5 |
+| RiskManager with daily loss ceiling | ✅ Active — PnLPoller wired in main.py | 2.2 / 5.1 |
+| Auto-reconnect + strategy pause during gap | ✅ Done | 2.1 |
+| SIGTERM handler for clean systemd shutdown | ✅ Done | Sprint 4 pre-flight |
+| Virtual environment | [ ] | 5.2 |
+| IBC (headless IB Gateway on VPS) | [ ] | 5.4 |
+| systemd process supervisor | [ ] | 5.5 |
+| Strategy backtested and validated | [ ] | 4.3 |
+| Strategy paper-traded and monitored | [ ] | 4.4 |
 
 ---
 
-## Sprint 6 — Intelligence & Tooling
+## Sprint 6 — Paper Trading Period
+### Goal: Run paper for 2–4 weeks, monitor fills and P&L, fix issues before going live
 
 | # | Status | Priority | Task |
 |---|--------|----------|------|
-| 6.1 | [ ] | P1 | Research best MCP servers / APIs for live and historical market data (Polygon.io, Alpaca, FMP, yfinance) |
-| 6.2 | [ ] | P1 | Research best sources for trading logic: books, papers, quant blogs |
-| 6.3 | [ ] | P2 | Evaluate connecting Claude to a financial data MCP for real-time reasoning during sessions |
-| 6.4 | [ ] | P2 | Build `RESOURCES.md` with vetted sources for strategies, risk management, market microstructure |
+| 6.1 | [ ] | P0 | Monitor `TradeLog.daily_summary()` every trading day — check realized_pnl, trade count, fill quality |
+| 6.2 | [ ] | P0 | Verify fills are happening at expected prices (compare backtest vs paper fills) |
+| 6.3 | [ ] | P0 | Verify daily loss ceiling triggers correctly if a simulated loss is fed via `update_daily_pnl()` |
+| 6.4 | [ ] | P0 | Check reconnect behaviour — confirm bot recovers cleanly after TWS daily restart (~11:45 PM EST) |
+| 6.5 | [ ] | P1 | Review logs weekly — look for WARNING/ERROR patterns that indicate strategy or infrastructure issues |
+| 6.6 | [ ] | P1 | Adjust `max_order_value`, `max_position_value`, `max_daily_loss` limits based on paper results |
+| 6.7 | [ ] | P2 | Research best MCP servers / APIs for live and historical market data (Polygon.io, Alpaca, FMP) |
+| 6.8 | [ ] | P2 | Build `RESOURCES.md` with vetted sources for strategies, risk management, market microstructure |
+
+**Go/No-Go criteria before Sprint 7 (live trading):**
+- [ ] Strategy profitable or near-breakeven over 2–4 weeks on paper
+- [ ] No unexpected crashes or missed fills
+- [ ] Daily loss ceiling confirmed working
+- [ ] Bot auto-recovers from TWS daily restart without manual intervention
+- [ ] Risk limits reviewed and set conservatively for live
+
+---
+
+## Sprint 7 — Go Live (Small Position Sizes)
+### Goal: Switch to live account with minimal risk to verify everything works with real money
+
+| # | Status | Priority | Task |
+|---|--------|----------|------|
+| 7.1 | [ ] | P0 | Decision A: subscribe to IBKR live market data (~$10–25/month)? Required for intraday; optional for daily-bar strategies |
+| 7.2 | [ ] | P0 | Change `.env` `IB_PORT=7496` (live) — config validator will warn loudly |
+| 7.3 | [ ] | P0 | Set position size to minimum (1–5 shares per trade) for first 2 weeks live |
+| 7.4 | [ ] | P0 | Set `max_daily_loss` very conservatively (e.g., -$50) for first live run |
+| 7.5 | [ ] | P0 | Monitor live fills for first week daily — compare to paper performance |
+| 7.6 | [ ] | P1 | Gradually increase position size as confidence grows |
+| 7.7 | [ ] | P1 | Decision B: multi-strategy positions — independent or combined caps? |
+| 7.8 | [ ] | P2 | Email/Slack alerts on fill, daily loss breach, and error codes |
 
 ---
 
@@ -230,4 +265,7 @@ These two questions are not blocking Sprint 2 or 3, but must be answered before 
 - **Severity (bugs):** S1 = critical · S2 = major · S3 = minor
 - Update this file at the start of every session
 - See `CLAUDE.md` for full context when starting a new Claude session
-- Architect plan for Sprint 2 & 3 logged 2026-04-10 — full detail in each sprint row above
+- Architect plan for Sprint 2 & 3 logged 2026-04-10
+- Architect review (Sprint 4 pre-flight) completed 2026-04-11 — 7 structural fixes applied, codebase is Sprint 4-ready
+- Risk rules amended 2026-04-11: `plan_trade()` enforces 2% max risk + 1:3 min R/R atomically; short trades supported; PnLPoller now ACTIVE
+- Test status: 93/93 on trading days · 84/93 on weekends (9 GE market-data tests require open market)

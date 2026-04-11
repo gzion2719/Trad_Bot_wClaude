@@ -18,6 +18,7 @@ Usage:
 """
 
 import logging
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -27,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 # Standard column names used throughout the project
 _COLUMNS = ["open", "high", "low", "close", "volume"]
+
+# IBKR enforces a pacing limit of roughly 1 historical data request per 10 seconds
+# for the same contract. We enforce 11 seconds to give a small safety margin.
+_IBKR_MIN_INTERVAL = 11.0
 
 
 class HistoricalDataLoader:
@@ -39,6 +44,10 @@ class HistoricalDataLoader:
       - Sorted ascending by date
       - No NaN rows (dropped automatically)
     """
+
+    # Class-level timestamp of the last load_ibkr() call — used for rate limiting.
+    # Float (seconds since epoch). 0.0 = no previous call this session.
+    _last_ibkr_call: float = 0.0
 
     @staticmethod
     def load_yfinance(
@@ -153,6 +162,17 @@ class HistoricalDataLoader:
         """
         if not client.is_connected:
             raise ConnectionError("IBKRClient is not connected.")
+
+        # Enforce IBKR pacing: wait if the previous request was too recent.
+        elapsed = time.time() - HistoricalDataLoader._last_ibkr_call
+        if HistoricalDataLoader._last_ibkr_call > 0 and elapsed < _IBKR_MIN_INTERVAL:
+            wait = _IBKR_MIN_INTERVAL - elapsed
+            logger.info(
+                "IBKR rate limit: waiting %.1fs before historical data request for %s.",
+                wait, symbol,
+            )
+            time.sleep(wait)
+        HistoricalDataLoader._last_ibkr_call = time.time()
 
         from ib_insync import Stock
 

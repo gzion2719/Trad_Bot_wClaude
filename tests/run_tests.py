@@ -596,9 +596,12 @@ def e05():
 
 @test("E-08", "logs/ directory is created automatically if missing")
 def e08():
-    import shutil
     from pathlib import Path
-    log_dir = Path("../logs")
+    # Use an absolute path so the test is correct regardless of CWD.
+    # setup_logging() creates <project_root>/logs/ where project_root is the
+    # parent of the config/ package.
+    from config import logging_config
+    log_dir = Path(logging_config.__file__).parent.parent / "logs"
     existed = log_dir.exists()
     if existed:
         pass  # already exists — test passes by definition
@@ -732,7 +735,121 @@ def rm06():
     except ValueError:
         pass
 
+@test("RM-07", "validate_setup() passes for a valid 1:3 R/R long trade — verifies math")
+def rm07():
+    c, o = get_client()
+    rm = _make_rm(c, o)
+    # entry=150, stop=145 → risk_per_share=$5; target=165 → reward=$15; R/R=3.0 ✓
+    # equity=$10,000; max_risk=2%=$200; $5 < $200 ✓
+    entry, stop, target, equity = 150.0, 145.0, 165.0, 10_000.0
+    risk_per_share   = entry - stop          # $5.00
+    reward_per_share = target - entry        # $15.00
+    rr_ratio         = reward_per_share / risk_per_share   # 3.0
+    max_risk_dollars = equity * 0.02         # $200.00
+    assert rr_ratio == 3.0,           f"Test math error: expected R/R 3.0, got {rr_ratio}"
+    assert risk_per_share <= max_risk_dollars, "Test math error: rule B should pass"
+    rm.validate_setup(entry_price=entry, stop_price=stop,
+                      take_profit_price=target, equity=equity)
+
+@test("RM-08", "validate_setup() raises when R/R is below minimum — verifies math")
+def rm08():
+    c, o = get_client()
+    rm = _make_rm(c, o)
+    # entry=150, stop=145 → risk=$5; target=160 → reward=$10; R/R=2.0 < min 3.0 → FAIL
+    entry, stop, target = 150.0, 145.0, 160.0
+    rr_ratio = (target - entry) / (entry - stop)   # 10/5 = 2.0
+    assert rr_ratio == 2.0, f"Test math error: expected R/R 2.0, got {rr_ratio}"
+    try:
+        rm.validate_setup(entry_price=entry, stop_price=stop,
+                          take_profit_price=target, equity=10_000.0)
+        assert False, "Should have raised RiskViolationError"
+    except RiskViolationError:
+        pass
+
+@test("RM-09", "validate_setup() raises when risk per share exceeds 2% of equity — verifies math")
+def rm09():
+    c, o = get_client()
+    rm = _make_rm(c, o)
+    # equity=$100; max_risk=2%=$2; entry=150, stop=100 → risk=$50/share > $2 → FAIL
+    # target=300: R/R=(300-150)/(150-100)=150/50=3.0 ✓ so only Rule B fires
+    entry, stop, target, equity = 150.0, 100.0, 300.0, 100.0
+    risk_per_share   = entry - stop          # $50
+    max_risk_dollars = equity * 0.02         # $2
+    rr_ratio         = (target - entry) / risk_per_share   # 3.0
+    assert rr_ratio == 3.0,              "Test math error: R/R should pass"
+    assert risk_per_share > max_risk_dollars, "Test math error: rule B should fail"
+    try:
+        rm.validate_setup(entry_price=entry, stop_price=stop,
+                          take_profit_price=target, equity=equity)
+        assert False, "Should have raised RiskViolationError"
+    except RiskViolationError:
+        pass
+
+@test("RM-10", "validate_setup() raises ValueError for equity=0")
+def rm10():
+    c, o = get_client()
+    rm = _make_rm(c, o)
+    try:
+        rm.validate_setup(entry_price=150.0, stop_price=145.0,
+                          take_profit_price=165.0, equity=0.0)
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+@test("RM-11", "validate_setup() raises ValueError when stop == entry (long)")
+def rm11():
+    c, o = get_client()
+    rm = _make_rm(c, o)
+    try:
+        rm.validate_setup(entry_price=150.0, stop_price=150.0,
+                          take_profit_price=165.0, equity=10_000.0)
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+@test("RM-12", "validate_setup() passes for a valid 1:3 R/R short trade")
+def rm12():
+    c, o = get_client()
+    rm = _make_rm(c, o)
+    # Short: entry=100, stop=105 (above entry), target=85 (below entry)
+    # risk_per_share = 105-100 = $5; reward = 100-85 = $15; R/R=3.0 ✓
+    # equity=$10,000; max_risk=2%=$200; $5 < $200 ✓
+    entry, stop, target, equity = 100.0, 105.0, 85.0, 10_000.0
+    risk_per_share   = stop - entry       # $5
+    reward_per_share = entry - target     # $15
+    rr_ratio         = reward_per_share / risk_per_share   # 3.0
+    assert rr_ratio == 3.0, f"Test math error: expected R/R 3.0, got {rr_ratio}"
+    rm.validate_setup(entry_price=entry, stop_price=stop,
+                      take_profit_price=target, equity=equity,
+                      order_action=OrderAction.SELL)
+
+@test("RM-13", "plan_trade() atomically validates and sizes a long trade")
+def rm13():
+    c, o = get_client()
+    rm = _make_rm(c, o, max_risk_per_trade_pct=0.02)
+    # entry=150, stop=145, target=165, equity=$10,000
+    # validate: R/R=3.0 ✓, risk/share=$5 <= $200 ✓
+    # size: risk_amount=$200, risk/share=$5 → floor(200/5) = 40 shares
+    shares = rm.plan_trade(
+        entry_price=150.0, stop_price=145.0,
+        take_profit_price=165.0, equity=10_000.0,
+    )
+    assert shares == 40, f"Expected 40 shares, got {shares}"
+
+@test("RM-14", "plan_trade() raises RiskViolationError — no shares returned on bad setup")
+def rm14():
+    c, o = get_client()
+    rm = _make_rm(c, o)
+    # R/R=2.0 < 3.0 minimum → should raise before sizing
+    try:
+        rm.plan_trade(entry_price=150.0, stop_price=145.0,
+                      take_profit_price=160.0, equity=10_000.0)
+        assert False, "Should have raised RiskViolationError"
+    except RiskViolationError:
+        pass
+
 rm01(); rm02(); rm03(); rm04(); rm05(); rm06()
+rm07(); rm08(); rm09(); rm10(); rm11(); rm12(); rm13(); rm14()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -794,7 +911,57 @@ def ps07():
     )
     assert result == 1
 
-ps01(); ps02(); ps03(); ps04(); ps05(); ps06(); ps07()
+@test("PS-08", "risk_based() sizes correctly using 2% rule — verifies intermediate math")
+def ps08():
+    equity, entry, stop = 1_000.0, 50.0, 48.0
+    # Step 1: risk_amount = 1000 * 0.02 = $20.00
+    risk_amount = equity * 0.02
+    assert risk_amount == 20.0, f"Expected risk_amount=$20, got {risk_amount}"
+    # Step 2: risk_per_share = 50 - 48 = $2.00
+    risk_per_share = entry - stop
+    assert risk_per_share == 2.0, f"Expected risk/share=$2, got {risk_per_share}"
+    # Step 3: floor(20 / 2) = 10 shares
+    import math
+    expected = math.floor(risk_amount / risk_per_share)
+    assert expected == 10, f"Expected floor=10, got {expected}"
+    # Confirm function agrees
+    result = PositionSizer.risk_based(equity=equity, entry_price=entry, stop_price=stop)
+    assert result == 10, f"risk_based() returned {result}, expected 10"
+
+@test("PS-09", "risk_based() returns minimum 1 share when floor would be 0")
+def ps09():
+    equity, entry, stop = 100.0, 50.0, 10.0
+    # risk_amount = $2; risk_per_share = $40; floor(2/40) = 0 → clamped to 1
+    import math
+    risk_amount    = equity * 0.02     # $2
+    risk_per_share = entry - stop      # $40
+    assert math.floor(risk_amount / risk_per_share) == 0, "Test math: floor should be 0"
+    result = PositionSizer.risk_based(equity=equity, entry_price=entry, stop_price=stop)
+    assert result == 1, f"Expected 1 (minimum), got {result}"
+
+@test("PS-10", "risk_based() raises ValueError when stop_price >= entry_price")
+def ps10():
+    try:
+        PositionSizer.risk_based(equity=10_000, entry_price=50.0, stop_price=55.0)
+        assert False, "Should raise ValueError for stop >= entry"
+    except ValueError:
+        pass
+    # Also test stop == entry
+    try:
+        PositionSizer.risk_based(equity=10_000, entry_price=50.0, stop_price=50.0)
+        assert False, "Should raise ValueError for stop == entry"
+    except ValueError:
+        pass
+
+@test("PS-11", "risk_based() raises ValueError for equity=0")
+def ps11():
+    try:
+        PositionSizer.risk_based(equity=0, entry_price=50.0, stop_price=48.0)
+        assert False, "Should raise ValueError for equity=0"
+    except ValueError:
+        pass
+
+ps01(); ps02(); ps03(); ps04(); ps05(); ps06(); ps07(); ps08(); ps09(); ps10(); ps11()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1066,11 +1233,13 @@ from backtester.portfolio import BacktestPortfolio
 from backtester.metrics import sharpe_ratio, max_drawdown, win_rate
 from strategies.base_strategy import BaseStrategy
 
-# Minimal strategy for testing: buys on first bar, sells on last bar
+# Minimal strategy for testing: buys on first bar, sells on last bar.
+# Uses the full BaseStrategy signature so BacktestEngine can inject feed and symbol.
 class _BuyHoldStrategy(BaseStrategy):
-    def __init__(self, client, order_manager, risk_manager=None, reconnect=None, symbol="TEST"):
-        super().__init__(client, order_manager, risk_manager, reconnect)
-        self._symbol = symbol
+    def __init__(self, client, order_manager, risk_manager=None, reconnect=None,
+                 feed=None, symbol="TEST"):
+        super().__init__(client, order_manager, risk_manager, reconnect,
+                         feed=feed, symbol=symbol)
         self._bought = False
         self._bar_count = 0
         self._total_bars = 0
@@ -1081,12 +1250,12 @@ class _BuyHoldStrategy(BaseStrategy):
     def on_tick(self):
         self._bar_count += 1
         if not self._bought:
-            r = OrderRequest(symbol=self._symbol, action=OrderAction.BUY, quantity=10,
+            r = OrderRequest(symbol=self.symbol, action=OrderAction.BUY, quantity=10,
                              tif=TimeInForce.GTC)
             self.om.place_order(r)
             self._bought = True
         elif self._bar_count >= self._total_bars:
-            r = OrderRequest(symbol=self._symbol, action=OrderAction.SELL, quantity=10,
+            r = OrderRequest(symbol=self.symbol, action=OrderAction.SELL, quantity=10,
                              tif=TimeInForce.GTC)
             self.om.place_order(r)
 
@@ -1113,7 +1282,7 @@ def bt01():
         strategy_class=_BuyHoldStrategy,
         data=df, symbol="TEST",
         initial_capital=10_000,
-        strategy_kwargs={"symbol": "TEST"},
+        # symbol is now injected automatically by BacktestEngine — no strategy_kwargs needed
     )
     # Patch total bars
     orig_run = engine.run

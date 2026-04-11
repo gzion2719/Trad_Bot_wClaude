@@ -93,6 +93,9 @@ class OrderResult:
     limit_price: Optional[float]
     stop_price: Optional[float]
     submitted_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    cost_basis: Optional[float] = None  # avg cost per share at the moment of a SELL fill
+                                        # populated by BacktestPortfolio; None for live orders
+                                        # used by metrics.win_rate() and metrics.profit_factor()
 
     @property
     def is_active(self) -> bool:

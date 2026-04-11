@@ -78,53 +78,67 @@ def win_rate(fills: List[OrderResult]) -> float:
     """
     Fraction of SELL trades that were profitable.
 
+    A SELL is a win when avg_fill_price > cost_basis (the weighted average
+    price paid for the shares). cost_basis is populated by BacktestPortfolio
+    at fill time. Fills where cost_basis is None are counted as losses
+    (conservative — avoids inflating the metric when data is missing).
+
     Only SELL fills are counted (they close positions and realize P&L).
     BUY-only strategies will return nan.
 
     Returns:
         Win rate as a fraction (0.0–1.0). nan if no sell trades.
     """
-    sell_fills = [f for f in fills if f.action == "SELL" and f.avg_fill_price]
+    sell_fills = [f for f in fills if f.action == "SELL" and f.avg_fill_price is not None]
     if not sell_fills:
         return float("nan")
 
-    # A win is defined as selling above the portfolio's average cost.
-    # Since we don't have cost basis here, we use fill price > 0 as a proxy.
-    # For accurate win/loss, use BacktestPortfolio.get_fills() with cost basis.
-    wins = sum(1 for f in sell_fills if f.avg_fill_price and f.avg_fill_price > 0)
+    wins = sum(
+        1 for f in sell_fills
+        if f.cost_basis is not None and f.avg_fill_price > f.cost_basis
+    )
     return wins / len(sell_fills)
 
 
-def profit_factor(fills: List[OrderResult], portfolio) -> float:
+def profit_factor(fills: List[OrderResult]) -> float:
     """
     Gross profit divided by gross loss across all trades.
 
     Profit factor > 1.0 means the strategy makes more than it loses overall.
     > 2.0 is considered strong.
 
+    Uses cost_basis stored in each OrderResult at fill time (populated by
+    BacktestPortfolio.fill() on SELL orders). This is correct even for
+    re-entered positions and symbols that are fully exited by end of backtest.
+
     Args:
-        fills:     List of OrderResult fill records.
-        portfolio: BacktestPortfolio (used for cost basis).
+        fills: List of OrderResult fill records.
 
     Returns:
-        Profit factor. inf if no losing trades. nan if no data.
+        Profit factor. inf if no losing trades. nan if no SELL fills with
+        cost_basis data (e.g., BUY-only strategy or live fills without basis).
     """
-    sell_fills = [f for f in fills if f.action == "SELL" and f.avg_fill_price]
+    sell_fills = [
+        f for f in fills
+        if f.action == "SELL"
+        and f.avg_fill_price is not None
+        and f.cost_basis is not None
+    ]
     if not sell_fills:
         return float("nan")
 
     gross_profit = 0.0
     gross_loss   = 0.0
-    avg_costs    = portfolio._avg_cost   # cost basis at time of fill — approximation
 
     for f in sell_fills:
-        cost  = avg_costs.get(f.symbol, f.avg_fill_price)
-        pnl   = (f.avg_fill_price - cost) * f.filled
+        pnl = (f.avg_fill_price - f.cost_basis) * f.filled
         if pnl >= 0:
             gross_profit += pnl
         else:
             gross_loss += abs(pnl)
 
+    if gross_profit == 0 and gross_loss == 0:
+        return float("nan")
     if gross_loss == 0:
         return float("inf")
     return gross_profit / gross_loss
@@ -144,7 +158,6 @@ def summary(
     fills: List[OrderResult],
     equity_curve: pd.Series,
     initial_capital: float,
-    portfolio=None,
     periods_per_year: int = 252,
 ) -> Dict:
     """
@@ -154,13 +167,15 @@ def summary(
         fills:            List of OrderResult fills from the backtest.
         equity_curve:     pd.Series of equity values (one per bar).
         initial_capital:  Starting capital in USD.
-        portfolio:        BacktestPortfolio (optional — needed for profit_factor).
-        periods_per_year: 252 for daily bars.
+        periods_per_year: 252 for daily bars, 52 for weekly, 12 for monthly.
 
     Returns:
         Dict with all metric values (also printed to console).
     """
     final_equity = float(equity_curve.iloc[-1]) if len(equity_curve) > 0 else initial_capital
+
+    _win_rate    = win_rate(fills)
+    _pf          = profit_factor(fills)
 
     metrics = {
         "initial_capital":  round(initial_capital, 2),
@@ -169,8 +184,8 @@ def summary(
         "sharpe_ratio":     round(sharpe_ratio(equity_curve, periods_per_year=periods_per_year), 3),
         "max_drawdown_pct": round(max_drawdown(equity_curve) * 100, 2),
         "total_trades":     len(fills),
-        "win_rate_pct":     round(win_rate(fills) * 100, 1) if not math.isnan(win_rate(fills)) else None,
-        "profit_factor":    round(profit_factor(fills, portfolio), 3) if portfolio else None,
+        "win_rate_pct":     round(_win_rate * 100, 1) if not math.isnan(_win_rate) else None,
+        "profit_factor":    round(_pf, 3) if not math.isnan(_pf) else None,
     }
 
     # ── Print formatted table ───────────────────────────────────────────
@@ -186,8 +201,7 @@ def summary(
     if metrics["win_rate_pct"] is not None:
         print(f"  Win rate        : {metrics['win_rate_pct']:>12.1f} %")
     if metrics["profit_factor"] is not None:
-        pf = metrics["profit_factor"]
-        pf_str = "inf" if math.isinf(pf) else f"{pf:.3f}"
+        pf_str = "inf" if math.isinf(_pf) else f"{_pf:.3f}"
         print(f"  Profit factor   : {pf_str:>12}")
     print("=" * 50 + "\n")
 

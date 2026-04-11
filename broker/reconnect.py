@@ -175,7 +175,15 @@ class ReconnectManager:
             self._attempt_reconnect()
 
     def _attempt_reconnect(self) -> None:
-        """Try to reconnect, applying exponential backoff between attempts."""
+        """
+        Try to reconnect, applying exponential backoff between attempts.
+
+        The TCP connect and the post-connect sync() are treated separately:
+          - connect() failure → retry with backoff (TWS may still be starting up)
+          - sync() failure after a good connect → halt immediately (something is
+            structurally wrong; retrying the full cycle won't help and would leave
+            _connected_event permanently cleared, blocking all strategies forever)
+        """
         for attempt in range(1, self._max_attempts + 1):
             if self._stop_flag.is_set():
                 return
@@ -183,16 +191,11 @@ class ReconnectManager:
             logger.info(
                 "Reconnect attempt %d/%d …", attempt, self._max_attempts
             )
+
+            # ── Step 1: TCP reconnect ──────────────────────────────────────
             try:
                 self._client.connect(retries=0)   # ReconnectManager owns the retry loop
-                # Success — re-sync orders and notify strategies
                 logger.info("Reconnected to TWS successfully.")
-                self._om.sync()
-                self._connected_event.set()
-                if self._on_reconnected_cb:
-                    self._on_reconnected_cb()
-                return
-
             except Exception as exc:
                 delay = _BACKOFF[min(attempt - 1, len(_BACKOFF) - 1)]
                 if attempt < self._max_attempts:
@@ -213,4 +216,31 @@ class ReconnectManager:
                     )
                     self._halted.set()
                     # Leave _connected_event cleared so strategies keep blocking
-                    # (they will check is_halted and exit their own loops)
+                    # (they will see is_halted and exit their own loops)
+                continue   # move on to next attempt (or exit loop if last attempt)
+
+            # ── Step 2: Post-connect sync ──────────────────────────────────
+            # connect() succeeded. Now re-sync open orders. If sync() fails we
+            # do NOT retry the full reconnect loop — the TCP session is good and
+            # retrying would just add confusion. Instead, halt with a clear error
+            # so the operator can investigate the order-manager state.
+            try:
+                self._om.sync()
+            except Exception as exc:
+                logger.error(
+                    "sync() failed after successful reconnect: %s. "
+                    "TCP connection is live but order state is unknown — "
+                    "halting to avoid trading with stale data. "
+                    "Manual intervention required.",
+                    exc,
+                )
+                self._halted.set()
+                # Do NOT set _connected_event — strategies must stay blocked
+                # until an operator restarts the bot.
+                return
+
+            # ── Step 3: Notify waiters ─────────────────────────────────────
+            self._connected_event.set()
+            if self._on_reconnected_cb:
+                self._on_reconnected_cb()
+            return

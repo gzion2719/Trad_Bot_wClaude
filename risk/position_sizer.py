@@ -8,8 +8,13 @@ A stateless utility for calculating how many shares to buy.
 Usage:
     from risk.position_sizer import PositionSizer
 
+    # Standard 2% risk rule — PRIMARY method for all strategies
+    shares = PositionSizer.risk_based(equity=1_000, entry_price=50.0, stop_price=48.0)
+    # → risk_amount = $20 | risk_per_share = $2 | shares = 10
+
+    # Alternative: fixed percentage of equity deployed
     shares = PositionSizer.percent_of_equity(equity=50_000, price=150.0, pct=0.02)
-    # → 6 shares (2% of $50,000 = $1,000 / $150 = 6.66 → 6)
+    # → $1,000 / $150 = 6 shares
 """
 
 import math
@@ -24,7 +29,81 @@ class PositionSizer:
 
     All methods return an integer number of shares (minimum 1).
     All methods log the result at DEBUG level so sizing decisions are auditable.
+
+    Primary method for all strategies: risk_based()
+        Sizes the position so that if the stop-loss is hit, the loss equals
+        exactly risk_pct of total equity (default 2%). This is the correct
+        way to apply a fixed-risk-per-trade rule.
     """
+
+    @staticmethod
+    def risk_based(
+        equity: float,
+        entry_price: float,
+        stop_price: float,
+        risk_pct: float = 0.02,
+    ) -> int:
+        """
+        Size a position so that the worst-case loss (stop hit) equals
+        risk_pct of total account equity.
+
+        Formula:
+            risk_amount    = equity × risk_pct
+            risk_per_share = entry_price - stop_price
+            shares         = floor(risk_amount / risk_per_share)
+
+        Example:
+            equity=$1,000, entry=$50, stop=$48, risk_pct=0.02
+            → risk_amount = $20
+            → risk_per_share = $2
+            → shares = 10  (10 × $2 = $20 max loss = 2% of $1,000)
+
+        Args:
+            equity:      Total account value in USD.
+            entry_price: Planned entry price per share.
+            stop_price:  Stop-loss price — the level at which the position
+                         is closed to cap the loss.
+            risk_pct:    Maximum fraction of equity to risk on this trade.
+                         Default 0.02 = 2%.
+                         WARNING: If you call this directly (rather than through
+                         RiskManager.plan_trade()), you MUST pass
+                         risk_pct=rm.max_risk_per_trade_pct explicitly so that
+                         sizing and validation use the same percentage. Omitting
+                         it silently ignores any RM configuration changes.
+
+        Returns:
+            Number of shares (floor division, minimum 1).
+
+        Raises:
+            ValueError: If stop_price >= entry_price (stop must be below entry
+                        for a long position), or if other inputs are invalid.
+        """
+        if equity <= 0:
+            raise ValueError(f"equity must be positive, got {equity}")
+        if entry_price <= 0:
+            raise ValueError(f"entry_price must be positive, got {entry_price}")
+        if stop_price <= 0:
+            raise ValueError(f"stop_price must be positive, got {stop_price}")
+        if stop_price >= entry_price:
+            raise ValueError(
+                f"stop_price ({stop_price}) must be below entry_price ({entry_price}) "
+                "for a long position."
+            )
+        if not (0 < risk_pct <= 1.0):
+            raise ValueError(f"risk_pct must be between 0 and 1.0, got {risk_pct}")
+
+        risk_amount    = equity * risk_pct
+        risk_per_share = entry_price - stop_price
+        result = max(1, int(math.floor(risk_amount / risk_per_share)))
+
+        logger.debug(
+            "PositionSizer.risk_based | equity=%.2f | entry=%.2f | stop=%.2f "
+            "| risk=%.1f%% → risk_amount=$%.2f | risk/share=$%.2f → %d shares "
+            "(max_loss=$%.2f)",
+            equity, entry_price, stop_price, risk_pct * 100,
+            risk_amount, risk_per_share, result, result * risk_per_share,
+        )
+        return result
 
     @staticmethod
     def fixed(shares: int) -> int:
@@ -118,8 +197,8 @@ class PositionSizer:
         Raises:
             ValueError: If inputs are out of valid range.
         """
-        if not (0 < win_rate < 1):
-            raise ValueError(f"win_rate must be between 0 and 1, got {win_rate}")
+        if not (0 <= win_rate <= 1):
+            raise ValueError(f"win_rate must be between 0 and 1 (inclusive), got {win_rate}")
         if win_loss_ratio <= 0:
             raise ValueError(f"win_loss_ratio must be positive, got {win_loss_ratio}")
         if equity <= 0:

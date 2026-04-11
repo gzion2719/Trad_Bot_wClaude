@@ -91,6 +91,13 @@ class IBKRClient:
                     readonly=False,
                     timeout=_CONNECT_TIMEOUT,
                 )
+                # Always remove before adding — connect() may be called multiple times
+                # (e.g., by ReconnectManager) and += would accumulate duplicate handlers,
+                # causing _on_disconnected to fire N times on the next drop.
+                try:
+                    self.ib.disconnectedEvent -= self._on_disconnected
+                except Exception:
+                    pass  # not yet registered — safe to ignore
                 self.ib.disconnectedEvent += self._on_disconnected
 
                 # Wait until account state is populated (async handshake)

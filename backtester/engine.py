@@ -140,7 +140,27 @@ class MockOrderManager:
         request: OrderRequest,
         allow_duplicate: bool = False,
     ) -> OrderResult:
-        """Queue an order. It fills at the next bar's open."""
+        """
+        Queue an order. It fills at the next bar's open.
+
+        If allow_duplicate=False (default), a pending order for the same
+        symbol and action is treated as a duplicate and the existing order
+        is returned without queuing a new one. This mirrors the live
+        OrderManager's duplicate-prevention behaviour.
+        """
+        if not allow_duplicate:
+            for existing in self._pending_orders:
+                if (
+                    existing["symbol"] == request.symbol.upper()
+                    and existing["action"] == request.action
+                ):
+                    logger.debug(
+                        "Backtest: duplicate order blocked | %s %s "
+                        "(pass allow_duplicate=True to override)",
+                        request.action.value, request.symbol,
+                    )
+                    return self._open_orders[existing["order_id"]]
+
         order_id = _next_order_id()
         submitted_at = datetime.now(timezone.utc)
 
@@ -245,6 +265,14 @@ class BacktestDataFeed:
 
     Serves the current bar from the engine's replay loop.
     Strategies that call feed.get_latest("AAPL") get the current bar.
+
+    TODO (Sprint 4.5+): Single-symbol limitation.
+    BacktestEngine is constructed with one symbol. get_latest() returns None
+    for any other symbol. Strategies that check a second symbol for confirmation
+    (e.g., SPY as a market filter) will silently receive None for that symbol
+    during backtesting, making results incomparable to live performance.
+    Fix: extend BacktestEngine to accept a dict of {symbol: DataFrame} and
+    maintain one BacktestDataFeed per symbol.
     """
 
     def __init__(self, symbol: str) -> None:
@@ -303,7 +331,6 @@ class BacktestResult:
             fills=self.fills,
             equity_curve=self.equity_curve,
             initial_capital=self.initial_capital,
-            portfolio=self.portfolio,
         )
 
 
@@ -383,22 +410,21 @@ class BacktestEngine:
         mock_om   = MockOrderManager(portfolio)
         data_feed = BacktestDataFeed(self.symbol)
 
-        # Instantiate strategy with mock components
-        # client=None is safe because strategies should use data_feed, not
-        # client.get_market_price() during backtesting
+        # Instantiate strategy with mock components.
+        # feed and symbol are passed explicitly — BaseStrategy.__init__ declares
+        # them as named parameters so they are always available, no hasattr guessing.
+        # client=None is safe: strategies must use self.feed, not client.get_market_price(),
+        # during a backtest. risk_manager=None means safe_place_order() skips risk checks —
+        # this is intentional for backtesting (risk rules would block many test trades).
         strategy = self.strategy_class(
             client=None,
             order_manager=mock_om,
             risk_manager=None,
             reconnect=None,
+            feed=data_feed,
+            symbol=self.symbol,
             **self.strategy_kwargs,
         )
-
-        # Give strategy a way to access the current bar via a feed attribute
-        # Strategies that want bar data should accept a feed= kwarg or use
-        # self.om.get_positions() / get_open_orders() for state.
-        if hasattr(strategy, "feed"):
-            strategy.feed = data_feed
 
         bars = list(self.data.itertuples())
         n    = len(bars)
@@ -483,7 +509,6 @@ class BacktestEngine:
             fills=fills,
             equity_curve=equity_curve,
             initial_capital=self.initial_capital,
-            portfolio=portfolio,
         )
 
         logger.info(

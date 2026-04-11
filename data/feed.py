@@ -34,6 +34,9 @@ from data.bar import Bar
 
 logger = logging.getLogger(__name__)
 
+# BarScheduler will stop itself after this many consecutive on_tick() errors.
+_MAX_CONSECUTIVE_ERRORS = 5
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Abstract interface
@@ -46,6 +49,11 @@ class DataFeed(ABC):
     Implement this to add a new data provider (Polygon.io, Alpaca, CSV, etc.)
     without changing any strategy code.
     """
+
+    def __init__(self) -> None:
+        # Initialised here so DataFeed.unsubscribe_all() can iterate over it
+        # even when called on a subclass that doesn't override unsubscribe_all().
+        self._subscriptions: Dict[str, List[Callable[[Bar], None]]] = {}
 
     @abstractmethod
     def subscribe(self, symbol: str, callback: Callable[[Bar], None]) -> None:
@@ -97,22 +105,30 @@ class IBKRFeed(DataFeed):
     """
 
     def __init__(self, client) -> None:  # client: IBKRClient — avoids circular import
+        super().__init__()
         self._client = client
         self._ib = client.ib
-        # symbol → list of user callbacks
-        self._subscriptions: Dict[str, List[Callable[[Bar], None]]] = {}
         # symbol → ib_insync RealTimeBar object (for unsubscribing)
         self._bar_objects: Dict[str, object] = {}
+        # symbol → the updateEvent handler closure (so we can detach it on unsubscribe)
+        self._handlers: Dict[str, Callable] = {}
         # symbol → most recent Bar
         self._latest: Dict[str, Bar] = {}
 
     def subscribe(self, symbol: str, callback: Callable[[Bar], None]) -> None:
-        """Subscribe to 5-second real-time bars for a symbol."""
+        """
+        Subscribe to 5-second real-time bars for a symbol.
+
+        Duplicate callbacks for the same symbol are silently ignored.
+        If contract qualification fails, no partial state is written
+        (atomic — either fully subscribed or not at all).
+        """
         from ib_insync import Stock
 
         symbol = symbol.upper()
         if symbol not in self._subscriptions:
-            self._subscriptions[symbol] = []
+            # Qualify and start the bar stream BEFORE writing any state.
+            # If qualify_contract() raises, we haven't dirtied _subscriptions.
             contract = self._client.qualify_contract(Stock(symbol, "SMART", "USD"))
             bars = self._ib.reqRealTimeBars(
                 contract,
@@ -120,18 +136,41 @@ class IBKRFeed(DataFeed):
                 whatToShow="MIDPOINT",
                 useRTH=False,
             )
+            handler = self._make_handler(symbol)
+            try:
+                bars.updateEvent += handler
+            except Exception:
+                # updateEvent registration failed — cancel the now-orphaned
+                # IBKR stream immediately so it doesn't leak resources.
+                try:
+                    self._ib.cancelRealTimeBars(bars)
+                except Exception:
+                    pass
+                raise   # propagate original error to caller
+
+            # All objects ready — write state atomically
             self._bar_objects[symbol] = bars
-            # Wire the ib_insync updateEvent to our handler
-            bars.updateEvent += self._make_handler(symbol)
+            self._handlers[symbol] = handler
+            self._subscriptions[symbol] = []
             logger.info("IBKRFeed: subscribed to %s (5-sec bars).", symbol)
 
-        self._subscriptions[symbol].append(callback)
+        # Dedup: don't register the same callback twice for the same symbol
+        if callback not in self._subscriptions[symbol]:
+            self._subscriptions[symbol].append(callback)
 
     def unsubscribe(self, symbol: str) -> None:
         """Cancel the real-time bar subscription for a symbol."""
         symbol = symbol.upper()
         if symbol in self._bar_objects:
-            self._ib.cancelRealTimeBars(self._bar_objects.pop(symbol))
+            bars = self._bar_objects.pop(symbol)
+            # Detach the handler to prevent memory leak
+            handler = self._handlers.pop(symbol, None)
+            if handler is not None:
+                try:
+                    bars.updateEvent -= handler
+                except Exception:
+                    pass  # handler may already be detached
+            self._ib.cancelRealTimeBars(bars)
             self._subscriptions.pop(symbol, None)
             logger.info("IBKRFeed: unsubscribed from %s.", symbol)
 
@@ -191,6 +230,9 @@ class BarScheduler:
     Runs in a daemon thread so it shuts down automatically when the
     main process exits.
 
+    Safety: stops itself automatically after _MAX_CONSECUTIVE_ERRORS
+    consecutive on_tick() failures to prevent runaway error loops.
+
     Usage:
         scheduler = BarScheduler(strategy=my_strategy, interval_seconds=60)
         scheduler.start()
@@ -224,20 +266,46 @@ class BarScheduler:
     def stop(self) -> None:
         """Stop the scheduler gracefully."""
         self._stop_flag.set()
-        if self._thread:
-            self._thread.join(timeout=self._interval + 5)
+        if self._thread and self._thread.is_alive():
+            # Allow up to interval + 30s for the current on_tick() to finish.
+            # The extra 30s guards against slow strategy logic (network calls,
+            # heavy computation). If the thread is still alive after the join,
+            # it is a daemon thread and will be killed when the process exits.
+            join_timeout = self._interval + 30
+            self._thread.join(timeout=join_timeout)
+            if self._thread.is_alive():
+                logger.warning(
+                    "BarScheduler: thread for %s did not stop within %ds "
+                    "— it is a daemon thread and will exit with the process.",
+                    self._strategy.name, join_timeout,
+                )
         self._thread = None
         logger.info("BarScheduler stopped for %s.", self._strategy.name)
 
     def _run(self) -> None:
+        consecutive_errors = 0
         while not self._stop_flag.is_set():
             try:
                 self._strategy.on_tick()
+                consecutive_errors = 0   # reset on success
             except Exception as exc:
+                consecutive_errors += 1
                 logger.error(
-                    "BarScheduler: on_tick() raised for %s: %s",
-                    self._strategy.name, exc, exc_info=True,
+                    "BarScheduler: on_tick() raised for %s: %s "
+                    "(consecutive error %d/%d)",
+                    self._strategy.name, exc,
+                    consecutive_errors, _MAX_CONSECUTIVE_ERRORS,
+                    exc_info=True,
                 )
+                if consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
+                    logger.critical(
+                        "BarScheduler: %d consecutive errors for strategy %s "
+                        "— stopping scheduler to prevent runaway loop. "
+                        "Investigate and restart manually.",
+                        consecutive_errors, self._strategy.name,
+                    )
+                    return   # exit the thread
+
             # Sleep in 1-second chunks so stop_flag is checked promptly
             for _ in range(self._interval):
                 if self._stop_flag.is_set():
