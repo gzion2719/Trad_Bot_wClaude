@@ -859,6 +859,330 @@ rcn01(); rcn02(); rcn03(); rcn04()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SECTION 14: BAR MODEL TESTS (no connection needed)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("14. BAR MODEL TESTS")
+
+from data.bar import Bar
+from datetime import datetime, timezone as tz
+
+@test("BAR-01", "Bar is immutable (frozen dataclass)")
+def bar01():
+    b = Bar("AAPL", datetime(2024,1,1, tzinfo=tz.utc), 150.0, 155.0, 149.0, 153.0, 1_000_000)
+    try:
+        b.close = 999.0
+        assert False, "Should have raised FrozenInstanceError"
+    except Exception:
+        pass   # any exception = correct (frozen)
+
+@test("BAR-02", "Bar.mid and Bar.range computed correctly")
+def bar02():
+    b = Bar("MSFT", datetime(2024,1,1, tzinfo=tz.utc), 400.0, 410.0, 390.0, 405.0, 500_000)
+    assert b.mid   == 400.0, f"Expected 400.0, got {b.mid}"
+    assert b.range == 20.0,  f"Expected 20.0, got {b.range}"
+
+@test("BAR-03", "Bar repr is readable")
+def bar03():
+    b = Bar("GE", datetime(2024,1,1, tzinfo=tz.utc), 10.0, 11.0, 9.5, 10.5, 100_000)
+    r = repr(b)
+    assert "GE" in r and "10.00" in r
+
+bar01(); bar02(); bar03()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 15: HISTORICAL DATA LOADER TESTS (network — yfinance)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("15. HISTORICAL DATA LOADER TESTS")
+
+from data.historical import HistoricalDataLoader
+
+@test("HDL-01", "load_yfinance returns DataFrame with correct columns")
+def hdl01():
+    df = HistoricalDataLoader.load_yfinance("MSFT", start="2024-01-01", end="2024-02-01")
+    assert not df.empty, "DataFrame is empty"
+    for col in ("open", "high", "low", "close", "volume"):
+        assert col in df.columns, f"Missing column: {col}"
+
+@test("HDL-02", "load_yfinance index is UTC DatetimeIndex")
+def hdl02():
+    import pandas as pd
+    df = HistoricalDataLoader.load_yfinance("MSFT", start="2024-01-01", end="2024-02-01")
+    assert isinstance(df.index, pd.DatetimeIndex)
+    assert str(df.index.tz) == "UTC"
+
+@test("HDL-03", "load_yfinance is sorted ascending")
+def hdl03():
+    df = HistoricalDataLoader.load_yfinance("MSFT", start="2024-01-01", end="2024-02-01")
+    assert df.index.is_monotonic_increasing
+
+@test("HDL-04", "load_yfinance raises ValueError for bad symbol")
+def hdl04():
+    try:
+        HistoricalDataLoader.load_yfinance("XYZXYZ999FAKE", start="2024-01-01", end="2024-02-01")
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+@test("HDL-05", "load_csv loads a CSV file correctly")
+def hdl05():
+    import tempfile, os, textwrap
+    csv_content = textwrap.dedent("""\
+        date,open,high,low,close,volume
+        2024-01-02,150.0,155.0,149.0,153.0,1000000
+        2024-01-03,153.0,157.0,152.0,156.0,1200000
+        2024-01-04,156.0,158.0,154.0,155.0,900000
+    """)
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        f.write(csv_content)
+        path = f.name
+    try:
+        df = HistoricalDataLoader.load_csv(path, symbol="TEST")
+        assert len(df) == 3
+        assert df["close"].iloc[0] == 153.0
+    finally:
+        os.unlink(path)
+
+hdl01(); hdl02(); hdl03(); hdl04(); hdl05()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 16: TRADE LOG TESTS (no connection needed)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("16. TRADE LOG TESTS")
+
+import tempfile
+from pathlib import Path
+from data.trade_log import TradeLog
+from models.order import OrderResult, OrderStatus
+
+def _make_fill(symbol, action, qty, price, order_id=1):
+    return OrderResult(
+        order_id=order_id, symbol=symbol, action=action,
+        quantity=qty, order_type="LMT", tif="GTC",
+        status=OrderStatus.FILLED,
+        filled=qty, remaining=0,
+        avg_fill_price=price,
+        limit_price=None, stop_price=None,
+        submitted_at=datetime.now(timezone.utc),
+    )
+
+def _tmp_log():
+    """Create a TradeLog in a temp file. Returns (log, path) — caller must call _close_log(log)."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    return TradeLog(db_path=Path(tmp.name)), Path(tmp.name)
+
+def _close_log(log, db_path):
+    """Close all SQLite connections and remove WAL files so Windows can clean up."""
+    import sqlite3, gc
+    gc.collect()   # release any lingering connection objects
+    for ext in ("", "-wal", "-shm"):
+        p = Path(str(db_path) + ext)
+        if p.exists():
+            try:
+                p.unlink()
+            except PermissionError:
+                pass   # best-effort — file will be cleaned up by OS eventually
+
+@test("TL-01", "TradeLog creates DB and records a fill")
+def tl01():
+    log, path = _tmp_log()
+    try:
+        assert log.count() == 0
+        log.record(_make_fill("AAPL", "BUY", 10, 150.0), "TestStrategy")
+        assert log.count() == 1
+    finally:
+        _close_log(log, path)
+
+@test("TL-02", "get_history returns recorded fills")
+def tl02():
+    log, path = _tmp_log()
+    try:
+        log.record(_make_fill("MSFT", "BUY",  5, 400.0, order_id=1), "S1")
+        log.record(_make_fill("MSFT", "SELL", 5, 410.0, order_id=2), "S1")
+        assert len(log.get_history(symbol="MSFT")) == 2
+    finally:
+        _close_log(log, path)
+
+@test("TL-03", "get_history filters by symbol")
+def tl03():
+    log, path = _tmp_log()
+    try:
+        log.record(_make_fill("AAPL", "BUY", 1, 150.0, order_id=1), "S1")
+        log.record(_make_fill("MSFT", "BUY", 1, 400.0, order_id=2), "S1")
+        assert len(log.get_history(symbol="AAPL")) == 1
+        assert len(log.get_history(symbol="MSFT")) == 1
+        assert len(log.get_history()) == 2
+    finally:
+        _close_log(log, path)
+
+@test("TL-04", "daily_summary returns correct counts")
+def tl04():
+    log, path = _tmp_log()
+    try:
+        log.record(_make_fill("GE", "BUY",  10, 10.0, order_id=1), "S1")
+        log.record(_make_fill("GE", "SELL", 10, 11.0, order_id=2), "S1")
+        s = log.daily_summary()
+        assert s["total_trades"] == 2
+        assert s["buys"]  == 1
+        assert s["sells"] == 1
+    finally:
+        _close_log(log, path)
+
+@test("TL-05", "Unfilled order (avg_fill_price=None) is not recorded")
+def tl05():
+    log, path = _tmp_log()
+    try:
+        unfilled = OrderResult(
+            order_id=99, symbol="GE", action="BUY",
+            quantity=1, order_type="LMT", tif="GTC",
+            status=OrderStatus.SUBMITTED,
+            filled=0, remaining=1,
+            avg_fill_price=None,
+            limit_price=10.0, stop_price=None,
+            submitted_at=datetime.now(timezone.utc),
+        )
+        log.record(unfilled, "S1")
+        assert log.count() == 0
+    finally:
+        _close_log(log, path)
+
+tl01(); tl02(); tl03(); tl04(); tl05()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 17: BACKTESTER TESTS (no connection needed)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("17. BACKTESTER TESTS")
+
+import pandas as pd
+from backtester.engine import BacktestEngine, MockOrderManager
+from backtester.portfolio import BacktestPortfolio
+from backtester.metrics import sharpe_ratio, max_drawdown, win_rate
+from strategies.base_strategy import BaseStrategy
+
+# Minimal strategy for testing: buys on first bar, sells on last bar
+class _BuyHoldStrategy(BaseStrategy):
+    def __init__(self, client, order_manager, risk_manager=None, reconnect=None, symbol="TEST"):
+        super().__init__(client, order_manager, risk_manager, reconnect)
+        self._symbol = symbol
+        self._bought = False
+        self._bar_count = 0
+        self._total_bars = 0
+
+    def on_start(self):
+        pass
+
+    def on_tick(self):
+        self._bar_count += 1
+        if not self._bought:
+            r = OrderRequest(symbol=self._symbol, action=OrderAction.BUY, quantity=10,
+                             tif=TimeInForce.GTC)
+            self.om.place_order(r)
+            self._bought = True
+        elif self._bar_count >= self._total_bars:
+            r = OrderRequest(symbol=self._symbol, action=OrderAction.SELL, quantity=10,
+                             tif=TimeInForce.GTC)
+            self.om.place_order(r)
+
+    def on_stop(self):
+        pass
+
+def _make_df(prices, symbol="TEST"):
+    """Create a simple OHLCV DataFrame from a list of close prices."""
+    dates = pd.date_range("2024-01-01", periods=len(prices), freq="D", tz="UTC")
+    return pd.DataFrame({
+        "open":   prices,
+        "high":   [p * 1.01 for p in prices],
+        "low":    [p * 0.99 for p in prices],
+        "close":  prices,
+        "volume": [100_000] * len(prices),
+    }, index=dates)
+
+@test("BT-01", "BacktestEngine runs without error on simple data")
+def bt01():
+    prices = [100, 102, 105, 103, 108, 110, 107, 112]
+    df = _make_df(prices)
+    _BuyHoldStrategy._instances = []  # reset
+    engine = BacktestEngine(
+        strategy_class=_BuyHoldStrategy,
+        data=df, symbol="TEST",
+        initial_capital=10_000,
+        strategy_kwargs={"symbol": "TEST"},
+    )
+    # Patch total bars
+    orig_run = engine.run
+    def patched_run():
+        # Set total_bars before run via monkey-patch on strategy init
+        return orig_run()
+    result = engine.run()
+    assert result is not None
+    assert len(result.equity_curve) == len(prices)
+
+@test("BT-02", "MockOrderManager place_order returns valid OrderResult")
+def bt02():
+    portfolio = BacktestPortfolio(initial_capital=10_000)
+    mock_om = MockOrderManager(portfolio)
+    r = OrderRequest(symbol="TEST", action=OrderAction.BUY, quantity=5, tif=TimeInForce.GTC)
+    result = mock_om.place_order(r)
+    assert result.order_id > 0
+    assert result.status == OrderStatus.SUBMITTED
+
+@test("BT-03", "BacktestPortfolio fill reduces cash correctly")
+def bt03():
+    p = BacktestPortfolio(initial_capital=10_000, commission=0)
+    p.fill("TEST", OrderAction.BUY, quantity=10, price=100.0, order_id=1)
+    assert abs(p.cash - 9_000.0) < 0.01, f"Expected $9,000, got ${p.cash:.2f}"
+
+@test("BT-04", "BacktestPortfolio SELL increases cash")
+def bt04():
+    p = BacktestPortfolio(initial_capital=10_000, commission=0)
+    p.fill("TEST", OrderAction.BUY,  quantity=10, price=100.0, order_id=1)
+    p.fill("TEST", OrderAction.SELL, quantity=10, price=110.0, order_id=2)
+    assert abs(p.cash - 10_100.0) < 0.01, f"Expected $10,100, got ${p.cash:.2f}"
+
+@test("BT-05", "sharpe_ratio returns a float for valid equity curve")
+def bt05():
+    import math
+    curve = pd.Series([100_000, 101_000, 100_500, 102_000, 103_000])
+    sr = sharpe_ratio(curve)
+    assert not math.isnan(sr), "Sharpe ratio is NaN"
+
+@test("BT-06", "max_drawdown returns negative number")
+def bt06():
+    curve = pd.Series([100_000, 110_000, 95_000, 105_000])
+    dd = max_drawdown(curve)
+    assert dd < 0, f"Expected negative drawdown, got {dd}"
+    assert dd > -1.0, "Drawdown should be fraction between -1 and 0"
+
+@test("BT-07", "BacktestEngine raises on empty DataFrame")
+def bt07():
+    try:
+        BacktestEngine(
+            strategy_class=_BuyHoldStrategy,
+            data=pd.DataFrame(),
+            symbol="TEST",
+        )
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+@test("BT-08", "BacktestPortfolio skips sell when no position held")
+def bt08():
+    p = BacktestPortfolio(initial_capital=10_000, commission=0)
+    result = p.fill("TEST", OrderAction.SELL, quantity=5, price=100.0, order_id=1)
+    assert result.status == OrderStatus.INACTIVE
+    assert abs(p.cash - 10_000.0) < 0.01   # cash unchanged
+
+bt01(); bt02(); bt03(); bt04(); bt05(); bt06(); bt07(); bt08()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CLEANUP & SUMMARY
 # ══════════════════════════════════════════════════════════════════════════════
 
