@@ -154,10 +154,10 @@ backtester/
 
 | # | Status | Priority | Task |
 |---|--------|----------|------|
-| 4.1 | [ ] | P0 | Select first strategy (architect recommends SMA crossover or RSI on daily bars — works with delayed data) |
-| 4.2 | [ ] | P0 | Implement strategy in `strategies/` using `BaseStrategy` — use `self.feed`, `self.symbol`, `safe_place_order()` |
-| 4.3 | [ ] | P0 | Backtest strategy with `BacktestEngine` + `HistoricalDataLoader.load_yfinance()` — validate metrics |
-| 4.4 | [ ] | P0 | Run strategy on paper account — watch fills and equity in `TradeLog` for at least 1 week |
+| 4.1 | [x] | P0 | Select first strategy — SMA 10/30 crossover on QQQ daily bars |
+| 4.2 | [x] | P0 | Implement `strategies/sma_crossover.py` — 4 rounds of architect review. Round 4 verdict: GO. Post-GO hardening: Q2 (cancel any SELL on restart, not just STOP), Q3 (floor fallback stop at min(avg_cost, latest_close)*0.97), Q4/Q6a (on_tick re-arm broker STOP when _stop_order_id is None), log escalation (rejected-SELL → ERROR). |
+| 4.3 | [x] | P0 | Backtest QQQ 2020-2024 (`backtests/backtest_sma_qqq.py`): +36% return, 2.27 profit factor, -12.7% max DD, 45% win rate. All fixes are live-only, backtest numbers unchanged. |
+| 4.4 | [~] | P0 | Wire SMACrossover into main.py — DONE: RiskManager caps (120k/100k/-2k), daily scheduler at 16:10 ET, TradeLog wired via om.on_fill. Run on paper >= 1 week. |
 | 4.5 | [ ] | P1 | Tune strategy parameters based on backtest + paper results |
 | 4.6 | [ ] | P2 | Implement and backtest a second strategy |
 | 4.7 | [ ] | P2 | Strategy parameter management (YAML/JSON config, no code changes to switch params) |
@@ -171,13 +171,14 @@ backtester/
 | # | Status | Priority | Task |
 |---|--------|----------|------|
 | 5.1 | [x] | P0 | `PnLPoller` daemon — wired and active in `main.py`. Calls `reset_daily()` at 9:30 AM ET, polls `update_daily_pnl()` every 60s, shuts down cleanly on exit |
-| 5.2 | [ ] | P0 | Set up Python virtual environment (`python -m venv venv`) and document in `docs/setup.md` |
-| 5.3 | [ ] | P0 | Hostinger VPS setup — provision server, install Python, copy project |
-| 5.4 | [ ] | P0 | IBC (headless IB Gateway) setup on VPS — replaces TWS, runs without a display |
-| 5.5 | [ ] | P0 | `systemd` service unit — auto-start bot on boot, auto-restart on crash, `TimeoutStopSec=120` |
-| 5.6 | [ ] | P1 | File-based health heartbeat — `on_tick()` writes timestamp to `data/health.txt`, cron job alerts if stale > 5 min |
+| 5.2 | [x] | P0 | Set up Python virtual environment — handled by `deploy/setup.sh` on VPS |
+| 5.3 | [x] | P0 | Hostinger VPS provisioned — Ubuntu 24.04 LTS, KVM 1, US Boston 2, IP 2.24.222.199 |
+| 5.4 | [x] | P0 | IBC (headless IB Gateway) setup — `deploy/ibc/config.ini` + `deploy/ibc/start_ibgateway.sh` created. Run `deploy/setup.sh` on VPS to install. |
+| 5.5 | [x] | P0 | `systemd` units created — `ibgateway.service`, `tradebot.service`, `tradebot-notify@.service`, `tradebot-health.service/.timer`. All in `deploy/systemd/`. |
+| 5.6 | [x] | P1 | Health heartbeat — `on_tick()` writes UTC timestamp to `data/health.txt`; `tradebot-health.timer` checks every 2h, notifies via ntfy.sh if stale >26h |
 | 5.7 | [ ] | P2 | Monitoring dashboard (simple web UI or Grafana) |
 | 5.8 | [ ] | P2 | CI/CD pipeline (auto-run tests on push to GitHub) |
+| 5.9 | [ ] | P1 | IBKR Trusted IP whitelist — add VPS IP `2.24.222.199` in IBKR account settings → Security → Trusted IPs. Allows IBC nightly restart to skip 2FA. Personal logins from other IPs keep 2FA. |
 
 **VPS readiness checklist (must all be done before going live):**
 

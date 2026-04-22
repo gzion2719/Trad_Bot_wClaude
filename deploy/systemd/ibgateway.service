@@ -1,0 +1,19 @@
+[Unit]
+Description=IB Gateway (managed by IBC)
+After=network-online.target
+Wants=network-online.target
+OnFailure=tradebot-notify@%n.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/start_ibgateway.sh
+Restart=on-failure
+RestartSec=60
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ibgateway
+
+[Install]
+WantedBy=multi-user.target

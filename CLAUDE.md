@@ -26,30 +26,51 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-04-11):**
-- Sprint 2 complete: `ReconnectManager`, `RiskManager`, `PositionSizer`, `validate_config()`
-- Sprint 3 complete: `DataFeed`/`IBKRFeed`/`BarScheduler`, `HistoricalDataLoader`, `BacktestEngine`, `MockOrderManager`, `BacktestPortfolio`, performance metrics, `TradeLog` (SQLite)
-- QA audit rounds 3 & 4 — all 60 total QA findings resolved
-- Architect review (Sprint 4 pre-flight) — 7 structural fixes applied
-- **Risk rules amended:** `validate_setup()` + `plan_trade()` added to `RiskManager`; `risk_based()` added to `PositionSizer`:
-  - Every trade must risk ≤ 2% of equity (enforced by `plan_trade()`)
-  - Every trade must have R/R ≥ 1:3 (enforced by `plan_trade()`)
-  - Shorts supported: `validate_setup()` and `plan_trade()` accept `order_action=OrderAction.SELL`
-  - `main.py` RiskManager constructor updated with `max_risk_per_trade_pct=0.02` and `min_reward_risk_ratio=3.0`
-  - Daily P&L poller + `reset_daily()` daemon **now ACTIVE** in `main.py` (wired, not just comments)
-  - 6 new tests: RM-10 through RM-14, PS-11 (total 93 tests)
-- Test status: **93/93 on trading days** · 84/93 on weekends (9 GE market-data tests require open market — expected)
-- TODO.md updated with full Sprints 4–7 roadmap
+**Last session completed (2026-04-22) — main branch — Sprint 5 VPS deployment: all files created. Bot is ready to deploy to Hostinger.**
+
+### What was done this session
+
+**Sprint 5 — VPS deployment files complete:**
+- Provisioned Hostinger KVM 1 VPS: Ubuntu 24.04 LTS, US Boston 2, IP `2.24.222.199`
+- Created `deploy/setup.sh` — one-shot root script: installs Java 17, Xvfb, IB Gateway, IBC, Python venv, systemd units
+- Created `deploy/ibc/config.ini` — IBC config for paper trading (credentials are placeholders; user fills in on VPS)
+- Created `deploy/ibc/start_ibgateway.sh` — Xvfb + IBC wrapper, exec'd by systemd
+- Created `deploy/systemd/ibgateway.service` — runs IBC/IB Gateway, OnFailure notifies
+- Created `deploy/systemd/tradebot.service` — runs Python bot as `tradebot` user, Requires ibgateway, RestartSec=30
+- Created `deploy/systemd/tradebot-notify@.service` — template unit, posts to ntfy.sh topic `tradebot-DUE090987` on failure
+- Created `deploy/systemd/tradebot-health.service/.timer` — checks `data/health.txt` every 2h, alerts if stale >26h
+- Added health.txt write to `strategies/sma_crossover.py` `on_tick()` — writes UTC ISO timestamp after guard checks pass
+- Created `deploy/CHECKLIST.md` — step-by-step numbered checklist for the user to follow
+
+**Notification channel:** ntfy.sh, topic `tradebot-DUE090987` (free, no account needed). User subscribes via ntfy app or https://ntfy.sh/tradebot-DUE090987. Alerts fire only on: service failure, crash restart, or stale health check.
 
 **START HERE — next tasks:**
-1. **Sprint 4.1:** Decide on first strategy. Architect recommends **SMA crossover (10/30 day) or RSI(14) mean reversion** on daily bars — both work with free delayed data, backtest cleanly, trade infrequently (easy to monitor on paper)
-2. **Sprint 4.2:** Implement it in `strategies/` — extend `BaseStrategy`, use `self.feed.get_latest(self.symbol)`, call `self.safe_place_order(request, price)`, override `params` property
-3. **Sprint 4.3:** Backtest it with `BacktestEngine` + `HistoricalDataLoader.load_yfinance()`
-4. **Sprint 4.4:** Run on paper account, monitor fills via `TradeLog.daily_summary()`
+1. **Deploy to VPS** — SSH in, clone repo, run `bash /opt/tradebot/deploy/setup.sh`, fill in IBKR credentials in `/opt/ibc/config.ini`, start services. Full steps in `deploy/CHECKLIST.md`.
+2. **Subscribe to ntfy alerts** — install ntfy app, subscribe to `tradebot-DUE090987`
+3. **Start paper trading on VPS** — `systemctl start ibgateway && systemctl start tradebot`
+4. **Monitor 1+ week** — check `TradeLog.daily_summary()` each trading day, review `journalctl -fu tradebot`
+5. **4.5 — Tune** — after paper results, test sma_fast=20/sma_slow=50; validate on 2008/2022 bear regimes
+
+**Pre-live hardening items (non-blocking for paper, tracked):**
+- Q4: if avg_cost==0 on reconcile, consider deferring `_in_position=True` until stop can be computed
+- Q6a: consider auto-re-placing STOP in `_exit()` when SELL is rejected
+- M7: validate strategy on 2008/2022 bear regimes before going live
 
 **Owner decisions still open:**
 - **Decision A:** Pay for IBKR live data (~$10–25/mo)? Not needed for daily-bar strategies — delayed data is fine. Needed for intraday.
 - **Decision B:** Multi-strategy positions — independent or combined caps? Not blocking until Sprint 4.8.
+
+**VPS details:**
+| Setting | Value |
+|---|---|
+| Provider | Hostinger KVM 1 |
+| IP | 2.24.222.199 |
+| OS | Ubuntu 24.04 LTS |
+| SSH | `ssh root@2.24.222.199` |
+| Bot dir | `/opt/tradebot` |
+| IBC dir | `/opt/ibc` |
+| IB Gateway dir | `/opt/ibgateway` |
+| Notification | ntfy.sh topic: `tradebot-DUE090987` |
 
 ---
 

@@ -1,0 +1,28 @@
+[Unit]
+Description=TradeBot (SMACrossover on QQQ)
+After=network-online.target ibgateway.service
+Wants=network-online.target
+Requires=ibgateway.service
+OnFailure=tradebot-notify@%n.service
+
+[Service]
+Type=simple
+User=tradebot
+Group=tradebot
+WorkingDirectory=/opt/tradebot
+EnvironmentFile=/opt/tradebot/.env
+
+ExecStart=/opt/tradebot/venv/bin/python main.py
+
+# Restart on crash; 30s delay so IB Gateway has time to stabilise first
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=60
+
+# Capture all stdout/stderr to systemd journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tradebot
+
+[Install]
+WantedBy=multi-user.target
