@@ -68,14 +68,6 @@ class IBKRClient:
             logger.warning("Already connected — skipping.")
             return
 
-        # Warn loudly when connecting to live trading port
-        if not self.is_paper:
-            logger.warning(
-                "!!! LIVE TRADING PORT DETECTED (port=%s) — "
-                "real money is at risk. Confirm this is intentional. !!!",
-                self._port,
-            )
-
         # retries = number of extra attempts after the first; total = retries + 1
         total_attempts = retries + 1
         last_exc: Optional[Exception] = None
@@ -111,6 +103,12 @@ class IBKRClient:
                 mode = DELAYED if self.is_paper else REALTIME
                 self._set_market_data_type(mode)
                 logger.info("Connected | account=%s | paper=%s", self.account, self.is_paper)
+                if not self.is_paper:
+                    logger.warning(
+                        "!!! LIVE TRADING ACCOUNT DETECTED (account=%s) — "
+                        "real money is at risk. Confirm this is intentional. !!!",
+                        self.account,
+                    )
                 return  # success
 
             except Exception as exc:
@@ -169,6 +167,14 @@ class IBKRClient:
 
     @property
     def is_paper(self) -> bool:
+        # Paper accounts at IBKR always start with 'D' (e.g. DUE090987).
+        # Live accounts start with 'U'. This is more reliable than port-based
+        # detection because IB Gateway paper can be configured on any port
+        # via OverrideTwsApiPort.
+        acct = self.account
+        if acct and acct != "N/A":
+            return acct.startswith("D")
+        # Fallback for pre-connect checks: TWS paper port convention.
         return self._port == 7497
 
     @property
