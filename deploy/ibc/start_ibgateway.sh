@@ -24,9 +24,10 @@ fi
 echo "Starting IB Gateway version $IBGW_VERSION via IBC..."
 
 # Run IBC — this blocks until IB Gateway exits
+# --gateway tells IBC this is IB Gateway (not TWS)
+# Trading mode is set in config.ini (TradingMode=paper), not here
 exec "${IBC_DIR}/scripts/ibcstart.sh" "$IBGW_VERSION" \
     "--tws-path=${IBGW_DIR}" \
     "--ibc-path=${IBC_DIR}" \
     "--ibc-ini=${IBC_DIR}/config.ini" \
-    "--trading-mode=paper" \
-    "--log-components=never"
+    "--gateway"
