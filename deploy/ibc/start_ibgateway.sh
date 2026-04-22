@@ -14,13 +14,14 @@ XVFB_PID=$!
 trap 'kill $XVFB_PID 2>/dev/null; exit' EXIT TERM INT
 sleep 2
 
-# Detect installed IB Gateway version (directory name is the version number)
-IBGW_VERSION=$(ls "$IBGW_DIR/" | grep -E '^[0-9]+$' | sort -rn | head -1)
+# Detect IB Gateway version from the .desktop file (e.g. "IB Gateway 10.37.desktop" → "1037")
+IBGW_VERSION=$(ls "$IBGW_DIR/"*.desktop 2>/dev/null \
+    | grep -oP '\d+\.\d+' | head -1 | tr -d '.')
+# Fallback: let IBC auto-detect
 if [ -z "$IBGW_VERSION" ]; then
-    echo "ERROR: No IB Gateway version found in $IBGW_DIR/" >&2
-    exit 1
+    IBGW_VERSION=latest
 fi
-echo "Starting IB Gateway $IBGW_VERSION via IBC..."
+echo "Starting IB Gateway version $IBGW_VERSION via IBC..."
 
 # Run IBC — this blocks until IB Gateway exits
 exec "${IBC_DIR}/scripts/ibcstart.sh" "$IBGW_VERSION" \
