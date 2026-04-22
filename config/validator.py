@@ -19,9 +19,14 @@ from config.settings import IB_HOST, IB_PORT, IB_CLIENT_ID
 
 logger = logging.getLogger(__name__)
 
-_VALID_PORTS = {7496, 7497}   # 7496=live, 7497=paper
-_PAPER_PORT  = 7497
-_LIVE_PORT   = 7496
+# Accepted IBKR API ports:
+#   TWS:         7496 (live), 7497 (paper)
+#   IB Gateway:  4001 (live default), 4002 (paper default)
+# IB Gateway's `OverrideTwsApiPort` can put paper on 4001 too (used in this
+# deployment) — paper/live is verified post-connect via account ID prefix.
+_VALID_PORTS    = {7496, 7497, 4001, 4002}
+_PAPER_PORTS    = {7497, 4002}
+_LIVE_ONLY_PORTS = {7496}
 
 
 class ConfigError(Exception):
@@ -64,7 +69,8 @@ def validate_config() -> None:
     if port is not None and port not in _VALID_PORTS:
         errors.append(
             f"IB_PORT={port} is not a recognised IBKR port. "
-            f"Use 7497 for paper trading or 7496 for live trading."
+            f"Use 7497 (TWS paper), 7496 (TWS live), 4002 (Gateway paper), "
+            f"or 4001 (Gateway live / paper-with-override)."
         )
 
     # ── Check IB_CLIENT_ID ──────────────────────────────────────────────
@@ -88,7 +94,11 @@ def validate_config() -> None:
         )
 
     # ── Live port warning ────────────────────────────────────────────────
-    if port == _LIVE_PORT:
+    # Only warn on TWS live (7496). Port 4001 is ambiguous — Gateway uses it
+    # for live by default but paper configs (like this deployment) can
+    # override paper to 4001 via OverrideTwsApiPort. Paper/live is verified
+    # post-connect by IBKRClient from the account ID prefix.
+    if port in _LIVE_ONLY_PORTS:
         banner = (
             "\n"
             "╔══════════════════════════════════════════════════════╗\n"
@@ -103,9 +113,8 @@ def validate_config() -> None:
         )
         logger.warning(banner)
 
+    mode_label = "PAPER" if port in _PAPER_PORTS else ("LIVE" if port in _LIVE_ONLY_PORTS else "AMBIGUOUS")
     logger.info(
         "Config validated | host=%s | port=%s (%s) | client_id=%s",
-        IB_HOST, IB_PORT,
-        "PAPER" if port == _PAPER_PORT else "LIVE",
-        IB_CLIENT_ID,
+        IB_HOST, IB_PORT, mode_label, IB_CLIENT_ID,
     )
