@@ -23,11 +23,19 @@ if [ -z "$IBGW_VERSION" ]; then
 fi
 echo "Starting IB Gateway version $IBGW_VERSION via IBC..."
 
+# IBC expects <tws-path>/<version>/jars/ but the IBKR installer uses a flat layout.
+# Create a compatibility symlink: /opt/ibgw/1037 -> /opt/ibgateway
+IBGW_PARENT=/opt/ibgw
+mkdir -p "$IBGW_PARENT"
+if [ ! -e "${IBGW_PARENT}/${IBGW_VERSION}" ]; then
+    ln -s "$IBGW_DIR" "${IBGW_PARENT}/${IBGW_VERSION}"
+fi
+
 # Run IBC — this blocks until IB Gateway exits
 # --gateway tells IBC this is IB Gateway (not TWS)
 # Trading mode is set in config.ini (TradingMode=paper), not here
 exec "${IBC_DIR}/scripts/ibcstart.sh" "$IBGW_VERSION" \
-    "--tws-path=${IBGW_DIR}" \
+    "--tws-path=${IBGW_PARENT}" \
     "--ibc-path=${IBC_DIR}" \
     "--ibc-ini=${IBC_DIR}/config.ini" \
     "--gateway"
