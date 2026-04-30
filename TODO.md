@@ -209,7 +209,7 @@ backtester/
 | 6.2 | [ ] | P0 | Verify fills are happening at expected prices (compare backtest vs paper fills) |
 | 6.3 | [ ] | P0 | Verify daily loss ceiling triggers correctly if a simulated loss is fed via `update_daily_pnl()` |
 | 6.4 | [ ] | P0 | Check reconnect behaviour — confirm bot recovers cleanly after TWS daily restart (~11:45 PM EST) |
-| 6.5 | [ ] | P1 | Review logs weekly — look for WARNING/ERROR patterns that indicate strategy or infrastructure issues |
+| 6.5 | [~] | P1 | Review logs weekly — look for WARNING/ERROR patterns (6.C done: IBKR info codes 1100/1102/2103/2105/2107/2157 demoted from ERROR to INFO/WARNING in order_manager.py) |
 | 6.6 | [ ] | P1 | Adjust `max_order_value`, `max_position_value`, `max_daily_loss` limits based on paper results |
 | 6.7 | [ ] | P2 | Research best MCP servers / APIs for live and historical market data (Polygon.io, Alpaca, FMP) |
 | 6.8 | [ ] | P2 | Build `RESOURCES.md` with vetted sources for strategies, risk management, market microstructure |

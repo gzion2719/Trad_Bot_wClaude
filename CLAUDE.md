@@ -26,9 +26,19 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-04-30) — Bot is LIVE on VPS (paper trading). Git Flow enforced. Sprint 5 complete.**
+**Last session completed (2026-04-30, continued) — Option C done: IBKR info codes demoted. PR open → develop.**
 
 ### What was done this session
+
+**IBKR info-code noise fix (`broker/order_manager.py`) — PR: feature/quiet-ibkr-info-codes → develop:**
+- Codes 1100/1102/2103/2105/2107/2157 were missing from all sets → fell through to `logger.error()` → flooded `journalctl`
+- New three-tier classification: `_DEBUG_CODES` (silent), `_INFO_CODES` (→ INFO), `_WARNING_CODES` (→ WARNING)
+- 1100 (connectivity lost) → WARNING; 1102/2103/2105/2107/2157 (restored/data farm) → INFO; real errors unchanged at ERROR
+- TODO 6.5 marked [~] (in progress)
+
+**Previous session (2026-04-30) — Bot is LIVE on VPS (paper trading). Git Flow enforced. Sprint 5 complete.**
+
+### What was done previous session
 
 **VPS deployment debugged and bot confirmed running (5.10):**
 - Root cause of IB Gateway login hang: `IbPassword=` was empty in `/opt/ibc/config.ini` — filled in real password
