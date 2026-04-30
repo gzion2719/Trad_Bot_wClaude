@@ -26,13 +26,19 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-04-30) — Recovered bot from 6-day outage. IB Gateway now systemd-managed. Weekly 2FA cadence understood and documented.**
+**Last session completed (2026-04-30, continued) — Option C done: IBKR info codes demoted. PR #9 merged to develop. Bot live and healthy.**
 
 ### What was done this session (2026-04-30)
 
+**IBKR info-code noise fix (`broker/order_manager.py`) — PR #9 merged to develop:**
+- Codes 1100/1102/2103/2105/2107/2157 were missing from all sets → fell through to `logger.error()` → flooded `journalctl`
+- New three-tier classification: `_DEBUG_CODES` (silent), `_INFO_CODES` (→ INFO), `_WARNING_CODES` (→ WARNING)
+- 1100 (connectivity lost) → WARNING; 1102/2103/2105/2107/2157 (restored/data farm) → INFO; real errors unchanged at ERROR
+- TODO 6.5 marked [~] (in progress)
+
 **Recovered bot from 6-day outage (Apr 24 → Apr 30):**
-- Root cause: IBKR's weekly token reset on Sunday Apr 26 (~01:00 ET) invalidated the gateway session. IBC tried to re-login, got stuck at the 2FA prompt with no human to enter the SMS code. Gateway sat at the login screen for the rest of the week.
-- Recovery sequence: started x11vnc on display :99, opened VNC tunnel, completed login via SMS code, restarted `tradebot.service`. Bot reconnected to DUE090987 in <30 seconds.
+- Root cause: IBKR's weekly token reset on Sunday Apr 26 (~01:00 ET) invalidated the gateway session — stuck at 2FA prompt all week
+- Recovery: VNC tunnel → IB Gateway login → SMS code → `tradebot.service` restart. Reconnected to DUE090987 in <30 seconds.
 
 **IB Gateway transitioned to full systemd management:**
 - Created 3 new systemd units: `xvfb.service`, `x11vnc.service`, `ibgateway.service`
