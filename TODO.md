@@ -179,6 +179,10 @@ backtester/
 | 5.7 | [ ] | P2 | Monitoring dashboard (simple web UI or Grafana) |
 | 5.8 | [ ] | P2 | CI/CD pipeline (auto-run tests on push to GitHub) |
 | 5.9 | [ ] | P1 | IBKR Trusted IP whitelist — add VPS IP `2.24.222.199` in IBKR account settings → Security → Trusted IPs. Allows IBC nightly restart to skip 2FA. Personal logins from other IPs keep 2FA. |
+| 5.10 | [x] | P0 | VPS deployment debugged — IBC empty password fixed, Read-Only API unchecked + `ReadOnlyApi=no` in config, 2FA loop resolved via `ExistingSessionDetectedAction=manual`, `UseSSL=yes` added |
+| 5.11 | [x] | P0 | Risk caps updated for QQQ paper account — max_order=$120k, max_position=$100k, max_daily_loss=-$2,000. Merged via PR. |
+| 5.12 | [x] | P0 | VPS hardened — Tailscale installed, UFW blocks port 22, SSH only via `ssh chappy-vps` (Tailscale IP). `chappy` user replaces root. CLAUDE.md updated. |
+| 5.13 | [x] | P1 | Hybrid Git Flow implemented — main/develop/feature/hotfix branches, PR-only policy, Claude enforcement rules added to CLAUDE.md. `develop` branch created and synced. |
 
 **VPS readiness checklist (must all be done before going live):**
 
@@ -188,11 +192,11 @@ backtester/
 | RiskManager with daily loss ceiling | ✅ Active — PnLPoller wired in main.py | 2.2 / 5.1 |
 | Auto-reconnect + strategy pause during gap | ✅ Done | 2.1 |
 | SIGTERM handler for clean systemd shutdown | ✅ Done | Sprint 4 pre-flight |
-| Virtual environment | [ ] | 5.2 |
-| IBC (headless IB Gateway on VPS) | [ ] | 5.4 |
-| systemd process supervisor | [ ] | 5.5 |
-| Strategy backtested and validated | [ ] | 4.3 |
-| Strategy paper-traded and monitored | [ ] | 4.4 |
+| Virtual environment | ✅ Done — handled by deploy/setup.sh on VPS | 5.2 |
+| IBC (headless IB Gateway on VPS) | ✅ Running — manual start (not systemd yet) | 5.4 |
+| systemd process supervisor | ✅ tradebot.service + health.timer active | 5.5 |
+| Strategy backtested and validated | ✅ Done — QQQ SMA backtest 4.3 | 4.3 |
+| Strategy paper-traded and monitored | [~] In progress — bot live on VPS paper account | 4.4 |
 
 ---
 
