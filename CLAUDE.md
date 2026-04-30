@@ -26,30 +26,42 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-04-22) — main branch — Sprint 5 VPS deployment: all files created. Bot is ready to deploy to Hostinger.**
+**Last session completed (2026-04-30) — Bot is LIVE on VPS (paper trading). Git Flow enforced. Sprint 5 complete.**
 
 ### What was done this session
 
-**Sprint 5 — VPS deployment files complete:**
-- Provisioned Hostinger KVM 1 VPS: Ubuntu 24.04 LTS, US Boston 2, IP `2.24.222.199`
-- Created `deploy/setup.sh` — one-shot root script: installs Java 17, Xvfb, IB Gateway, IBC, Python venv, systemd units
-- Created `deploy/ibc/config.ini` — IBC config for paper trading (credentials are placeholders; user fills in on VPS)
-- Created `deploy/ibc/start_ibgateway.sh` — Xvfb + IBC wrapper, exec'd by systemd
-- Created `deploy/systemd/ibgateway.service` — runs IBC/IB Gateway, OnFailure notifies
-- Created `deploy/systemd/tradebot.service` — runs Python bot as `tradebot` user, Requires ibgateway, RestartSec=30
-- Created `deploy/systemd/tradebot-notify@.service` — template unit, posts to ntfy.sh topic `tradebot-DUE090987` on failure
-- Created `deploy/systemd/tradebot-health.service/.timer` — checks `data/health.txt` every 2h, alerts if stale >26h
-- Added health.txt write to `strategies/sma_crossover.py` `on_tick()` — writes UTC ISO timestamp after guard checks pass
-- Created `deploy/CHECKLIST.md` — step-by-step numbered checklist for the user to follow
+**VPS deployment debugged and bot confirmed running (5.10):**
+- Root cause of IB Gateway login hang: `IbPassword=` was empty in `/opt/ibc/config.ini` — filled in real password
+- Fixed Read-Only API (Error 321): unchecked via VNC + added `ReadOnlyApi=no` to IBC config permanently
+- Fixed 2FA loop: changed `ExistingSessionDetectedAction=primary` → `manual` in IBC config
+- Fixed SSL dialog hang: added `UseSSL=yes` to IBC config
+- `tradebot.service` confirmed ACTIVE + CONNECTED to DUE090987 (paper)
+- `tradebot-health.timer` ENABLED
 
-**Notification channel:** ntfy.sh, topic `tradebot-DUE090987` (free, no account needed). User subscribes via ntfy app or https://ntfy.sh/tradebot-DUE090987. Alerts fire only on: service failure, crash restart, or stale health check.
+**VPS hardened (5.12):**
+- Tailscale installed, UFW blocks public port 22
+- New SSH: `ssh chappy-vps` → `chappy@100.113.140.69`, key `~/.ssh/chappy_v3`
+- Root SSH disabled; `chappy` user is sudo-capable
+- CLAUDE.md and memory updated to reflect new access model
+
+**Code fixes merged via PR:**
+- `broker/ibkr_client.py` — `is_paper` now detects from account ID prefix (D=paper) not port; false live-trading warning removed
+- `config/validator.py` — added IB Gateway ports 4001/4002 as valid; port 4001 labeled AMBIGUOUS (not LIVE)
+- `main.py` — risk caps updated: max_order=$120k, max_position=$100k, max_daily_loss=-$2,000
+
+**Hybrid Git Flow implemented (5.13):**
+- `develop` branch created and pushed; all future feature work starts from `develop`
+- Branch policy: `feature/*` → `develop` (PR) → `main` (PR). Hotfixes: `main` + back-merge to `develop`
+- Claude enforcement rules added to CLAUDE.md (see "Claude-specific rules" under Git workflow)
+- GitHub branch protection set up (free private repo — not enforced by GitHub; Claude is the enforcement layer)
+- Obsidian docs updated: `Claude Handoff Prompt.md` and `New Developer Onboarding.md`
 
 **START HERE — next tasks:**
-1. **Deploy to VPS** — SSH in, clone repo, run `bash /opt/tradebot/deploy/setup.sh`, fill in IBKR credentials in `/opt/ibc/config.ini`, start services. Full steps in `deploy/CHECKLIST.md`.
-2. **Subscribe to ntfy alerts** — install ntfy app, subscribe to `tradebot-DUE090987`
-3. **Start paper trading on VPS** — `systemctl start ibgateway && systemctl start tradebot`
-4. **Monitor 1+ week** — check `TradeLog.daily_summary()` each trading day, review `journalctl -fu tradebot`
-5. **4.5 — Tune** — after paper results, test sma_fast=20/sma_slow=50; validate on 2008/2022 bear regimes
+1. **Monitor paper trading** — `sudo journalctl -fu tradebot` daily; check `TradeLog.daily_summary()` each trading day
+2. **Next code change** — cut from `develop`: `git checkout develop && git pull && git checkout -b feature/<name>`
+3. **5.9 — IBKR Trusted IP** — add VPS IP `2.24.222.199` in IBKR account → Security → Trusted IPs (reduces 2FA on IBC nightly restart)
+4. **Transition IB Gateway to systemd** — next time gateway needs a restart, use `sudo systemctl start ibgateway` instead of manual script
+5. **4.5 — Tune** — after 1+ week paper results, test sma_fast=20/sma_slow=50; validate on 2008/2022 bear regimes
 
 **Pre-live hardening items (non-blocking for paper, tracked):**
 - Q4: if avg_cost==0 on reconcile, consider deferring `_in_position=True` until stop can be computed
@@ -347,6 +359,19 @@ git push -u origin hotfix/fix-description
 
 `gh` is not installed on the dev PC. Open PRs via browser:
 `https://github.com/gzion2719/Trad_Bot_wClaude/pull/new/<branch-name>`
+
+### Claude-specific rules (enforce every session — no exceptions)
+
+GitHub branch protection is not enforced on this free private repo. Claude is the enforcement layer.
+
+1. **Always create a feature branch from `develop`**, never from `main`.
+2. **When giving the user a PR URL, always state the base branch explicitly:**
+   - Feature work → base: `develop`
+   - Shipping to production → base: `main`, compare: `develop`
+   - Hotfix → base: `main` first, then a second PR base: `develop`
+3. **Never say "open a PR" without specifying `base: <branch>` and `compare: <branch>`** — the user clicks whatever GitHub defaults to, which caused an accidental feature → main merge.
+4. **Before starting any work**, check current branch with `git branch` and confirm it is a `feature/*` or `hotfix/*` branch, never `main` or `develop` directly.
+5. **After a PR merges to main**, always open a follow-up PR or fast-forward `develop` to keep them in sync.
 
 ---
 
