@@ -20,9 +20,18 @@ from models.order import (
 
 logger = logging.getLogger(__name__)
 
-# IBKR error codes that are informational, not real errors
+# IBKR codes that are pure noise — suppress to DEBUG
+_DEBUG_CODES = {
+    2104, 2106, 2158, 2119, 10182,  # market data farm connected/ok
+}
+
+# IBKR connectivity and data-farm status — log at INFO (visible but not alarming)
 _INFO_CODES = {
-    2104, 2106, 2158, 2119, 10182,  # market data / connectivity notices
+    1102,  # connectivity between IB and TWS restored
+    2103,  # market data farm connection broken (transient)
+    2105,  # HMDS data farm connection broken (transient)
+    2107,  # HMDS data farm connection ok
+    2157,  # sec-def data farm connection broken (transient)
 }
 
 # IBKR error codes that are warnings (not fatal)
@@ -30,6 +39,7 @@ _WARNING_CODES = {
     201,   # order rejected
     202,   # order cancelled — expected, not an error
     399,   # order message
+    1100,  # connectivity between IB and TWS lost (transient — 1102 follows)
     10147, # order not found (already cancelled/filled externally)
 }
 
@@ -424,8 +434,11 @@ class OrderManager:
         # already fires on_cancel callbacks. No second callback needed.
 
     def _handle_error(self, req_id: int, error_code: int, error_string: str, contract) -> None:
-        if error_code in _INFO_CODES:
+        if error_code in _DEBUG_CODES:
             logger.debug("IBKR info | code=%s | %s", error_code, error_string)
+            return
+        if error_code in _INFO_CODES:
+            logger.info("IBKR notice | code=%s | %s", error_code, error_string)
             return
         if error_code in _WARNING_CODES:
             logger.warning("IBKR warning | reqId=%s | code=%s | %s", req_id, error_code, error_string)
