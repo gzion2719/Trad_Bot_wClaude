@@ -26,42 +26,38 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-04-30) — Bot is LIVE on VPS (paper trading). Git Flow enforced. Sprint 5 complete.**
+**Last session completed (2026-04-30) — Recovered bot from 6-day outage. IB Gateway now systemd-managed. Weekly 2FA cadence understood and documented.**
 
-### What was done this session
+### What was done this session (2026-04-30)
 
-**VPS deployment debugged and bot confirmed running (5.10):**
-- Root cause of IB Gateway login hang: `IbPassword=` was empty in `/opt/ibc/config.ini` — filled in real password
-- Fixed Read-Only API (Error 321): unchecked via VNC + added `ReadOnlyApi=no` to IBC config permanently
-- Fixed 2FA loop: changed `ExistingSessionDetectedAction=primary` → `manual` in IBC config
-- Fixed SSL dialog hang: added `UseSSL=yes` to IBC config
-- `tradebot.service` confirmed ACTIVE + CONNECTED to DUE090987 (paper)
-- `tradebot-health.timer` ENABLED
+**Recovered bot from 6-day outage (Apr 24 → Apr 30):**
+- Root cause: IBKR's weekly token reset on Sunday Apr 26 (~01:00 ET) invalidated the gateway session. IBC tried to re-login, got stuck at the 2FA prompt with no human to enter the SMS code. Gateway sat at the login screen for the rest of the week.
+- Recovery sequence: started x11vnc on display :99, opened VNC tunnel, completed login via SMS code, restarted `tradebot.service`. Bot reconnected to DUE090987 in <30 seconds.
 
-**VPS hardened (5.12):**
-- Tailscale installed, UFW blocks public port 22
-- New SSH: `ssh chappy-vps` → `chappy@100.113.140.69`, key `~/.ssh/chappy_v3`
-- Root SSH disabled; `chappy` user is sudo-capable
-- CLAUDE.md and memory updated to reflect new access model
+**IB Gateway transitioned to full systemd management:**
+- Created 3 new systemd units: `xvfb.service`, `x11vnc.service`, `ibgateway.service`
+- All enabled for auto-start on boot. `tradebot.service` already had `Requires=ibgateway.service` from prior work — chain works end-to-end.
+- Replaced the old backgrounded/disowned IB Gateway process with proper supervision. No more "gateway dies and nobody notices" outages.
+- `x11vnc` now always running on `:99` listening on `localhost` only (must use SSH tunnel).
 
-**Code fixes merged via PR:**
-- `broker/ibkr_client.py` — `is_paper` now detects from account ID prefix (D=paper) not port; false live-trading warning removed
-- `config/validator.py` — added IB Gateway ports 4001/4002 as valid; port 4001 labeled AMBIGUOUS (not LIVE)
-- `main.py` — risk caps updated: max_order=$120k, max_position=$100k, max_daily_loss=-$2,000
+**IBC config hardening:**
+- Added `ReloginAfterSecondFactorAuthenticationTimeout=yes` to `/opt/ibc/config.ini` — IBC will auto-restart the login flow if a 2FA prompt times out (instead of sitting silently like Apr 24).
 
-**Hybrid Git Flow implemented (5.13):**
-- `develop` branch created and pushed; all future feature work starts from `develop`
-- Branch policy: `feature/*` → `develop` (PR) → `main` (PR). Hotfixes: `main` + back-merge to `develop`
-- Claude enforcement rules added to CLAUDE.md (see "Claude-specific rules" under Git workflow)
-- GitHub branch protection set up (free private repo — not enforced by GitHub; Claude is the enforcement layer)
-- Obsidian docs updated: `Claude Handoff Prompt.md` and `New Developer Onboarding.md`
+**Researched IBKR 2FA constraints (and corrected my earlier wrong advice):**
+- IBKR's `AutoRestartTime` keeps gateway sessions alive **for up to a week** with no 2FA needed for daily restarts. IBC was already configured with this (logs show `Auto restart time already set to 11:59 PM`).
+- **2FA is required ONCE per week** — Sunday ~01:00 ET when IBKR servers invalidate all tokens. Mon–Sat restarts use the cached token, no human action needed.
+- Owner is enrolled in **Interactive IL Key** (Israeli code-generator variant), not push-notification IB Key. Push 2FA appears unavailable for Israeli accounts — needs IBKR support inquiry.
+- IBKR has **revoked all 2FA opt-out paths** for trading. There is no API key, service account, or Trusted IP bypass. Weekly 2FA is the regulatory floor.
 
 **START HERE — next tasks:**
-1. **Monitor paper trading** — `sudo journalctl -fu tradebot` daily; check `TradeLog.daily_summary()` each trading day
-2. **Next code change** — cut from `develop`: `git checkout develop && git pull && git checkout -b feature/<name>`
-3. **5.9 — IBKR Trusted IP** — add VPS IP `2.24.222.199` in IBKR account → Security → Trusted IPs (reduces 2FA on IBC nightly restart)
-4. **Transition IB Gateway to systemd** — next time gateway needs a restart, use `sudo systemctl start ibgateway` instead of manual script
-5. **4.5 — Tune** — after 1+ week paper results, test sma_fast=20/sma_slow=50; validate on 2008/2022 bear regimes
+1. **First Sunday morning (next: 2026-05-03 ~09:00 IL time = 02:00 ET) — test the weekly re-auth flow.**
+   - SSH chappy-vps → tunnel `ssh -L 5900:localhost:5900 chappy-vps` → TightVNC `localhost:5900`
+   - Generate code in IBKR Mobile (Security → Generate Code), enter in gateway login dialog
+   - Confirm gateway logs in and bot reconnects within 2 min: `sudo journalctl -fu tradebot`
+2. **Send IBKR support inquiry** (drafted in Obsidian) asking about: (a) switching from Interactive IL Key to push-notification IB Key, (b) any unattended weekly auth options for paper accounts.
+3. **Monitor paper trading** — `sudo journalctl -fu tradebot` daily; check `TradeLog.daily_summary()` each trading day.
+4. **5.9 — IBKR Trusted IP** — still pending. Add VPS IP `2.24.222.199` in IBKR account → Security → Trusted IPs. (May not affect 2FA frequency given the weekly-token model, but worth doing.)
+5. **4.5 — Tune** — after 1+ week paper results, test sma_fast=20/sma_slow=50; validate on 2008/2022 bear regimes.
 
 **Pre-live hardening items (non-blocking for paper, tracked):**
 - Q4: if avg_cost==0 on reconcile, consider deferring `_in_position=True` until stop can be computed
@@ -85,12 +81,36 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 | Rescue | Hostinger web console (browser KVM) if Tailscale/SSH fails |
 | Bot dir | `/opt/tradebot` |
 | IBC dir | `/opt/ibc` |
-| IB Gateway dir | `/opt/ibgateway` |
+| IB Gateway dir | `/opt/ibgw` |
 | Notification | ntfy.sh topic: `tradebot-DUE090987` |
+| Systemd units | `xvfb.service` → `x11vnc.service` → `ibgateway.service` → `tradebot.service` (chain auto-starts on boot) |
 
 **Access pattern:** `ssh chappy-vps` → `sudo -i` → work in `/opt/`
-**VNC tunnel:** `ssh -L 5900:localhost:5900 chappy-vps` (not the old root version)
+**VNC tunnel:** `ssh -L 5900:localhost:5900 chappy-vps` (x11vnc is always running on `:99` via systemd)
 **If SSH times out:** check Tailscale is running on your PC first.
+
+---
+
+## Weekly 2FA cadence (read this — it's how the bot stays alive)
+
+IBKR's security model:
+- **Mon–Sat at 23:59 UTC**: IBC's `AutoRestartTime` triggers a gateway restart. Uses the cached token — **no 2FA, fully automated**. Bot reconnects within 30 seconds.
+- **Sunday ~01:00 ET (08:00 IL time)**: IBKR servers invalidate all tokens. The next gateway restart sits at the login screen waiting for a fresh 2FA code. **Owner must intervene once per week.**
+
+### Sunday morning recovery routine (60 seconds)
+1. SSH `chappy-vps`, then in a second local terminal: `ssh -L 5900:localhost:5900 chappy-vps`
+2. TightVNC → `localhost:5900` → see IB Gateway login dialog
+3. IBKR Mobile app → Security → **Generate Code** → enter the 6 digits in the dialog
+4. Verify: `ss -tlnp | grep 4001` shows LISTEN, then `sudo journalctl -fu tradebot` shows `Connected | account=DUE090987`
+
+### What we did to harden against missed Sundays
+- `ReloginAfterSecondFactorAuthenticationTimeout=yes` in `/opt/ibc/config.ini` — IBC re-prompts if a 2FA code expires unanswered (instead of sitting silently)
+- `ibgateway.service` with `Restart=on-failure` — gateway process is supervised; crashes get logged and retried
+
+### What we CANNOT fix (regulatory floor)
+- IBKR has revoked all 2FA opt-out paths for trading accounts (paper or live). No API key, no service-account flow, no Trusted IP bypass eliminates the weekly login.
+- Owner is on **Interactive IL Key** (Israeli code-generator). Standard push-notification IB Key may not be available for Israeli accounts — pending IBKR support inquiry.
+- If owner travels and misses a Sunday, bot will be down until they return + complete the 2FA. Mitigation: schedule travel around Sundays, or pre-share VNC access with a trusted team member for that one minute.
 
 ---
 

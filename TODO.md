@@ -178,11 +178,14 @@ backtester/
 | 5.6 | [x] | P1 | Health heartbeat — `on_tick()` writes UTC timestamp to `data/health.txt`; `tradebot-health.timer` checks every 2h, notifies via ntfy.sh if stale >26h |
 | 5.7 | [ ] | P2 | Monitoring dashboard (simple web UI or Grafana) |
 | 5.8 | [ ] | P2 | CI/CD pipeline (auto-run tests on push to GitHub) |
-| 5.9 | [ ] | P1 | IBKR Trusted IP whitelist — add VPS IP `2.24.222.199` in IBKR account settings → Security → Trusted IPs. Allows IBC nightly restart to skip 2FA. Personal logins from other IPs keep 2FA. |
+| 5.9 | [ ] | P1 | IBKR Trusted IP whitelist — add VPS IP `2.24.222.199` in IBKR account settings → Security → Trusted IPs. **Note (2026-04-30):** likely does NOT bypass IBKR's weekly Sunday 2FA — that is enforced server-side. Still worth adding for general security posture. |
 | 5.10 | [x] | P0 | VPS deployment debugged — IBC empty password fixed, Read-Only API unchecked + `ReadOnlyApi=no` in config, 2FA loop resolved via `ExistingSessionDetectedAction=manual`, `UseSSL=yes` added |
 | 5.11 | [x] | P0 | Risk caps updated for QQQ paper account — max_order=$120k, max_position=$100k, max_daily_loss=-$2,000. Merged via PR. |
 | 5.12 | [x] | P0 | VPS hardened — Tailscale installed, UFW blocks port 22, SSH only via `ssh chappy-vps` (Tailscale IP). `chappy` user replaces root. CLAUDE.md updated. |
 | 5.13 | [x] | P1 | Hybrid Git Flow implemented — main/develop/feature/hotfix branches, PR-only policy, Claude enforcement rules added to CLAUDE.md. `develop` branch created and synced. |
+| 5.14 | [x] | P0 | **IB Gateway under systemd** (2026-04-30). Created `xvfb.service`, `x11vnc.service`, `ibgateway.service` — all enabled, chained via `Requires=`/`After=`. Replaces the old backgrounded/disowned IBC process. Recovered bot from 6-day outage caused by Sunday Apr 26 token reset with no human to enter 2FA. |
+| 5.15 | [x] | P1 | **IBC config: 2FA timeout recovery** (2026-04-30). Added `ReloginAfterSecondFactorAuthenticationTimeout=yes` to `/opt/ibc/config.ini` so IBC re-prompts instead of sitting silently after a 2FA timeout. |
+| 5.16 | [ ] | P1 | **IBKR support inquiry — push 2FA for Israeli account.** Owner is on Interactive IL Key (code generator). Ask: (a) can we switch to push-notification IB Key? (b) any unattended weekly auth path for paper? Draft email is in CLAUDE.md / Obsidian handoff. |
 
 **VPS readiness checklist (must all be done before going live):**
 
@@ -193,8 +196,8 @@ backtester/
 | Auto-reconnect + strategy pause during gap | ✅ Done | 2.1 |
 | SIGTERM handler for clean systemd shutdown | ✅ Done | Sprint 4 pre-flight |
 | Virtual environment | ✅ Done — handled by deploy/setup.sh on VPS | 5.2 |
-| IBC (headless IB Gateway on VPS) | ✅ Running — manual start (not systemd yet) | 5.4 |
-| systemd process supervisor | ✅ tradebot.service + health.timer active | 5.5 |
+| IBC (headless IB Gateway on VPS) | ✅ Running under systemd (`ibgateway.service`) since 2026-04-30 | 5.4 / 5.14 |
+| systemd process supervisor | ✅ Full chain: xvfb → x11vnc → ibgateway → tradebot. All enabled, all auto-start on boot. | 5.5 / 5.14 |
 | Strategy backtested and validated | ✅ Done — QQQ SMA backtest 4.3 | 4.3 |
 | Strategy paper-traded and monitored | [~] In progress — bot live on VPS paper account | 4.4 |
 
@@ -208,7 +211,7 @@ backtester/
 | 6.1 | [ ] | P0 | Monitor `TradeLog.daily_summary()` every trading day — check realized_pnl, trade count, fill quality |
 | 6.2 | [ ] | P0 | Verify fills are happening at expected prices (compare backtest vs paper fills) |
 | 6.3 | [ ] | P0 | Verify daily loss ceiling triggers correctly if a simulated loss is fed via `update_daily_pnl()` |
-| 6.4 | [ ] | P0 | Check reconnect behaviour — confirm bot recovers cleanly after TWS daily restart (~11:45 PM EST) |
+| 6.4 | [ ] | P0 | Check reconnect behaviour — confirm bot recovers cleanly after TWS daily restart (~11:45 PM EST). **Note:** Mon–Sat restarts use cached token (no 2FA). Sunday ~01:00 ET requires owner to enter fresh 2FA via VNC — see CLAUDE.md "Weekly 2FA cadence" section. First test: Sunday 2026-05-03. |
 | 6.5 | [ ] | P1 | Review logs weekly — look for WARNING/ERROR patterns that indicate strategy or infrastructure issues |
 | 6.6 | [ ] | P1 | Adjust `max_order_value`, `max_position_value`, `max_daily_loss` limits based on paper results |
 | 6.7 | [ ] | P2 | Research best MCP servers / APIs for live and historical market data (Polygon.io, Alpaca, FMP) |
