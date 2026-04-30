@@ -290,6 +290,66 @@ TWS restarts daily ~11:45 PM EST — `ReconnectManager` handles this automatical
 
 ---
 
+## Git workflow
+
+This project uses a **hybrid Git Flow**. Every team member must follow it.
+
+### Branch structure
+
+| Branch | Purpose | Who merges into it |
+|---|---|---|
+| `main` | Production — what runs on the VPS | Only `develop` (via PR) or `hotfix/*` (via PR) |
+| `develop` | Integration — finished features accumulate here | Only `feature/*` branches (via PR) |
+| `feature/<name>` | One branch per feature/task | Cut from `develop`, PR back to `develop` |
+| `hotfix/<name>` | Emergency fix for a live production bug | Cut from `main`, PR to `main` AND `develop` |
+
+### Rules — no exceptions
+
+1. **Never push directly to `main` or `develop`.** All changes go through PRs.
+2. **All feature work starts from `develop`**, not `main`.
+3. **`main` only gets code from `develop`** (via PR, when the sprint is ready to ship) **or from a `hotfix`** (emergency only).
+4. **Hotfixes must be merged into both `main` AND `develop`** — otherwise the fix gets lost on the next release.
+5. **Branch names:** use `feature/short-description` or `hotfix/short-description`. Lowercase, hyphens, no spaces.
+
+### Normal feature workflow
+
+```bash
+git checkout develop && git pull origin develop
+git checkout -b feature/my-feature
+# ... do the work ...
+git push -u origin feature/my-feature
+# Open PR → develop on GitHub
+# After merge, delete the feature branch
+```
+
+### Shipping to production
+
+When `develop` is stable and tested on paper:
+```bash
+# Open PR: develop → main on GitHub
+# After merge, the VPS gets the new code:
+ssh chappy-vps
+cd /opt/tradebot && sudo git pull && sudo systemctl restart tradebot
+```
+
+### Emergency hotfix (production is broken)
+
+```bash
+git checkout main && git pull origin main
+git checkout -b hotfix/fix-description
+# ... fix the bug ...
+git push -u origin hotfix/fix-description
+# PR → main   (deploys the fix)
+# PR → develop (keeps develop in sync — do NOT skip this)
+```
+
+### `gh` CLI note
+
+`gh` is not installed on the dev PC. Open PRs via browser:
+`https://github.com/gzion2719/Trad_Bot_wClaude/pull/new/<branch-name>`
+
+---
+
 ## Key conventions
 
 - All currency: USD unless specified
