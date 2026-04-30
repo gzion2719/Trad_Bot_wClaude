@@ -64,13 +64,21 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 | Setting | Value |
 |---|---|
 | Provider | Hostinger KVM 1 |
-| IP | 2.24.222.199 |
+| Public IP | 2.24.222.199 — **port 22 BLOCKED by UFW. Do NOT SSH to this IP.** |
+| Tailscale IP | 100.113.140.69 — only network path for SSH |
 | OS | Ubuntu 24.04 LTS |
-| SSH | `ssh root@2.24.222.199` |
+| SSH | `ssh chappy-vps` (alias for `chappy@100.113.140.69`, key `~/.ssh/chappy_v3`) |
+| SSH user | `chappy` (sudo-capable). Root SSH is **disabled**. |
+| Sudo | `sudo -i` or `sudo <cmd>` for `/opt/` work. Prompts for chappy password. |
+| Rescue | Hostinger web console (browser KVM) if Tailscale/SSH fails |
 | Bot dir | `/opt/tradebot` |
 | IBC dir | `/opt/ibc` |
 | IB Gateway dir | `/opt/ibgateway` |
 | Notification | ntfy.sh topic: `tradebot-DUE090987` |
+
+**Access pattern:** `ssh chappy-vps` → `sudo -i` → work in `/opt/`
+**VNC tunnel:** `ssh -L 5900:localhost:5900 chappy-vps` (not the old root version)
+**If SSH times out:** check Tailscale is running on your PC first.
 
 ---
 
