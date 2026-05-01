@@ -22,7 +22,11 @@ logger = logging.getLogger(__name__)
 
 # IBKR codes that are pure noise — suppress to DEBUG
 _DEBUG_CODES = {
-    2104, 2106, 2158, 2119, 10182,  # market data farm connected/ok
+    2104,
+    2106,
+    2158,
+    2119,
+    10182,  # market data farm connected/ok
 }
 
 # IBKR connectivity and data-farm status — log at INFO (visible but not alarming)
@@ -36,11 +40,11 @@ _INFO_CODES = {
 
 # IBKR error codes that are warnings (not fatal)
 _WARNING_CODES = {
-    201,   # order rejected
-    202,   # order cancelled — expected, not an error
-    399,   # order message
+    201,  # order rejected
+    202,  # order cancelled — expected, not an error
+    399,  # order message
     1100,  # connectivity between IB and TWS lost (transient — 1102 follows)
-    10147, # order not found (already cancelled/filled externally)
+    10147,  # order not found (already cancelled/filled externally)
 }
 
 # IBKR error codes that indicate a lost/broken connection
@@ -89,10 +93,10 @@ class OrderManager:
 
         # Wire all relevant ib_insync events
         self._ib.orderStatusEvent += self._handle_order_status
-        self._ib.openOrderEvent   += self._handle_open_order
-        self._ib.newOrderEvent    += self._handle_new_order
+        self._ib.openOrderEvent += self._handle_open_order
+        self._ib.newOrderEvent += self._handle_new_order
         self._ib.cancelOrderEvent += self._handle_cancel_order
-        self._ib.errorEvent       += self._handle_error
+        self._ib.errorEvent += self._handle_error
 
         # Pull all currently open orders on startup (only if connected)
         if client.is_connected:
@@ -182,9 +186,12 @@ class OrderManager:
         result = self._trade_to_result(trade, submitted_at=submitted_at)
         logger.info(
             "Order placed | %s %s x%s @ %s | id=%s | status=%s",
-            result.action, result.symbol, result.quantity,
+            result.action,
+            result.symbol,
+            result.quantity,
             request.limit_price or "MKT",
-            result.order_id, result.status,
+            result.order_id,
+            result.status,
         )
         return result
 
@@ -209,12 +216,15 @@ class OrderManager:
         if trade.orderStatus.status not in _ACTIVE_STATUSES:
             logger.warning(
                 "cancel_order: order %s is not active (status=%s).",
-                order_id, trade.orderStatus.status,
+                order_id,
+                trade.orderStatus.status,
             )
             return False
         self._ib.cancelOrder(trade.order)
         self._ib.sleep(0.5)
-        logger.info("Cancel sent | id=%s | %s %s", order_id, trade.order.action, trade.contract.symbol)
+        logger.info(
+            "Cancel sent | id=%s | %s %s", order_id, trade.order.action, trade.contract.symbol
+        )
         return True
 
     def cancel_all(self, symbol: Optional[str] = None) -> int:
@@ -229,7 +239,9 @@ class OrderManager:
             self._ib.cancelOrder(trade.order)
             logger.info(
                 "Cancel sent | id=%s | %s %s",
-                trade.order.orderId, trade.order.action, trade.contract.symbol,
+                trade.order.orderId,
+                trade.order.action,
+                trade.contract.symbol,
             )
         if trades:
             self._ib.sleep(0.5)
@@ -264,7 +276,7 @@ class OrderManager:
             Position(
                 symbol=pos.contract.symbol,
                 quantity=pos.position,
-                avg_cost=pos.averageCost,   # PortfolioItem uses averageCost, not avgCost
+                avg_cost=pos.averageCost,  # PortfolioItem uses averageCost, not avgCost
                 market_price=_clean(pos.marketPrice),
                 market_value=_clean(pos.marketValue),
                 unrealized_pnl=_clean(pos.unrealizedPNL),
@@ -287,10 +299,7 @@ class OrderManager:
 
     def _active_trades(self, symbol: Optional[str] = None) -> List[Trade]:
         with self._lock:
-            trades = [
-                t for t in self._orders.values()
-                if t.orderStatus.status in _ACTIVE_STATUSES
-            ]
+            trades = [t for t in self._orders.values() if t.orderStatus.status in _ACTIVE_STATUSES]
         if symbol:
             trades = [t for t in trades if t.contract.symbol == symbol.upper()]
         return trades
@@ -315,14 +324,21 @@ class OrderManager:
         if request.order_type == OrderType.MARKET:
             return MarketOrder(request.action.value, request.quantity, tif=tif)
         if request.order_type == OrderType.LIMIT:
+            assert request.limit_price is not None  # validated in OrderRequest.__post_init__
             return LimitOrder(request.action.value, request.quantity, request.limit_price, tif=tif)
         if request.order_type == OrderType.STOP:
+            assert request.stop_price is not None  # validated in OrderRequest.__post_init__
             return StopOrder(request.action.value, request.quantity, request.stop_price, tif=tif)
         if request.order_type == OrderType.STOP_LIMIT:
             from ib_insync import StopLimitOrder
+
+            assert request.limit_price is not None and request.stop_price is not None
             return StopLimitOrder(
-                request.action.value, request.quantity,
-                request.limit_price, request.stop_price, tif=tif,
+                request.action.value,
+                request.quantity,
+                request.limit_price,
+                request.stop_price,
+                tif=tif,
             )
         raise ValueError(f"Unsupported order type: {request.order_type}")
 
@@ -335,8 +351,10 @@ class OrderManager:
         s = trade.orderStatus
 
         # avg_fill_price is 0.0 for unfilled orders — return None instead
-        avg_price = s.avgFillPrice
-        if avg_price is None or (isinstance(avg_price, float) and (math.isnan(avg_price) or avg_price == 0.0)):
+        avg_price: Optional[float] = s.avgFillPrice
+        if avg_price is None or (
+            isinstance(avg_price, float) and (math.isnan(avg_price) or avg_price == 0.0)
+        ):
             avg_price = None
 
         if s.status in OrderStatus._value2member_map_:
@@ -345,7 +363,8 @@ class OrderManager:
             logger.warning(
                 "Unknown IBKR order status '%s' for order %s — mapping to ERROR. "
                 "This may indicate a new TWS version introduced a new status string.",
-                s.status, o.orderId,
+                s.status,
+                o.orderId,
             )
             mapped_status = OrderStatus.ERROR
 
@@ -375,8 +394,10 @@ class OrderManager:
             self._orders[trade.order.orderId] = trade
         logger.debug(
             "Open order synced | id=%s | %s %s | status=%s",
-            trade.order.orderId, trade.order.action,
-            trade.contract.symbol, trade.orderStatus.status,
+            trade.order.orderId,
+            trade.order.action,
+            trade.contract.symbol,
+            trade.orderStatus.status,
         )
 
     def _handle_new_order(self, trade: Trade) -> None:
@@ -385,8 +406,10 @@ class OrderManager:
             self._orders[trade.order.orderId] = trade
         logger.info(
             "New order detected | id=%s | %s %s x%s",
-            trade.order.orderId, trade.order.action,
-            trade.contract.symbol, trade.order.totalQuantity,
+            trade.order.orderId,
+            trade.order.action,
+            trade.contract.symbol,
+            trade.order.totalQuantity,
         )
 
     def _handle_cancel_order(self, trade: Trade) -> None:
@@ -398,7 +421,9 @@ class OrderManager:
             result = self._trade_to_result(trade)
         logger.info(
             "Order cancelled | id=%s | %s %s",
-            trade.order.orderId, trade.order.action, trade.contract.symbol,
+            trade.order.orderId,
+            trade.order.action,
+            trade.contract.symbol,
         )
         for cb in self._on_cancel_callbacks:
             cb(result)
@@ -423,8 +448,10 @@ class OrderManager:
         if fill_result is not None:
             logger.info(
                 "FILLED | %s %s x%s @ %.4f | id=%s",
-                trade.order.action, trade.contract.symbol,
-                trade.orderStatus.filled, trade.orderStatus.avgFillPrice,
+                trade.order.action,
+                trade.contract.symbol,
+                trade.orderStatus.filled,
+                trade.orderStatus.avgFillPrice,
                 trade.order.orderId,
             )
             for cb in self._on_fill_callbacks:
@@ -441,12 +468,15 @@ class OrderManager:
             logger.info("IBKR notice | code=%s | %s", error_code, error_string)
             return
         if error_code in _WARNING_CODES:
-            logger.warning("IBKR warning | reqId=%s | code=%s | %s", req_id, error_code, error_string)
+            logger.warning(
+                "IBKR warning | reqId=%s | code=%s | %s", req_id, error_code, error_string
+            )
             return
         if error_code in _CONNECTION_ERROR_CODES:
             logger.error(
                 "IBKR connection error | code=%s | %s — TWS connection may be lost.",
-                error_code, error_string,
+                error_code,
+                error_string,
             )
             # Always propagate connection errors — callers may want to halt or reconnect.
             for cb in self._on_error_callbacks:

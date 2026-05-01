@@ -32,13 +32,14 @@ class Bar:
         is_delayed: True if data is 15-min delayed (paper account).
                     Strategies can use this to add safeguards.
     """
-    symbol:     str
-    timestamp:  datetime
-    open:       float
-    high:       float
-    low:        float
-    close:      float
-    volume:     int
+
+    symbol: str
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
     is_delayed: bool = False
 
     @property

@@ -23,25 +23,26 @@ class OrderType(str, Enum):
 
 class TimeInForce(str, Enum):
     DAY = "DAY"
-    GTC = "GTC"   # Good Till Cancelled
-    IOC = "IOC"   # Immediate or Cancel
-    FOK = "FOK"   # Fill or Kill
+    GTC = "GTC"  # Good Till Cancelled
+    IOC = "IOC"  # Immediate or Cancel
+    FOK = "FOK"  # Fill or Kill
 
 
 class OrderStatus(str, Enum):
-    PENDING_SUBMIT  = "PendingSubmit"
-    PRE_SUBMITTED   = "PreSubmitted"
-    SUBMITTED       = "Submitted"
-    FILLED          = "Filled"
-    PENDING_CANCEL  = "PendingCancel"   # cancellation sent, waiting for TWS confirmation
-    CANCELLED       = "Cancelled"
-    INACTIVE        = "Inactive"
-    ERROR           = "Error"
+    PENDING_SUBMIT = "PendingSubmit"
+    PRE_SUBMITTED = "PreSubmitted"
+    SUBMITTED = "Submitted"
+    FILLED = "Filled"
+    PENDING_CANCEL = "PendingCancel"  # cancellation sent, waiting for TWS confirmation
+    CANCELLED = "Cancelled"
+    INACTIVE = "Inactive"
+    ERROR = "Error"
 
 
 @dataclass
 class OrderRequest:
     """Validated input for placing an order."""
+
     symbol: str
     action: OrderAction
     quantity: float
@@ -73,13 +74,15 @@ class OrderRequest:
             _log.warning(
                 "Fractional quantity %.4f for %s — "
                 "ensure this symbol supports fractional shares.",
-                self.quantity, self.symbol,
+                self.quantity,
+                self.symbol,
             )
 
 
 @dataclass
 class OrderResult:
     """Snapshot of an order's current state."""
+
     order_id: int
     symbol: str
     action: str
@@ -89,13 +92,13 @@ class OrderResult:
     status: OrderStatus
     filled: float
     remaining: float
-    avg_fill_price: Optional[float]   # None until at least partially filled
+    avg_fill_price: Optional[float]  # None until at least partially filled
     limit_price: Optional[float]
     stop_price: Optional[float]
     submitted_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     cost_basis: Optional[float] = None  # avg cost per share at the moment of a SELL fill
-                                        # populated by BacktestPortfolio; None for live orders
-                                        # used by metrics.win_rate() and metrics.profit_factor()
+    # populated by BacktestPortfolio; None for live orders
+    # used by metrics.win_rate() and metrics.profit_factor()
 
     @property
     def is_active(self) -> bool:
@@ -113,10 +116,11 @@ class OrderResult:
 @dataclass
 class Position:
     """Current holding in a symbol."""
+
     symbol: str
-    quantity: float              # positive = long, negative = short
+    quantity: float  # positive = long, negative = short
     avg_cost: float
-    market_price: Optional[float]    # None if IBKR hasn't pushed data yet
+    market_price: Optional[float]  # None if IBKR hasn't pushed data yet
     market_value: Optional[float]
     unrealized_pnl: Optional[float]
     realized_pnl: Optional[float]

@@ -34,8 +34,6 @@ Wiring in main.py:
 import logging
 import math
 import threading
-from datetime import datetime, timezone
-from typing import Optional
 
 from broker.ibkr_client import IBKRClient
 from models.order import OrderAction, OrderRequest, OrderResult
@@ -76,13 +74,13 @@ class RiskManager:
     def __init__(
         self,
         client: IBKRClient,
-        order_manager,                          # OrderManager — avoids circular import
+        order_manager,  # OrderManager — avoids circular import
         max_order_value: float = 5_000.0,
         max_position_value: float = 10_000.0,
         max_daily_loss: float = -500.0,
         max_open_orders: int = 10,
-        max_risk_per_trade_pct: float = 0.02,   # 2% of equity per trade
-        min_reward_risk_ratio: float = 3.0,     # minimum 1:3 R/R
+        max_risk_per_trade_pct: float = 0.02,  # 2% of equity per trade
+        min_reward_risk_ratio: float = 3.0,  # minimum 1:3 R/R
     ) -> None:
         if max_daily_loss >= 0:
             raise ValueError("max_daily_loss must be negative (e.g., -500.0)")
@@ -92,9 +90,7 @@ class RiskManager:
                 f"got {max_risk_per_trade_pct}"
             )
         if min_reward_risk_ratio <= 0:
-            raise ValueError(
-                f"min_reward_risk_ratio must be positive, got {min_reward_risk_ratio}"
-            )
+            raise ValueError(f"min_reward_risk_ratio must be positive, got {min_reward_risk_ratio}")
 
         self._client = client
         self._om = order_manager
@@ -112,8 +108,12 @@ class RiskManager:
             "RiskManager initialized | max_order=$%.0f | max_position=$%.0f "
             "| max_daily_loss=$%.0f | max_open_orders=%d "
             "| max_risk_per_trade=%.1f%% | min_R/R=1:%.1f",
-            max_order_value, max_position_value, max_daily_loss, max_open_orders,
-            max_risk_per_trade_pct * 100, min_reward_risk_ratio,
+            max_order_value,
+            max_position_value,
+            max_daily_loss,
+            max_open_orders,
+            max_risk_per_trade_pct * 100,
+            min_reward_risk_ratio,
         )
 
     # ------------------------------------------------------------------
@@ -178,8 +178,11 @@ class RiskManager:
 
         logger.debug(
             "Risk check PASSED | %s %s x%s | order_value=$%.2f | daily_pnl=$%.2f",
-            request.action.value, request.symbol, request.quantity,
-            order_value, daily_pnl,
+            request.action.value,
+            request.symbol,
+            request.quantity,
+            order_value,
+            daily_pnl,
         )
 
     # ------------------------------------------------------------------
@@ -246,6 +249,7 @@ class RiskManager:
             # risk/share = $5; max_risk = $200; shares = floor(200/5) = 40
         """
         from risk.position_sizer import PositionSizer  # avoids circular import at module level
+
         self.validate_setup(entry_price, stop_price, take_profit_price, equity, order_action)
 
         if order_action == OrderAction.SELL:
@@ -255,8 +259,8 @@ class RiskManager:
             # so the arithmetic yields the correct short risk distance.
             # Example: entry=100, stop=105 → sizing_high=105, sizing_low=100
             #          risk_based() computes 105 - 100 = $5/share ✓
-            sizing_high = stop_price    # short's stop (above entry) → sizer's "entry"
-            sizing_low  = entry_price   # short's entry (below stop) → sizer's "stop"
+            sizing_high = stop_price  # short's stop (above entry) → sizer's "entry"
+            sizing_low = entry_price  # short's entry (below stop) → sizer's "stop"
             return PositionSizer.risk_based(
                 equity=equity,
                 entry_price=sizing_high,
@@ -330,7 +334,7 @@ class RiskManager:
                     f"take_profit_price ({take_profit_price:.4f}) must be above "
                     f"entry_price ({entry_price:.4f}) for a long (BUY) position."
                 )
-            risk_per_share   = entry_price - stop_price
+            risk_per_share = entry_price - stop_price
             reward_per_share = take_profit_price - entry_price
         else:  # SHORT / SELL
             if stop_price <= entry_price:
@@ -343,7 +347,7 @@ class RiskManager:
                     f"take_profit_price ({take_profit_price:.4f}) must be below "
                     f"entry_price ({entry_price:.4f}) for a short (SELL) position."
                 )
-            risk_per_share   = stop_price - entry_price
+            risk_per_share = stop_price - entry_price
             reward_per_share = entry_price - take_profit_price
 
         rr_ratio = reward_per_share / risk_per_share
@@ -373,9 +377,14 @@ class RiskManager:
         logger.debug(
             "Trade setup VALID | %s | entry=%.4f | stop=%.4f | target=%.4f "
             "| R/R=1:%.2f (min 1:%.1f) | risk/share=$%.4f | max_risk=$%.2f",
-            order_action.value, entry_price, stop_price, take_profit_price,
-            rr_ratio, self.min_reward_risk_ratio,
-            risk_per_share, max_risk_dollars,
+            order_action.value,
+            entry_price,
+            stop_price,
+            take_profit_price,
+            rr_ratio,
+            self.min_reward_risk_ratio,
+            risk_per_share,
+            max_risk_dollars,
         )
 
     # ------------------------------------------------------------------
@@ -403,11 +412,14 @@ class RiskManager:
             reset_daily() must be called at market open to zero out the counter.
         """
         if result.avg_fill_price is None:
-            return   # unfilled — nothing to record
+            return  # unfilled — nothing to record
 
         logger.debug(
             "Fill recorded | %s %s x%s @ %.4f",
-            result.action, result.symbol, result.filled, result.avg_fill_price,
+            result.action,
+            result.symbol,
+            result.filled,
+            result.avg_fill_price,
         )
 
     def update_daily_pnl(self, pnl: float) -> None:
@@ -427,7 +439,8 @@ class RiskManager:
             logger.warning(
                 "Daily loss ceiling BREACHED: P&L=$%.2f, limit=$%.2f. "
                 "All new orders will be rejected until reset_daily() is called.",
-                pnl, self.max_daily_loss,
+                pnl,
+                self.max_daily_loss,
             )
 
     def reset_daily(self) -> None:

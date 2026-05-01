@@ -19,8 +19,6 @@ Usage:
 
 import logging
 import time
-from datetime import datetime
-from typing import Optional
 
 import pandas as pd
 
@@ -83,13 +81,14 @@ class HistoricalDataLoader:
         try:
             import yfinance as yf
         except ImportError:
-            raise ImportError(
-                "yfinance is not installed. Run: pip install yfinance"
-            )
+            raise ImportError("yfinance is not installed. Run: pip install yfinance")
 
         logger.info(
             "Downloading %s from yfinance | %s → %s | interval=%s",
-            symbol, start, end, interval,
+            symbol,
+            start,
+            end,
+            interval,
         )
 
         ticker = yf.Ticker(symbol)
@@ -119,7 +118,10 @@ class HistoricalDataLoader:
 
         logger.info(
             "Loaded %d bars for %s (%s → %s).",
-            len(df), symbol, df.index[0].date(), df.index[-1].date(),
+            len(df),
+            symbol,
+            df.index[0].date(),
+            df.index[-1].date(),
         )
         return df
 
@@ -128,7 +130,7 @@ class HistoricalDataLoader:
         symbol: str,
         duration: str,
         bar_size: str,
-        client,                     # IBKRClient — avoids circular import at module level
+        client,  # IBKRClient — avoids circular import at module level
         what_to_show: str = "TRADES",
         use_rth: bool = True,
     ) -> pd.DataFrame:
@@ -169,7 +171,8 @@ class HistoricalDataLoader:
             wait = _IBKR_MIN_INTERVAL - elapsed
             logger.info(
                 "IBKR rate limit: waiting %.1fs before historical data request for %s.",
-                wait, symbol,
+                wait,
+                symbol,
             )
             time.sleep(wait)
         HistoricalDataLoader._last_ibkr_call = time.time()
@@ -178,7 +181,9 @@ class HistoricalDataLoader:
 
         logger.info(
             "Requesting historical data from IBKR | %s | %s | %s",
-            symbol, duration, bar_size,
+            symbol,
+            duration,
+            bar_size,
         )
 
         contract = client.qualify_contract(Stock(symbol, "SMART", "USD"))
@@ -204,10 +209,10 @@ class HistoricalDataLoader:
         records = [
             {
                 "timestamp": bar.date,
-                "open":   float(bar.open),
-                "high":   float(bar.high),
-                "low":    float(bar.low),
-                "close":  float(bar.close),
+                "open": float(bar.open),
+                "high": float(bar.high),
+                "low": float(bar.low),
+                "close": float(bar.close),
                 "volume": int(bar.volume),
             }
             for bar in bars
@@ -224,7 +229,10 @@ class HistoricalDataLoader:
 
         logger.info(
             "Loaded %d bars for %s from IBKR (%s → %s).",
-            len(df), symbol, df.index[0].date(), df.index[-1].date(),
+            len(df),
+            symbol,
+            df.index[0].date(),
+            df.index[-1].date(),
         )
         return df
 
@@ -273,14 +281,16 @@ class HistoricalDataLoader:
         missing = [c for c in _COLUMNS if c not in df.columns]
         if missing:
             raise ValueError(
-                f"CSV is missing required columns: {missing}. "
-                f"Found: {list(df.columns)}"
+                f"CSV is missing required columns: {missing}. " f"Found: {list(df.columns)}"
             )
 
         df = df[_COLUMNS].sort_index().dropna()
 
         logger.info(
             "Loaded %d bars for %s from CSV (%s → %s).",
-            len(df), symbol, df.index[0].date(), df.index[-1].date(),
+            len(df),
+            symbol,
+            df.index[0].date(),
+            df.index[-1].date(),
         )
         return df

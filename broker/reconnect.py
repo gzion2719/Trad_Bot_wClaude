@@ -49,7 +49,7 @@ class ReconnectManager:
     def __init__(
         self,
         client: IBKRClient,
-        order_manager,                          # OrderManager — avoids circular import
+        order_manager,  # OrderManager — avoids circular import
         on_reconnected: Optional[Callable] = None,
         max_attempts: int = 10,
     ) -> None:
@@ -92,7 +92,7 @@ class ReconnectManager:
         self._thread = threading.Thread(
             target=self._reconnect_loop,
             name="ReconnectManager",
-            daemon=True,          # dies automatically when main thread exits
+            daemon=True,  # dies automatically when main thread exits
         )
         self._thread.start()
         logger.info("ReconnectManager started.")
@@ -104,7 +104,7 @@ class ReconnectManager:
         Does NOT disconnect — just stops the background thread.
         """
         self._stop_flag.set()
-        self._connected_event.set()   # unblock any waiters so they can exit
+        self._connected_event.set()  # unblock any waiters so they can exit
         if self._thread:
             self._thread.join(timeout=5)
         logger.info("ReconnectManager stopped.")
@@ -151,7 +151,7 @@ class ReconnectManager:
         The background thread detects this and starts the retry loop.
         """
         if self._stop_flag.is_set():
-            return   # clean shutdown — don't trigger a reconnect
+            return  # clean shutdown — don't trigger a reconnect
         logger.warning("Disconnect detected — pausing strategies and scheduling reconnect.")
         self._connected_event.clear()
 
@@ -188,20 +188,21 @@ class ReconnectManager:
             if self._stop_flag.is_set():
                 return
 
-            logger.info(
-                "Reconnect attempt %d/%d …", attempt, self._max_attempts
-            )
+            logger.info("Reconnect attempt %d/%d …", attempt, self._max_attempts)
 
             # ── Step 1: TCP reconnect ──────────────────────────────────────
             try:
-                self._client.connect(retries=0)   # ReconnectManager owns the retry loop
+                self._client.connect(retries=0)  # ReconnectManager owns the retry loop
                 logger.info("Reconnected to TWS successfully.")
             except Exception as exc:
                 delay = _BACKOFF[min(attempt - 1, len(_BACKOFF) - 1)]
                 if attempt < self._max_attempts:
                     logger.warning(
                         "Reconnect attempt %d/%d failed (%s). Waiting %ds…",
-                        attempt, self._max_attempts, exc, delay,
+                        attempt,
+                        self._max_attempts,
+                        exc,
+                        delay,
                     )
                     # Sleep in small increments so stop_flag is checked promptly
                     for _ in range(delay):
@@ -212,12 +213,13 @@ class ReconnectManager:
                     logger.critical(
                         "All %d reconnect attempts exhausted. Last error: %s. "
                         "Bot is halted — manual intervention required.",
-                        self._max_attempts, exc,
+                        self._max_attempts,
+                        exc,
                     )
                     self._halted.set()
                     # Leave _connected_event cleared so strategies keep blocking
                     # (they will see is_halted and exit their own loops)
-                continue   # move on to next attempt (or exit loop if last attempt)
+                continue  # move on to next attempt (or exit loop if last attempt)
 
             # ── Step 2: Post-connect sync ──────────────────────────────────
             # connect() succeeded. Now re-sync open orders. If sync() fails we

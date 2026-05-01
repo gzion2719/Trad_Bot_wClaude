@@ -1,5 +1,6 @@
 from broker.ibkr_client import IBKRClient
 
+
 def main():
     client = IBKRClient()
     try:
@@ -14,6 +15,7 @@ def main():
         print(f"Connection failed: {e}")
     finally:
         client.disconnect()
+
 
 if __name__ == "__main__":
     main()
