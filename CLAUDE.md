@@ -402,6 +402,7 @@ GitHub branch protection is not enforced on this free private repo. Claude is th
 3. **Never say "open a PR" without specifying `base: <branch>` and `compare: <branch>`** — the user clicks whatever GitHub defaults to, which caused an accidental feature → main merge.
 4. **Before starting any work**, check current branch with `git branch` and confirm it is a `feature/*` or `hotfix/*` branch, never `main` or `develop` directly.
 5. **After a PR merges to main**, always open a follow-up PR or fast-forward `develop` to keep them in sync.
+6. **After creating a skill**, immediately re-read the manifest.json to confirm the entry persisted before declaring done — the system can overwrite the manifest between tool calls.
 
 ---
 
