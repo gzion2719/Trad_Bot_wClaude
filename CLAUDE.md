@@ -1,7 +1,9 @@
 # CLAUDE.md — Session Handoff Document
 
 Read this file at the start of every new Claude session before touching any code.
-It gives you full context so you can continue work without re-explaining everything.
+Then immediately read `SESSION_PROTOCOL.md` and `WORKFLOW.md` — they define the opening/closing ritual and how chats work.
+
+**Language:** Hebrew or English in → English out. Always.
 
 ---
 
@@ -26,9 +28,36 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-04-30) — Option C shipped. PRs #9 (feature→develop) and #10 (develop→main) merged. VPS deploy pending tonight after on_tick() confirms at ~20:10 UTC.**
+**Last session completed (2026-05-01, continued) — Code quality gate: ruff ✅ black ✅ mypy ✅. pyproject.toml added. All code quality issues fixed. Branch `claude/hardcore-leavitt-18927f` ready to PR → develop.**
 
-### What was done this session (2026-04-30)
+### What was done this session (2026-05-01, continued)
+
+**Code quality gate — made ruff + black + mypy all pass:**
+- Created `pyproject.toml` — ruff config (ignores E402 intentional docstring pattern, E702 intentional semicolons in test runner); black line-length=100
+- Ran `ruff check --fix`: auto-fixed 22 issues (unused imports, f-strings without placeholders, multiple imports on one line, redefined var)
+- Fixed 8 F841 unused-variable issues manually in `tests/run_tests.py` and `tests/run_market_tests.py`
+- Ran `black .`: auto-formatted 23 files to project style
+- Fixed 15 mypy errors across 5 files:
+  - `backtester/metrics.py`: added None guards for Optional[float] in `win_rate()` and `profit_factor()`
+  - `data/feed.py`: added `# type: ignore[attr-defined]` for ib_insync's `updateEvent` (untyped lib)
+  - `broker/order_manager.py`: asserted non-None before passing prices to IB order constructors; annotated `avg_price: Optional[float]`
+  - `strategies/sma_crossover.py`: **bug fix** — `get_account_summary()` returns a list not a dict; fixed `_get_equity()` to build dict comprehension first (`{s.tag: s.value for s in ...}`)
+  - `main.py`: added `# type: ignore[assignment]` on `timezone` fallback lines; changed `TradeLog(db_path="...")` to use `Path(...)`
+
+### What was done last session (2026-05-01, earlier)
+
+**Protocol scaffold bootstrap — YuTom methodology applied to TradeBot:**
+- Created `SESSION_PROTOCOL.md` — full opening/closing ritual with worked example
+- Created `WORKFLOW.md` — 3 chat archetypes, pre-push gate, red flags, emergency protocol
+- Created `CHATLOG.md` — session memory log, newest-first format
+- Created `docs/ROADMAP.md` — phased plan migrated from TODO.md sprints (Phases 1–7)
+- Created `docs/BACKLOG.md` — all open items categorized (Infra/Strategy/Risk/Tooling/Decisions)
+- Created `.github/workflows/ci.yml` — CI: ruff → black --check → mypy → pytest on push + PR
+- Created `Makefile` — `make pre-push` mirrors CI exactly for local gate
+- Updated `CLAUDE.md` — added protocol file references, language pair, file map section
+- Marked TODO 5.8 [x] (CI/CD pipeline now done)
+
+### What was done last session (2026-04-30)
 
 **IBKR info-code noise fix (`broker/order_manager.py`) — PR #9 merged to develop:**
 - Codes 1100/1102/2103/2105/2107/2157 were missing from all sets → fell through to `logger.error()` → flooded `journalctl`
@@ -419,11 +448,30 @@ GitHub branch protection is not enforced on this free private repo. Claude is th
 
 ---
 
+## File map
+
+| File | Purpose |
+|---|---|
+| `CLAUDE.md` | This file — full project context, read first every session |
+| `SESSION_PROTOCOL.md` | Opening + closing ritual — read immediately after CLAUDE.md |
+| `WORKFLOW.md` | Chat archetypes, pre-push gate, git rules, red flags |
+| `CHATLOG.md` | Session log, newest-first — read last 3 entries in opening ritual |
+| `TODO.md` | Sprint-by-sprint task tracker |
+| `docs/ROADMAP.md` | Phased roadmap with acceptance checks |
+| `docs/BACKLOG.md` | Categorized open items, reviewed every 5 sessions |
+| `docs/CHATLOG_ARCHIVE.md` | Archived older CHATLOG entries (created at session 10) |
+| `.github/workflows/ci.yml` | CI pipeline: ruff → black → mypy → pytest |
+| `Makefile` | Local gate targets — `make pre-push` mirrors CI exactly |
+
 ## Files to always read before editing
 
 | File | Why |
 |---|---|
-| `TODO.md` | Current task priorities and sprint roadmap |
+| `SESSION_PROTOCOL.md` | Opening/closing ritual — non-negotiable every session |
+| `WORKFLOW.md` | How chats work, pre-push gate, red flags |
+| `CHATLOG.md` | Last 3 entries — where we left off |
+| `docs/ROADMAP.md` | Current phase and pending items |
+| `TODO.md` | Sprint-level task status |
 | `strategies/base_strategy.py` | Interface every strategy must implement |
 | `backtester/engine.py` | How backtest replay works |
 | `broker/order_manager.py` | Core live trading logic |

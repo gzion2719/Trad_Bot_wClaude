@@ -42,6 +42,7 @@ _MAX_CONSECUTIVE_ERRORS = 5
 # Abstract interface
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class DataFeed(ABC):
     """
     Abstract base class for all price data sources.
@@ -88,6 +89,7 @@ class DataFeed(ABC):
 # ══════════════════════════════════════════════════════════════════════════════
 # IBKR implementation
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class IBKRFeed(DataFeed):
     """
@@ -146,7 +148,7 @@ class IBKRFeed(DataFeed):
                     self._ib.cancelRealTimeBars(bars)
                 except Exception:
                     pass
-                raise   # propagate original error to caller
+                raise  # propagate original error to caller
 
             # All objects ready — write state atomically
             self._bar_objects[symbol] = bars
@@ -167,7 +169,7 @@ class IBKRFeed(DataFeed):
             handler = self._handlers.pop(symbol, None)
             if handler is not None:
                 try:
-                    bars.updateEvent -= handler
+                    bars.updateEvent -= handler  # type: ignore[attr-defined]
                 except Exception:
                     pass  # handler may already be detached
             self._ib.cancelRealTimeBars(bars)
@@ -191,6 +193,7 @@ class IBKRFeed(DataFeed):
 
     def _make_handler(self, symbol: str) -> Callable:
         """Create a closure that converts an ib_insync bar update to our Bar."""
+
         def handler(bars, has_new_bar):
             if not has_new_bar or not bars:
                 return
@@ -210,15 +213,15 @@ class IBKRFeed(DataFeed):
                 try:
                     cb(bar)
                 except Exception as exc:
-                    logger.error(
-                        "IBKRFeed callback error for %s: %s", symbol, exc, exc_info=True
-                    )
+                    logger.error("IBKRFeed callback error for %s: %s", symbol, exc, exc_info=True)
+
         return handler
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Bar Scheduler
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class BarScheduler:
     """
@@ -260,7 +263,8 @@ class BarScheduler:
         self._thread.start()
         logger.info(
             "BarScheduler started for %s (interval=%ds).",
-            self._strategy.name, self._interval,
+            self._strategy.name,
+            self._interval,
         )
 
     def stop(self) -> None:
@@ -277,7 +281,8 @@ class BarScheduler:
                 logger.warning(
                     "BarScheduler: thread for %s did not stop within %ds "
                     "— it is a daemon thread and will exit with the process.",
-                    self._strategy.name, join_timeout,
+                    self._strategy.name,
+                    join_timeout,
                 )
         self._thread = None
         logger.info("BarScheduler stopped for %s.", self._strategy.name)
@@ -287,14 +292,15 @@ class BarScheduler:
         while not self._stop_flag.is_set():
             try:
                 self._strategy.on_tick()
-                consecutive_errors = 0   # reset on success
+                consecutive_errors = 0  # reset on success
             except Exception as exc:
                 consecutive_errors += 1
                 logger.error(
-                    "BarScheduler: on_tick() raised for %s: %s "
-                    "(consecutive error %d/%d)",
-                    self._strategy.name, exc,
-                    consecutive_errors, _MAX_CONSECUTIVE_ERRORS,
+                    "BarScheduler: on_tick() raised for %s: %s " "(consecutive error %d/%d)",
+                    self._strategy.name,
+                    exc,
+                    consecutive_errors,
+                    _MAX_CONSECUTIVE_ERRORS,
                     exc_info=True,
                 )
                 if consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
@@ -302,9 +308,10 @@ class BarScheduler:
                         "BarScheduler: %d consecutive errors for strategy %s "
                         "— stopping scheduler to prevent runaway loop. "
                         "Investigate and restart manually.",
-                        consecutive_errors, self._strategy.name,
+                        consecutive_errors,
+                        self._strategy.name,
                     )
-                    return   # exit the thread
+                    return  # exit the thread
 
             # Sleep in 1-second chunks so stop_flag is checked promptly
             for _ in range(self._interval):

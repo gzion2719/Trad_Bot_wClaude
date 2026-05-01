@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from broker.ibkr_client import IBKRClient
 from broker.order_manager import OrderManager
@@ -52,10 +51,10 @@ class BaseStrategy(ABC):
         self,
         client: IBKRClient,
         order_manager: OrderManager,
-        risk_manager=None,    # RiskManager — Optional to avoid circular import at class level
-        reconnect=None,       # ReconnectManager — Optional for same reason
-        feed=None,            # DataFeed — injected by engine in backtest, by main.py in live
-        symbol: str = "",     # Primary symbol this strategy trades
+        risk_manager=None,  # RiskManager — Optional to avoid circular import at class level
+        reconnect=None,  # ReconnectManager — Optional for same reason
+        feed=None,  # DataFeed — injected by engine in backtest, by main.py in live
+        symbol: str = "",  # Primary symbol this strategy trades
     ) -> None:
         self.client = client
         self.om = order_manager

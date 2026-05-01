@@ -5,24 +5,27 @@ Tests that require live market fills: P-01, P-02, P-12, S-06, POS-02
 Run this during regular US market hours (9:30 AM - 4:00 PM EST).
 Uses small quantities on paper account only.
 """
+
 import sys
-import time
 
 sys.path.insert(0, "..")
 
 from config.logging_config import setup_logging
+
 setup_logging()
 
 import logging
+
 logging.disable(logging.CRITICAL)
 
 from broker.ibkr_client import IBKRClient
 from broker.order_manager import OrderManager
-from models.order import OrderAction, OrderRequest, OrderType, TimeInForce
+from models.order import OrderAction, OrderRequest, TimeInForce
 
 # ── Test framework ──────────────────────────────────────────────────────────
 
 results = []
+
 
 def test(test_id, description):
     def decorator(fn):
@@ -40,13 +43,17 @@ def test(test_id, description):
                 results.append((test_id, "FAIL", description, f"{type(e).__name__}: {e}"))
                 print(f"  [FAIL] {test_id}: {description}")
                 print(f"         > {type(e).__name__}: {e}")
+
         return wrapper
+
     return decorator
+
 
 def section(title):
     print(f"\n{'='*60}")
     print(f"  {title}")
     print(f"{'='*60}")
+
 
 def summary():
     passed = sum(1 for r in results if r[1] == "PASS")
@@ -61,6 +68,7 @@ def summary():
                 print(f"  {tid}: {desc}")
                 print(f"       {err}")
     return failed
+
 
 # ── Setup ───────────────────────────────────────────────────────────────────
 
@@ -77,6 +85,7 @@ print("Clean.\n")
 # ── Tests ────────────────────────────────────────────────────────────────────
 
 section("MARKET-HOURS TESTS")
+
 
 @test("P-01", "Market BUY fills during market hours")
 def p01():
@@ -96,8 +105,9 @@ def p01():
     assert len(fills) > 0, "Order was not filled within 10 seconds"
     fill = fills[0]
     assert fill.filled == 1.0, f"Expected 1 share filled, got {fill.filled}"
-    assert fill.avg_fill_price > 0, f"Fill price is zero or negative"
+    assert fill.avg_fill_price > 0, "Fill price is zero or negative"
     print(f"         Filled 1 AAPL @ ${fill.avg_fill_price:.2f}")
+
 
 @test("P-12", "on_fill callback receives correct OrderResult")
 def p12():
@@ -106,7 +116,7 @@ def p12():
     om.on_fill(lambda r: fills.append(r))
 
     r = OrderRequest(symbol="MSFT", action=OrderAction.BUY, quantity=1, tif=TimeInForce.GTC)
-    result = om.place_order(r)
+    om.place_order(r)
 
     for _ in range(20):
         client.ib.sleep(0.5)
@@ -121,18 +131,21 @@ def p12():
     assert fill.avg_fill_price > 0
     print(f"         Callback fired: BUY 1 MSFT @ ${fill.avg_fill_price:.2f}")
 
+
 @test("POS-02", "Position appears after fill")
 def pos02():
     client.ib.sleep(1)  # allow position to settle
     positions = om.get_positions()
     symbols = [p.symbol for p in positions]
-    assert "AAPL" in symbols or "MSFT" in symbols, \
-        f"Expected AAPL or MSFT in positions, got: {symbols}"
+    assert (
+        "AAPL" in symbols or "MSFT" in symbols
+    ), f"Expected AAPL or MSFT in positions, got: {symbols}"
     for p in positions:
         if p.symbol in ("AAPL", "MSFT"):
             assert p.quantity > 0, f"{p.symbol} position quantity is not positive"
             assert p.avg_cost > 0, f"{p.symbol} avg cost is zero"
             print(f"         {p.symbol}: {p.quantity} shares @ avg ${p.avg_cost:.2f}")
+
 
 @test("S-06", "Fill event fires automatically without polling")
 def s06():
@@ -141,13 +154,14 @@ def s06():
     om.on_fill(lambda r: fills.append(r))
 
     r = OrderRequest(symbol="IBM", action=OrderAction.BUY, quantity=1, tif=TimeInForce.GTC)
-    result = om.place_order(r)
+    om.place_order(r)
 
     # Just wait — do NOT poll. The event loop should push the fill to us.
     client.ib.sleep(10)
 
     assert len(fills) > 0, "Fill event did not fire automatically (no polling)"
-    print(f"         Fill event received automatically for IBM")
+    print("         Fill event received automatically for IBM")
+
 
 @test("P-02", "Market SELL reduces position")
 def p02():
@@ -159,7 +173,7 @@ def p02():
     om.on_fill(lambda r: fills.append(r))
 
     r = OrderRequest(symbol="AAPL", action=OrderAction.SELL, quantity=1, tif=TimeInForce.GTC)
-    result = om.place_order(r)
+    om.place_order(r)
 
     for _ in range(20):
         client.ib.sleep(0.5)
@@ -171,6 +185,7 @@ def p02():
     assert fill.action == "SELL"
     assert fill.filled == 1.0
     print(f"         Sold 1 AAPL @ ${fill.avg_fill_price:.2f}")
+
 
 p01()
 p12()

@@ -1,0 +1,12 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E402: intentional pattern — module docstrings appear before imports in every file
+# E702: intentional — tests/run_tests.py chains test calls with semicolons on one line
+ignore = ["E402", "E702"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
