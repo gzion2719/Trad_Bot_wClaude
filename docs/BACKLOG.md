@@ -53,6 +53,7 @@ For sprint-by-sprint detail, see `TODO.md`. For the phased roadmap, see `docs/RO
 | 2.6 | P2 | Virtual environment setup docs update (Sprint 5.2 handled VPS; local Windows venv docs pending) |
 | QA-15 | P2 | Delayed data staleness warning surfaced to strategies |
 | QA-16 | P2 | Market hours check for DAY orders |
+| 5.11 | P1 | Split test suite — mark IBKR-dependent tests with `requires_tws` so CI can run logic-only tests without TWS (today CI test step always fails because `tests/run_tests.py:94` connects at module load) |
 
 ---
 
