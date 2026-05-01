@@ -177,7 +177,7 @@ backtester/
 | 5.5 | [x] | P0 | `systemd` units created — `ibgateway.service`, `tradebot.service`, `tradebot-notify@.service`, `tradebot-health.service/.timer`. All in `deploy/systemd/`. |
 | 5.6 | [x] | P1 | Health heartbeat — `on_tick()` writes UTC timestamp to `data/health.txt`; `tradebot-health.timer` checks every 2h, notifies via ntfy.sh if stale >26h |
 | 5.7 | [ ] | P2 | Monitoring dashboard (simple web UI or Grafana) |
-| 5.8 | [ ] | P2 | CI/CD pipeline (auto-run tests on push to GitHub) |
+| 5.8 | [x] | P2 | CI/CD pipeline (auto-run tests on push to GitHub) — `.github/workflows/ci.yml` + `Makefile` added 2026-05-01 |
 | 5.9 | [ ] | P1 | IBKR Trusted IP whitelist — add VPS IP `2.24.222.199` in IBKR account settings → Security → Trusted IPs. **Note (2026-04-30):** likely does NOT bypass IBKR's weekly Sunday 2FA — that is enforced server-side. Still worth adding for general security posture. |
 | 5.10 | [x] | P0 | VPS deployment debugged — IBC empty password fixed, Read-Only API unchecked + `ReadOnlyApi=no` in config, 2FA loop resolved via `ExistingSessionDetectedAction=manual`, `UseSSL=yes` added |
 | 5.11 | [x] | P0 | Risk caps updated for QQQ paper account — max_order=$120k, max_position=$100k, max_daily_loss=-$2,000. Merged via PR. |

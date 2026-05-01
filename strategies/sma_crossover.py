@@ -75,7 +75,11 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 from models.order import (
-    OrderAction, OrderRequest, OrderResult, OrderType, TimeInForce,
+    OrderAction,
+    OrderRequest,
+    OrderResult,
+    OrderType,
+    TimeInForce,
 )
 from strategies.base_strategy import BaseStrategy
 
@@ -120,12 +124,12 @@ class SMACrossover(BaseStrategy):
         self._sma_slow = sma_slow
         self._initial_capital = initial_capital
 
-        self._closes: List[float] = []      # rolling daily close history
+        self._closes: List[float] = []  # rolling daily close history
 
-        self._in_position: bool = False     # True only after BUY fill confirmed
-        self._entry_pending: bool = False   # True between BUY placement and fill (H3)
-        self._position_shares: int = 0      # actual filled quantity (set in on_fill)
-        self._stop_price: float = 0.0       # planned stop, set at entry
+        self._in_position: bool = False  # True only after BUY fill confirmed
+        self._entry_pending: bool = False  # True between BUY placement and fill (H3)
+        self._position_shares: int = 0  # actual filled quantity (set in on_fill)
+        self._stop_price: float = 0.0  # planned stop, set at entry
         self._stop_order_id: Optional[int] = None  # broker-side STOP order ID (C2)
 
     # ------------------------------------------------------------------
@@ -147,7 +151,9 @@ class SMACrossover(BaseStrategy):
                         self._position_shares = int(pos.quantity)
                         logger.warning(
                             "%s: reconciled existing position %s x%d from broker.",
-                            self.name, self.symbol, self._position_shares,
+                            self.name,
+                            self.symbol,
+                            self._position_shares,
                         )
 
                         if self.client is not None:
@@ -163,13 +169,16 @@ class SMACrossover(BaseStrategy):
                                         logger.info(
                                             "%s: cancelled pre-existing SELL order %d "
                                             "(type=%s) from prior session.",
-                                            self.name, existing.order_id,
+                                            self.name,
+                                            existing.order_id,
                                             existing.order_type,
                                         )
                                     except Exception as exc2:
                                         logger.warning(
                                             "%s: could not cancel pre-existing SELL %d: %s",
-                                            self.name, existing.order_id, exc2,
+                                            self.name,
+                                            existing.order_id,
+                                            exc2,
                                         )
 
                             # Determine stop price for the reconciled position.
@@ -189,7 +198,9 @@ class SMACrossover(BaseStrategy):
                                     logger.warning(
                                         "%s: swing-low stop %.2f >= latest close %.2f "
                                         "-- using avg_cost fallback.",
-                                        self.name, candidate, latest,
+                                        self.name,
+                                        candidate,
+                                        latest,
                                     )
 
                             if stop == 0.0 and pos.avg_cost > 0:
@@ -219,19 +230,27 @@ class SMACrossover(BaseStrategy):
                                     logger.warning(
                                         "%s: protective STOP placed for reconciled "
                                         "position %s x%d @ %.2f [%s] (order %d).",
-                                        self.name, self.symbol, self._position_shares,
-                                        stop, stop_source, self._stop_order_id,
+                                        self.name,
+                                        self.symbol,
+                                        self._position_shares,
+                                        stop,
+                                        stop_source,
+                                        self._stop_order_id,
                                     )
                                 except Exception as exc2:
                                     logger.error(
                                         "%s: FAILED to place reconciled stop -- "
-                                        "position unprotected: %s", self.name, exc2,
+                                        "position unprotected: %s",
+                                        self.name,
+                                        exc2,
                                     )
                             else:
                                 logger.error(
                                     "%s: reconciled position %s x%d is UNPROTECTED "
                                     "-- no close history and avg_cost=0.",
-                                    self.name, self.symbol, self._position_shares,
+                                    self.name,
+                                    self.symbol,
+                                    self._position_shares,
                                 )
                         break
             except Exception as exc:
@@ -246,7 +265,10 @@ class SMACrossover(BaseStrategy):
 
         logger.info(
             "%s starting | symbol=%s sma_fast=%d sma_slow=%d",
-            self.name, self.symbol, self._sma_fast, self._sma_slow,
+            self.name,
+            self.symbol,
+            self._sma_fast,
+            self._sma_slow,
         )
 
     def on_stop(self) -> None:
@@ -259,7 +281,9 @@ class SMACrossover(BaseStrategy):
             logger.info(
                 "%s: shutdown with active broker STOP order %d @ %.2f -- "
                 "stop remains live to protect position during downtime.",
-                self.name, self._stop_order_id, self._stop_price,
+                self.name,
+                self._stop_order_id,
+                self._stop_price,
             )
         logger.info("%s stopped | symbol=%s", self.name, self.symbol)
 
@@ -270,18 +294,21 @@ class SMACrossover(BaseStrategy):
     def on_fill(self, result: OrderResult) -> None:
         if not result.is_filled:
             return
-        if result.symbol != self.symbol:    # H1 -- ignore fills for other symbols
+        if result.symbol != self.symbol:  # H1 -- ignore fills for other symbols
             return
 
-        self._entry_pending = False         # H3 -- clear regardless of direction
+        self._entry_pending = False  # H3 -- clear regardless of direction
 
         if result.action == OrderAction.BUY.value:
             self._position_shares = int(result.filled)
             self._in_position = True
             logger.info(
                 "%s BUY filled | %s x%d @ %.2f | stop=%.2f",
-                self.name, result.symbol, self._position_shares,
-                result.avg_fill_price or 0.0, self._stop_price,
+                self.name,
+                result.symbol,
+                self._position_shares,
+                result.avg_fill_price or 0.0,
+                self._stop_price,
             )
 
             # C2 -- place broker-side protective STOP immediately (live only).
@@ -301,12 +328,16 @@ class SMACrossover(BaseStrategy):
                     self._stop_order_id = stop_result.order_id
                     logger.info(
                         "%s protective STOP placed | %s @ %.2f (order %d)",
-                        self.name, self.symbol, self._stop_price, self._stop_order_id,
+                        self.name,
+                        self.symbol,
+                        self._stop_price,
+                        self._stop_order_id,
                     )
                 except Exception as exc:
                     logger.error(
                         "%s: FAILED to place protective stop -- position is unprotected: %s",
-                        self.name, exc,
+                        self.name,
+                        exc,
                     )
 
         elif result.action == OrderAction.SELL.value:
@@ -323,7 +354,9 @@ class SMACrossover(BaseStrategy):
             self._stop_price = 0.0
             logger.info(
                 "%s SELL filled | %s @ %.2f",
-                self.name, result.symbol, result.avg_fill_price or 0.0,
+                self.name,
+                result.symbol,
+                result.avg_fill_price or 0.0,
             )
 
     def _on_order_error(self, req_id: int, code: int, msg: str) -> None:
@@ -331,7 +364,10 @@ class SMACrossover(BaseStrategy):
         if self._entry_pending:
             logger.warning(
                 "%s: order error (req=%d code=%d msg=%s) -- clearing _entry_pending.",
-                self.name, req_id, code, msg,
+                self.name,
+                req_id,
+                code,
+                msg,
             )
             self._entry_pending = False
 
@@ -347,7 +383,9 @@ class SMACrossover(BaseStrategy):
 
         # Write UTC timestamp so the health check timer can detect a missed tick.
         try:
-            health_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "health.txt")
+            health_path = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)), "data", "health.txt"
+            )
             os.makedirs(os.path.dirname(health_path), exist_ok=True)
             with open(health_path, "w") as _hf:
                 _hf.write(datetime.now(timezone.utc).isoformat())
@@ -360,10 +398,12 @@ class SMACrossover(BaseStrategy):
         # Backtest: BacktestDataFeed already serves the correct daily bar.
         # Q4/Q6a: re-arm broker STOP if position is held but stop tracking was lost
         # (covers avg_cost==0 path on reconcile and rejected-SELL aftermath).
-        if (self.client is not None
-                and self._in_position
-                and self._stop_order_id is None
-                and self._stop_price > 0):
+        if (
+            self.client is not None
+            and self._in_position
+            and self._stop_order_id is None
+            and self._stop_price > 0
+        ):
             stop_req = OrderRequest(
                 symbol=self.symbol,
                 action=OrderAction.SELL,
@@ -378,18 +418,22 @@ class SMACrossover(BaseStrategy):
                 logger.warning(
                     "%s: re-armed broker STOP for unprotected position "
                     "%s x%d @ %.2f (order %d).",
-                    self.name, self.symbol, self._position_shares,
-                    self._stop_price, self._stop_order_id,
+                    self.name,
+                    self.symbol,
+                    self._position_shares,
+                    self._stop_price,
+                    self._stop_order_id,
                 )
             except Exception as exc:
                 logger.error(
                     "%s: re-arm STOP failed -- position remains unprotected: %s",
-                    self.name, exc,
+                    self.name,
+                    exc,
                 )
 
         if self.client is not None:
             if not self._refresh_closes():
-                return                  # data fetch failed -- skip tick
+                return  # data fetch failed -- skip tick
             latest_close = self._closes[-1]
         else:
             bar = self.feed.get_latest(self.symbol)
@@ -405,12 +449,12 @@ class SMACrossover(BaseStrategy):
         if len(self._closes) < self._sma_slow + 1:
             return  # still in warmup period
 
-        fast_now  = self._sma(self._sma_fast)
-        slow_now  = self._sma(self._sma_slow)
+        fast_now = self._sma(self._sma_fast)
+        slow_now = self._sma(self._sma_slow)
         fast_prev = self._sma_prev(self._sma_fast)
         slow_prev = self._sma_prev(self._sma_slow)
 
-        cross_up   = fast_prev <= slow_prev and fast_now > slow_now
+        cross_up = fast_prev <= slow_prev and fast_now > slow_now
         cross_down = fast_prev >= slow_prev and fast_now < slow_now
 
         # H3 -- guard: don't enter again while a BUY order is still pending
@@ -428,20 +472,22 @@ class SMACrossover(BaseStrategy):
 
     def _enter(self, price: float) -> None:
         entry = price
-        stop  = self._calc_stop(entry)
+        stop = self._calc_stop(entry)
 
         # M1 -- validate stop is strictly below entry before proceeding
         if stop >= entry:
             logger.warning(
                 "%s: stop %.2f >= entry %.2f (degenerate calc) -- skipping signal.",
-                self.name, stop, entry,
+                self.name,
+                stop,
+                entry,
             )
             return
 
         target = entry + 3.0 * (entry - stop)  # see H4 note in module docstring
 
         equity = self._get_equity()
-        if equity is None or equity <= 0:       # H2 -- fail closed on bad equity
+        if equity is None or equity <= 0:  # H2 -- fail closed on bad equity
             return
 
         shares = self._calc_shares(entry, stop, target, equity)
@@ -457,11 +503,16 @@ class SMACrossover(BaseStrategy):
         )
         try:
             self.safe_place_order(request, current_price=entry)
-            self._entry_pending = True   # H3 -- confirmed by on_fill, NOT here
-            self._stop_price = stop      # stash so on_fill can arm the broker stop
+            self._entry_pending = True  # H3 -- confirmed by on_fill, NOT here
+            self._stop_price = stop  # stash so on_fill can arm the broker stop
             logger.info(
                 "%s BUY queued | %s x%d entry=%.2f stop=%.2f target=%.2f",
-                self.name, self.symbol, shares, entry, stop, target,
+                self.name,
+                self.symbol,
+                shares,
+                entry,
+                stop,
+                target,
             )
         except Exception as exc:
             logger.warning("%s: entry order rejected -- %s", self.name, exc)
@@ -472,7 +523,8 @@ class SMACrossover(BaseStrategy):
             logger.warning(
                 "%s: exit signal (%s) but _position_shares=0 "
                 "-- BUY fill not yet confirmed, deferring one tick.",
-                self.name, reason,
+                self.name,
+                reason,
             )
             return
 
@@ -487,7 +539,9 @@ class SMACrossover(BaseStrategy):
                 logger.warning(
                     "%s: could not cancel stop order %d before exit (%s) -- "
                     "proceeding with SELL; double-fill possible if stop already triggered.",
-                    self.name, self._stop_order_id, exc,
+                    self.name,
+                    self._stop_order_id,
+                    exc,
                 )
             # Fix #3: do NOT null out _stop_order_id here; do it only after the
             # SELL is successfully placed.  If safe_place_order() raises (e.g.
@@ -503,16 +557,21 @@ class SMACrossover(BaseStrategy):
         )
         try:
             self.safe_place_order(request, current_price=price)
-            self._stop_order_id = None   # Fix #3: clear only after SELL is queued
+            self._stop_order_id = None  # Fix #3: clear only after SELL is queued
             logger.info(
                 "%s SELL queued | %s x%d @ %.2f reason=%s",
-                self.name, self.symbol, self._position_shares, price, reason,
+                self.name,
+                self.symbol,
+                self._position_shares,
+                price,
+                reason,
             )
         except Exception as exc:
             logger.error(
                 "%s: exit order rejected -- %s. "
                 "Broker STOP was already cancelled; position is unprotected.",
-                self.name, exc,
+                self.name,
+                exc,
             )
 
     # ------------------------------------------------------------------
@@ -528,17 +587,18 @@ class SMACrossover(BaseStrategy):
         Never called in backtest (client is None in that context).
         """
         from data.historical import HistoricalDataLoader
-        end   = datetime.now().strftime("%Y-%m-%d")
+
+        end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=_HISTORY_DAYS)).strftime("%Y-%m-%d")
         try:
             df = HistoricalDataLoader.load_yfinance(self.symbol, start, end)
-            self._closes = [
-                float(c) for c in df["close"].tail(self._sma_slow + 10).tolist()
-            ]
+            self._closes = [float(c) for c in df["close"].tail(self._sma_slow + 10).tolist()]
             return True
         except Exception as exc:
             logger.warning(
-                "%s: daily bar fetch failed -- skipping tick: %s", self.name, exc,
+                "%s: daily bar fetch failed -- skipping tick: %s",
+                self.name,
+                exc,
             )
             return False
 
@@ -546,7 +606,7 @@ class SMACrossover(BaseStrategy):
         return sum(self._closes[-n:]) / n
 
     def _sma_prev(self, n: int) -> float:
-        return sum(self._closes[-n - 1: -1]) / n
+        return sum(self._closes[-n - 1 : -1]) / n
 
     def _calc_stop(self, entry: float) -> float:
         """Swing-low stop: lowest close of the 5 bars before entry minus 0.5%."""
@@ -570,10 +630,13 @@ class SMACrossover(BaseStrategy):
         if self.client is None:
             return self._initial_capital
         try:
-            return float(self.client.get_account_summary()["NetLiquidation"])
+            summary = {s.tag: s.value for s in self.client.get_account_summary()}
+            return float(summary["NetLiquidation"])
         except Exception as exc:
             logger.warning(
-                "%s: equity fetch failed -- skipping entry: %s", self.name, exc,
+                "%s: equity fetch failed -- skipping entry: %s",
+                self.name,
+                exc,
             )
             return None
 
@@ -609,6 +672,7 @@ class SMACrossover(BaseStrategy):
                 return 0
         else:
             from risk.position_sizer import PositionSizer
+
             shares = int(PositionSizer.risk_based(equity, entry, stop, risk_pct=0.02))
             return min(shares, max_by_cash)
 
@@ -619,8 +683,8 @@ class SMACrossover(BaseStrategy):
     @property
     def params(self) -> dict:
         return {
-            "symbol":          self.symbol,
-            "sma_fast":        self._sma_fast,
-            "sma_slow":        self._sma_slow,
+            "symbol": self.symbol,
+            "sma_fast": self._sma_fast,
+            "sma_slow": self._sma_slow,
             "initial_capital": self._initial_capital,
         }

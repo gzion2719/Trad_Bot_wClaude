@@ -13,7 +13,6 @@ Usage:
 """
 
 import logging
-import os
 
 from config.settings import IB_HOST, IB_PORT, IB_CLIENT_ID
 
@@ -24,8 +23,8 @@ logger = logging.getLogger(__name__)
 #   IB Gateway:  4001 (live default), 4002 (paper default)
 # IB Gateway's `OverrideTwsApiPort` can put paper on 4001 too (used in this
 # deployment) — paper/live is verified post-connect via account ID prefix.
-_VALID_PORTS    = {7496, 7497, 4001, 4002}
-_PAPER_PORTS    = {7497, 4002}
+_VALID_PORTS = {7496, 7497, 4001, 4002}
+_PAPER_PORTS = {7497, 4002}
 _LIVE_ONLY_PORTS = {7496}
 
 
@@ -54,10 +53,7 @@ def validate_config() -> None:
 
     # ── Check IB_HOST ───────────────────────────────────────────────────
     if not isinstance(IB_HOST, str) or not IB_HOST.strip():
-        errors.append(
-            "IB_HOST is empty or not set. "
-            "Set IB_HOST=127.0.0.1 in your .env file."
-        )
+        errors.append("IB_HOST is empty or not set. " "Set IB_HOST=127.0.0.1 in your .env file.")
 
     # ── Check IB_PORT ───────────────────────────────────────────────────
     try:
@@ -77,13 +73,9 @@ def validate_config() -> None:
     try:
         client_id = int(IB_CLIENT_ID)
         if client_id < 0:
-            errors.append(
-                f"IB_CLIENT_ID must be a non-negative integer, got: {client_id}"
-            )
+            errors.append(f"IB_CLIENT_ID must be a non-negative integer, got: {client_id}")
     except (TypeError, ValueError):
-        errors.append(
-            f"IB_CLIENT_ID must be an integer, got: {IB_CLIENT_ID!r}"
-        )
+        errors.append(f"IB_CLIENT_ID must be an integer, got: {IB_CLIENT_ID!r}")
 
     # ── Fail fast if any hard errors ────────────────────────────────────
     if errors:
@@ -113,8 +105,13 @@ def validate_config() -> None:
         )
         logger.warning(banner)
 
-    mode_label = "PAPER" if port in _PAPER_PORTS else ("LIVE" if port in _LIVE_ONLY_PORTS else "AMBIGUOUS")
+    mode_label = (
+        "PAPER" if port in _PAPER_PORTS else ("LIVE" if port in _LIVE_ONLY_PORTS else "AMBIGUOUS")
+    )
     logger.info(
         "Config validated | host=%s | port=%s (%s) | client_id=%s",
-        IB_HOST, IB_PORT, mode_label, IB_CLIENT_ID,
+        IB_HOST,
+        IB_PORT,
+        mode_label,
+        IB_CLIENT_ID,
     )

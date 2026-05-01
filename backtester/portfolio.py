@@ -11,7 +11,6 @@ exposes the same interface as the real OrderManager.
 """
 
 import logging
-import math
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
@@ -45,10 +44,10 @@ class BacktestPortfolio:
         self.commission = commission
 
         self._cash: float = initial_capital
-        self._positions: Dict[str, float] = {}   # symbol → shares (float for fractional)
-        self._avg_cost: Dict[str, float] = {}    # symbol → average cost per share
+        self._positions: Dict[str, float] = {}  # symbol → shares (float for fractional)
+        self._avg_cost: Dict[str, float] = {}  # symbol → average cost per share
         self._fills: List[OrderResult] = []
-        self.equity_curve: List[float] = []      # equity after each bar — set by engine
+        self.equity_curve: List[float] = []  # equity after each bar — set by engine
         self._current_prices: Dict[str, float] = {}
 
     # ------------------------------------------------------------------
@@ -79,41 +78,56 @@ class BacktestPortfolio:
                 logger.warning(
                     "Backtest: insufficient cash for %s x%s @ %.2f "
                     "(need $%.2f, have $%.2f) — order skipped.",
-                    symbol, quantity, price, total_cost, self._cash,
+                    symbol,
+                    quantity,
+                    price,
+                    total_cost,
+                    self._cash,
                 )
                 # Return a rejected result instead of crashing
                 return OrderResult(
-                    order_id=order_id, symbol=symbol, action=action.value,
-                    quantity=quantity, order_type="LMT", tif="GTC",
+                    order_id=order_id,
+                    symbol=symbol,
+                    action=action.value,
+                    quantity=quantity,
+                    order_type="LMT",
+                    tif="GTC",
                     status=OrderStatus.INACTIVE,
-                    filled=0, remaining=quantity,
-                    avg_fill_price=None, limit_price=None, stop_price=None,
+                    filled=0,
+                    remaining=quantity,
+                    avg_fill_price=None,
+                    limit_price=None,
+                    stop_price=None,
                     submitted_at=submitted_at or datetime.now(timezone.utc),
                 )
             self._cash -= total_cost
-            prev_qty  = self._positions.get(symbol, 0.0)
+            prev_qty = self._positions.get(symbol, 0.0)
             prev_cost = self._avg_cost.get(symbol, 0.0)
-            new_qty   = prev_qty + quantity
+            new_qty = prev_qty + quantity
             # Weighted average cost basis
             self._avg_cost[symbol] = (
-                (prev_qty * prev_cost + quantity * price) / new_qty
-                if new_qty > 0 else 0.0
+                (prev_qty * prev_cost + quantity * price) / new_qty if new_qty > 0 else 0.0
             )
             self._positions[symbol] = new_qty
 
         elif action == OrderAction.SELL:
             held = self._positions.get(symbol, 0.0)
-            actual_qty = min(quantity, held)   # can't sell more than we hold
+            actual_qty = min(quantity, held)  # can't sell more than we hold
             if actual_qty <= 0:
-                logger.warning(
-                    "Backtest: no position in %s to sell — order skipped.", symbol
-                )
+                logger.warning("Backtest: no position in %s to sell — order skipped.", symbol)
                 return OrderResult(
-                    order_id=order_id, symbol=symbol, action=action.value,
-                    quantity=quantity, order_type="LMT", tif="GTC",
+                    order_id=order_id,
+                    symbol=symbol,
+                    action=action.value,
+                    quantity=quantity,
+                    order_type="LMT",
+                    tif="GTC",
                     status=OrderStatus.INACTIVE,
-                    filled=0, remaining=quantity,
-                    avg_fill_price=None, limit_price=None, stop_price=None,
+                    filled=0,
+                    remaining=quantity,
+                    avg_fill_price=None,
+                    limit_price=None,
+                    stop_price=None,
                     submitted_at=submitted_at or datetime.now(timezone.utc),
                 )
             # Capture cost basis NOW (before popping _avg_cost) so win_rate /
@@ -125,7 +139,7 @@ class BacktestPortfolio:
             if self._positions[symbol] <= 0:
                 self._positions.pop(symbol, None)
                 self._avg_cost.pop(symbol, None)
-            quantity = actual_qty   # reflect actual fill size
+            quantity = actual_qty  # reflect actual fill size
 
         result = OrderResult(
             order_id=order_id,
@@ -147,7 +161,11 @@ class BacktestPortfolio:
 
         logger.debug(
             "Backtest fill: %s %s x%.0f @ %.4f | cash=%.2f",
-            action.value, symbol, quantity, price, self._cash,
+            action.value,
+            symbol,
+            quantity,
+            price,
+            self._cash,
         )
         return result
 
@@ -174,7 +192,8 @@ class BacktestPortfolio:
                 logger.warning(
                     "current_equity: no market price for %s "
                     "— using cost basis %.4f as fallback (equity may be understated).",
-                    sym, fallback,
+                    sym,
+                    fallback,
                 )
                 position_value += qty * fallback
         return self._cash + position_value
@@ -195,12 +214,17 @@ class BacktestPortfolio:
                 quantity=qty,
                 avg_cost=self._avg_cost.get(sym, 0.0),
                 market_price=self._current_prices.get(sym),
-                market_value=qty * self._current_prices.get(sym, 0.0) if sym in self._current_prices else None,
+                market_value=(
+                    qty * self._current_prices.get(sym, 0.0)
+                    if sym in self._current_prices
+                    else None
+                ),
                 unrealized_pnl=(
                     qty * (self._current_prices[sym] - self._avg_cost.get(sym, 0.0))
-                    if sym in self._current_prices else None
+                    if sym in self._current_prices
+                    else None
                 ),
-                realized_pnl=None,   # tracked at portfolio level, not per-position
+                realized_pnl=None,  # tracked at portfolio level, not per-position
                 account="BACKTEST",
             )
             for sym, qty in self._positions.items()

@@ -2,6 +2,7 @@
 Integration test for OrderManager.
 Requires TWS running on paper account (port 7497).
 """
+
 from config.logging_config import setup_logging
 from broker.ibkr_client import IBKRClient
 from broker.order_manager import OrderManager, DuplicateOrderError
@@ -11,7 +12,9 @@ setup_logging()
 
 
 def on_fill(result):
-    print(f"\n*** FILL: {result.action} {result.quantity} {result.symbol} @ {result.avg_fill_price} ***\n")
+    print(
+        f"\n*** FILL: {result.action} {result.quantity} {result.symbol} @ {result.avg_fill_price} ***\n"
+    )
 
 
 def on_cancel(result):
@@ -48,7 +51,7 @@ def main():
         action=OrderAction.BUY,
         quantity=1,
         order_type=OrderType.LIMIT,
-        limit_price=1.00,   # far below market so it won't fill immediately
+        limit_price=1.00,  # far below market so it won't fill immediately
         tif=TimeInForce.GTC,
     )
     result = om.place_order(request)

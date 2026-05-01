@@ -28,7 +28,7 @@ Usage:
 
 import logging
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Type
 
@@ -37,7 +37,11 @@ import pandas as pd
 from backtester.portfolio import BacktestPortfolio
 from data.bar import Bar
 from models.order import (
-    OrderAction, OrderRequest, OrderResult, OrderStatus, Position,
+    OrderAction,
+    OrderRequest,
+    OrderResult,
+    OrderStatus,
+    Position,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,6 +62,7 @@ def _next_order_id() -> int:
 # MockOrderManager
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class MockOrderManager:
     """
     Drop-in replacement for OrderManager during backtesting.
@@ -76,7 +81,7 @@ class MockOrderManager:
     def __init__(self, portfolio: BacktestPortfolio) -> None:
         self._portfolio = portfolio
         self._current_bar: Optional[Bar] = None
-        self._next_bar: Optional[Bar] = None   # fill price comes from here
+        self._next_bar: Optional[Bar] = None  # fill price comes from here
         self._pending_orders: List[Dict] = []  # orders waiting to fill next bar
         self._open_orders: Dict[int, OrderResult] = {}
 
@@ -100,9 +105,7 @@ class MockOrderManager:
         if not self._pending_orders:
             return
 
-        fill_price = (
-            self._current_bar.open if self._current_bar else None
-        )
+        fill_price = self._current_bar.open if self._current_bar else None
         if fill_price is None:
             return
 
@@ -110,7 +113,7 @@ class MockOrderManager:
         for order in self._pending_orders:
             symbol = order["symbol"]
             prices = self._portfolio._current_prices
-            price  = prices.get(symbol, fill_price)
+            price = prices.get(symbol, fill_price)
 
             result = self._portfolio.fill(
                 symbol=symbol,
@@ -157,7 +160,8 @@ class MockOrderManager:
                     logger.debug(
                         "Backtest: duplicate order blocked | %s %s "
                         "(pass allow_duplicate=True to override)",
-                        request.action.value, request.symbol,
+                        request.action.value,
+                        request.symbol,
                     )
                     return self._open_orders[existing["order_id"]]
 
@@ -165,10 +169,10 @@ class MockOrderManager:
         submitted_at = datetime.now(timezone.utc)
 
         pending = {
-            "symbol":       request.symbol,
-            "action":       request.action,
-            "quantity":     request.quantity,
-            "order_id":     order_id,
+            "symbol": request.symbol,
+            "action": request.action,
+            "quantity": request.quantity,
+            "order_id": order_id,
             "submitted_at": submitted_at,
         }
         self._pending_orders.append(pending)
@@ -192,25 +196,22 @@ class MockOrderManager:
 
         logger.debug(
             "Backtest: order queued | %s %s x%s (fills next bar)",
-            request.action.value, request.symbol, request.quantity,
+            request.action.value,
+            request.symbol,
+            request.quantity,
         )
         return result
 
     def cancel_order(self, order_id: int) -> bool:
         if order_id in self._open_orders:
             self._open_orders.pop(order_id)
-            self._pending_orders = [
-                o for o in self._pending_orders if o["order_id"] != order_id
-            ]
+            self._pending_orders = [o for o in self._pending_orders if o["order_id"] != order_id]
             return True
         return False
 
     def cancel_all(self, symbol: Optional[str] = None) -> int:
         if symbol:
-            to_cancel = [
-                oid for oid, r in self._open_orders.items()
-                if r.symbol == symbol.upper()
-            ]
+            to_cancel = [oid for oid, r in self._open_orders.items() if r.symbol == symbol.upper()]
         else:
             to_cancel = list(self._open_orders.keys())
         for oid in to_cancel:
@@ -259,6 +260,7 @@ class MockOrderManager:
 # BacktestDataFeed  (lightweight — serves bars from DataFrame to strategy)
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class BacktestDataFeed:
     """
     Minimal DataFeed shim for backtesting.
@@ -288,10 +290,10 @@ class BacktestDataFeed:
         return None
 
     def is_live(self, symbol: str) -> bool:
-        return False   # backtests are never live
+        return False  # backtests are never live
 
     def subscribe(self, symbol: str, callback) -> None:
-        pass   # no streaming in backtest — strategy pulls via get_latest()
+        pass  # no streaming in backtest — strategy pulls via get_latest()
 
     def unsubscribe(self, symbol: str) -> None:
         pass
@@ -303,6 +305,7 @@ class BacktestDataFeed:
 # ══════════════════════════════════════════════════════════════════════════════
 # BacktestResult
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 @dataclass
 class BacktestResult:
@@ -317,16 +320,18 @@ class BacktestResult:
         metrics:         Dict of computed performance metrics.
         portfolio:       The full BacktestPortfolio (for custom analysis).
     """
-    fills:           List[OrderResult]
-    equity_curve:    pd.Series
+
+    fills: List[OrderResult]
+    equity_curve: pd.Series
     initial_capital: float
-    final_equity:    float
-    metrics:         Dict
-    portfolio:       BacktestPortfolio
+    final_equity: float
+    metrics: Dict
+    portfolio: BacktestPortfolio
 
     def print_summary(self) -> None:
         """Print the formatted metrics table to the console."""
         from backtester.metrics import summary
+
         summary(
             fills=self.fills,
             equity_curve=self.equity_curve,
@@ -337,6 +342,7 @@ class BacktestResult:
 # ══════════════════════════════════════════════════════════════════════════════
 # BacktestEngine
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class BacktestEngine:
     """
@@ -407,7 +413,7 @@ class BacktestEngine:
             initial_capital=self.initial_capital,
             commission=self.commission,
         )
-        mock_om   = MockOrderManager(portfolio)
+        mock_om = MockOrderManager(portfolio)
         data_feed = BacktestDataFeed(self.symbol)
 
         # Instantiate strategy with mock components.
@@ -427,11 +433,13 @@ class BacktestEngine:
         )
 
         bars = list(self.data.itertuples())
-        n    = len(bars)
+        n = len(bars)
 
         logger.info(
             "Backtest starting | %s | %d bars | capital=$%.0f",
-            self.symbol, n, self.initial_capital,
+            self.symbol,
+            n,
+            self.initial_capital,
         )
 
         strategy.on_start()
@@ -474,7 +482,10 @@ class BacktestEngine:
             except Exception as exc:
                 logger.error(
                     "Strategy on_tick() raised at bar %d (%s): %s",
-                    i, ts, exc, exc_info=True,
+                    i,
+                    ts,
+                    exc,
+                    exc_info=True,
                 )
 
             # Snapshot equity after this bar
@@ -487,7 +498,7 @@ class BacktestEngine:
             mock_om._current_bar = Bar(
                 symbol=self.symbol,
                 timestamp=last.Index,
-                open=float(last.close),   # use close as proxy fill price
+                open=float(last.close),  # use close as proxy fill price
                 high=float(last.high),
                 low=float(last.low),
                 close=float(last.close),
@@ -497,10 +508,10 @@ class BacktestEngine:
 
         strategy.on_stop()
 
-        fills        = portfolio.get_fills()
+        fills = portfolio.get_fills()
         equity_curve = pd.Series(
             portfolio.equity_curve,
-            index=self.data.index[:len(portfolio.equity_curve)],
+            index=self.data.index[: len(portfolio.equity_curve)],
             name="equity",
         )
         final_equity = portfolio.current_equity()
@@ -513,7 +524,9 @@ class BacktestEngine:
 
         logger.info(
             "Backtest complete | %d fills | final equity=$%.2f | return=%.2f%%",
-            len(fills), final_equity, metrics["total_return_pct"],
+            len(fills),
+            final_equity,
+            metrics["total_return_pct"],
         )
 
         return BacktestResult(

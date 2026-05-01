@@ -91,7 +91,7 @@ class TradeLog:
                              Pass strategy.params here. Stored as JSON for audit trail.
         """
         if result.avg_fill_price is None or result.filled == 0:
-            return   # not actually filled — nothing to record
+            return  # not actually filled — nothing to record
 
         fill_value = result.filled * result.avg_fill_price
         filled_at = (
@@ -131,7 +131,7 @@ class TradeLog:
                     fill_value,
                     filled_at,
                     result.order_id,
-                    None,   # account — populated in a future sprint via position data
+                    None,  # account — populated in a future sprint via position data
                     result.cost_basis,
                     realized_pnl,
                     params_json,
@@ -140,7 +140,9 @@ class TradeLog:
 
         logger.debug(
             "TradeLog: recorded %s %s x%.0f @ %.4f | pnl=%s (strategy=%s)",
-            result.action, result.symbol, result.filled,
+            result.action,
+            result.symbol,
+            result.filled,
             result.avg_fill_price,
             f"${realized_pnl:.2f}" if realized_pnl is not None else "N/A",
             strategy_name,
@@ -230,22 +232,22 @@ class TradeLog:
         if row is None:
             row = (0, 0, 0, 0.0, 0.0, None)
 
-        total   = row[0] or 0
-        buys    = row[1] or 0
-        sells   = row[2] or 0
-        g_buy   = row[3] or 0.0
-        g_sell  = row[4] or 0.0
-        pnl     = float(row[5]) if row[5] is not None else None
+        total = row[0] or 0
+        buys = row[1] or 0
+        sells = row[2] or 0
+        g_buy = row[3] or 0.0
+        g_sell = row[4] or 0.0
+        pnl = float(row[5]) if row[5] is not None else None
 
         return {
-            "date":           day_str,
-            "total_trades":   total,
-            "buys":           buys,
-            "sells":          sells,
-            "gross_buy":      round(g_buy, 2),
-            "gross_sell":     round(g_sell, 2),
-            "net_flow":       round(g_sell - g_buy, 2),
-            "realized_pnl":   round(pnl, 2) if pnl is not None else None,
+            "date": day_str,
+            "total_trades": total,
+            "buys": buys,
+            "sells": sells,
+            "gross_buy": round(g_buy, 2),
+            "gross_sell": round(g_sell, 2),
+            "net_flow": round(g_sell - g_buy, 2),
+            "realized_pnl": round(pnl, 2) if pnl is not None else None,
         }
 
     def count(self) -> int:
@@ -267,9 +269,9 @@ class TradeLog:
                 try:
                     conn.execute(migration)
                 except sqlite3.OperationalError:
-                    pass   # column already exists in this DB
+                    pass  # column already exists in this DB
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path)
-        conn.execute("PRAGMA journal_mode=WAL")   # safe for concurrent readers
+        conn.execute("PRAGMA journal_mode=WAL")  # safe for concurrent readers
         return conn

@@ -92,7 +92,7 @@ class PositionSizer:
         if not (0 < risk_pct <= 1.0):
             raise ValueError(f"risk_pct must be between 0 and 1.0, got {risk_pct}")
 
-        risk_amount    = equity * risk_pct
+        risk_amount = equity * risk_pct
         risk_per_share = entry_price - stop_price
         result = max(1, int(math.floor(risk_amount / risk_per_share)))
 
@@ -100,8 +100,14 @@ class PositionSizer:
             "PositionSizer.risk_based | equity=%.2f | entry=%.2f | stop=%.2f "
             "| risk=%.1f%% → risk_amount=$%.2f | risk/share=$%.2f → %d shares "
             "(max_loss=$%.2f)",
-            equity, entry_price, stop_price, risk_pct * 100,
-            risk_amount, risk_per_share, result, result * risk_per_share,
+            equity,
+            entry_price,
+            stop_price,
+            risk_pct * 100,
+            risk_amount,
+            risk_per_share,
+            result,
+            result * risk_per_share,
         )
         return result
 
@@ -155,7 +161,12 @@ class PositionSizer:
         logger.debug(
             "PositionSizer.percent_of_equity | equity=%.2f | price=%.2f | pct=%.1f%% "
             "→ $%.2f / $%.2f = %d shares",
-            equity, price, pct * 100, dollar_amount, price, result,
+            equity,
+            price,
+            pct * 100,
+            dollar_amount,
+            price,
+            result,
         )
         return result
 
@@ -225,6 +236,12 @@ class PositionSizer:
         logger.debug(
             "PositionSizer.kelly | win_rate=%.2f | W/L=%.2f | kelly_f=%.4f "
             "| capped_f=%.4f | equity=%.2f | price=%.2f → %d shares",
-            win_rate, win_loss_ratio, kelly_f, fraction, equity, price, result,
+            win_rate,
+            win_loss_ratio,
+            kelly_f,
+            fraction,
+            equity,
+            price,
+            result,
         )
         return result

@@ -12,11 +12,12 @@ Startup order:
 Usage:
     python main.py
 """
+
 import logging
 import signal
 import threading
-import time
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 from config.logging_config import setup_logging
 from config.validator import validate_config, ConfigError
@@ -54,14 +55,14 @@ def main() -> None:
     rm = RiskManager(
         client=client,
         order_manager=om,
-        max_order_value=120_000.0,      # QQQ position can exceed $100k
-        max_position_value=100_000.0,   # one full QQQ position at a time
-        max_daily_loss=-2_000.0,        # halt if down $2,000 on the day
+        max_order_value=120_000.0,  # QQQ position can exceed $100k
+        max_position_value=100_000.0,  # one full QQQ position at a time
+        max_daily_loss=-2_000.0,  # halt if down $2,000 on the day
         max_open_orders=10,
-        max_risk_per_trade_pct=0.02,    # risk ≤ 2% of equity per trade
-        min_reward_risk_ratio=3.0,      # minimum 1:3 R/R required
+        max_risk_per_trade_pct=0.02,  # risk ≤ 2% of equity per trade
+        min_reward_risk_ratio=3.0,  # minimum 1:3 R/R required
     )
-    om.on_fill(rm.record_fill)       # keep risk manager's fill log in sync
+    om.on_fill(rm.record_fill)  # keep risk manager's fill log in sync
 
     # ── Step 5: Auto-reconnect ───────────────────────────────────────────
     reconnect = ReconnectManager(
@@ -73,15 +74,13 @@ def main() -> None:
     reconnect.start()
 
     # ── Step 6: Global event handlers ────────────────────────────────────
-    om.on_fill(lambda r: logger.info(
-        "FILL: %s %s x%s @ %s", r.action, r.quantity, r.symbol, r.avg_fill_price
-    ))
-    om.on_cancel(lambda r: logger.info(
-        "CANCEL: order %s %s", r.order_id, r.symbol
-    ))
-    om.on_error(lambda rid, code, msg: logger.error(
-        "ERROR [%s]: %s", code, msg
-    ))
+    om.on_fill(
+        lambda r: logger.info(
+            "FILL: %s %s x%s @ %s", r.action, r.quantity, r.symbol, r.avg_fill_price
+        )
+    )
+    om.on_cancel(lambda r: logger.info("CANCEL: order %s %s", r.order_id, r.symbol))
+    om.on_error(lambda rid, code, msg: logger.error("ERROR [%s]: %s", code, msg))
 
     # ── Step 7: Wire daily P&L updates and market-open reset ─────────────
     # This daemon thread does two things every 60 seconds:
@@ -96,27 +95,26 @@ def main() -> None:
 
     _MARKET_OPEN_HOUR_ET = 9
     _MARKET_OPEN_MINUTE_ET = 30
-    _last_reset_date: list = [None]   # mutable container so inner fn can write
+    _last_reset_date: list = [None]  # mutable container so inner fn can write
     _stop_pnl_poller = threading.Event()
 
     def _poll_pnl_and_reset() -> None:
         """Daemon: resets daily counters at market open, polls P&L every 60s."""
         try:
             import zoneinfo
+
             _ET = zoneinfo.ZoneInfo("America/New_York")
         except Exception:
-            _ET = timezone(timedelta(hours=-5))   # fallback: EST fixed offset
+            _ET = timezone(timedelta(hours=-5))  # type: ignore[assignment]  # fallback: EST fixed offset
 
         while not _stop_pnl_poller.is_set():
             try:
                 now_et = datetime.now(_ET)
-                today  = now_et.date()
+                today = now_et.date()
 
                 # Reset daily counters once per day at/after market open
-                at_or_after_open = (
-                    now_et.hour > _MARKET_OPEN_HOUR_ET
-                    or (now_et.hour == _MARKET_OPEN_HOUR_ET
-                        and now_et.minute >= _MARKET_OPEN_MINUTE_ET)
+                at_or_after_open = now_et.hour > _MARKET_OPEN_HOUR_ET or (
+                    now_et.hour == _MARKET_OPEN_HOUR_ET and now_et.minute >= _MARKET_OPEN_MINUTE_ET
                 )
                 if at_or_after_open and _last_reset_date[0] != today:
                     rm.reset_daily()
@@ -133,11 +131,9 @@ def main() -> None:
             except Exception as exc:
                 logger.warning("PnL poller error (non-fatal): %s", exc)
 
-            _stop_pnl_poller.wait(timeout=60)   # sleep 60s, wakes early on shutdown
+            _stop_pnl_poller.wait(timeout=60)  # sleep 60s, wakes early on shutdown
 
-    pnl_thread = threading.Thread(
-        target=_poll_pnl_and_reset, name="PnLPoller", daemon=True
-    )
+    pnl_thread = threading.Thread(target=_poll_pnl_and_reset, name="PnLPoller", daemon=True)
     pnl_thread.start()
     logger.info("PnL poller started — daily loss ceiling is now ACTIVE.")
 
@@ -147,7 +143,7 @@ def main() -> None:
     # connection not disconnected, reconnect thread not joined.
     def _sigterm_handler(signum, frame):
         logger.info("SIGTERM received — initiating clean shutdown.")
-        raise KeyboardInterrupt   # reuse the existing try/finally cleanup path
+        raise KeyboardInterrupt  # reuse the existing try/finally cleanup path
 
     signal.signal(signal.SIGTERM, _sigterm_handler)
 
@@ -157,7 +153,7 @@ def main() -> None:
     from data.trade_log import TradeLog
 
     # L7 — persistent paper-trade audit trail (one record per fill).
-    trade_log = TradeLog(db_path="data/paper_trades.db")
+    trade_log = TradeLog(db_path=Path("data/paper_trades.db"))
     om.on_fill(lambda result: trade_log.record(result, strategy_name="SMACrossover"))
 
     feed = IBKRFeed(client)
@@ -182,9 +178,10 @@ def main() -> None:
     def _daily_scheduler() -> None:
         try:
             import zoneinfo
+
             _ET = zoneinfo.ZoneInfo("America/New_York")
         except Exception:
-            _ET = timezone(timedelta(hours=-5))
+            _ET = timezone(timedelta(hours=-5))  # type: ignore[assignment]
 
         while not _stop_scheduler.is_set():
             now_et = datetime.now(_ET)
@@ -200,21 +197,19 @@ def main() -> None:
                 except Exception as exc:
                     logger.error("Daily scheduler: on_tick error: %s", exc)
 
-    scheduler_thread = threading.Thread(
-        target=_daily_scheduler, name="DailyScheduler", daemon=True
-    )
+    scheduler_thread = threading.Thread(target=_daily_scheduler, name="DailyScheduler", daemon=True)
     scheduler_thread.start()
     logger.info("Daily scheduler started — on_tick fires at 16:10 ET each trading day.")
 
     logger.info("Bot running. Press Ctrl+C to stop.")
     try:
-        client.ib.run()     # ib_insync event loop — keeps the process alive
+        client.ib.run()  # ib_insync event loop — keeps the process alive
     except KeyboardInterrupt:
         logger.info("Shutdown requested.")
     finally:
         _stop_scheduler.set()
         strategy.on_stop()
-        _stop_pnl_poller.set()        # wake the poller so it exits cleanly
+        _stop_pnl_poller.set()  # wake the poller so it exits cleanly
         reconnect.stop()
         client.disconnect()
 

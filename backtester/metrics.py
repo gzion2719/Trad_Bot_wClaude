@@ -49,7 +49,7 @@ def sharpe_ratio(
         return float("nan")
 
     daily_rf = (1 + risk_free_rate) ** (1 / periods_per_year) - 1
-    excess   = returns - daily_rf
+    excess = returns - daily_rf
     return float((excess.mean() / excess.std()) * math.sqrt(periods_per_year))
 
 
@@ -70,7 +70,7 @@ def max_drawdown(equity_curve: pd.Series) -> float:
         return 0.0
 
     rolling_max = equity_curve.cummax()
-    drawdown    = (equity_curve - rolling_max) / rolling_max
+    drawdown = (equity_curve - rolling_max) / rolling_max
     return float(drawdown.min())
 
 
@@ -94,8 +94,11 @@ def win_rate(fills: List[OrderResult]) -> float:
         return float("nan")
 
     wins = sum(
-        1 for f in sell_fills
-        if f.cost_basis is not None and f.avg_fill_price > f.cost_basis
+        1
+        for f in sell_fills
+        if f.cost_basis is not None
+        and f.avg_fill_price is not None
+        and f.avg_fill_price > f.cost_basis
     )
     return wins / len(sell_fills)
 
@@ -119,19 +122,21 @@ def profit_factor(fills: List[OrderResult]) -> float:
         cost_basis data (e.g., BUY-only strategy or live fills without basis).
     """
     sell_fills = [
-        f for f in fills
-        if f.action == "SELL"
-        and f.avg_fill_price is not None
-        and f.cost_basis is not None
+        f
+        for f in fills
+        if f.action == "SELL" and f.avg_fill_price is not None and f.cost_basis is not None
     ]
     if not sell_fills:
         return float("nan")
 
     gross_profit = 0.0
-    gross_loss   = 0.0
+    gross_loss = 0.0
 
     for f in sell_fills:
-        pnl = (f.avg_fill_price - f.cost_basis) * f.filled
+        price, basis = f.avg_fill_price, f.cost_basis
+        if price is None or basis is None:
+            continue
+        pnl = (price - basis) * f.filled
         if pnl >= 0:
             gross_profit += pnl
         else:
@@ -174,18 +179,18 @@ def summary(
     """
     final_equity = float(equity_curve.iloc[-1]) if len(equity_curve) > 0 else initial_capital
 
-    _win_rate    = win_rate(fills)
-    _pf          = profit_factor(fills)
+    _win_rate = win_rate(fills)
+    _pf = profit_factor(fills)
 
     metrics = {
-        "initial_capital":  round(initial_capital, 2),
-        "final_equity":     round(final_equity, 2),
+        "initial_capital": round(initial_capital, 2),
+        "final_equity": round(final_equity, 2),
         "total_return_pct": round(total_return(initial_capital, final_equity), 2),
-        "sharpe_ratio":     round(sharpe_ratio(equity_curve, periods_per_year=periods_per_year), 3),
+        "sharpe_ratio": round(sharpe_ratio(equity_curve, periods_per_year=periods_per_year), 3),
         "max_drawdown_pct": round(max_drawdown(equity_curve) * 100, 2),
-        "total_trades":     len(fills),
-        "win_rate_pct":     round(_win_rate * 100, 1) if not math.isnan(_win_rate) else None,
-        "profit_factor":    round(_pf, 3) if not math.isnan(_pf) else None,
+        "total_trades": len(fills),
+        "win_rate_pct": round(_win_rate * 100, 1) if not math.isnan(_win_rate) else None,
+        "profit_factor": round(_pf, 3) if not math.isnan(_pf) else None,
     }
 
     # ── Print formatted table ───────────────────────────────────────────

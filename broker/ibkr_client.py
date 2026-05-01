@@ -12,16 +12,16 @@ from config.settings import IB_HOST, IB_PORT, IB_CLIENT_ID
 logger = logging.getLogger(__name__)
 
 # Market data modes
-REALTIME       = 1   # requires live data subscription
-FROZEN         = 2   # last available price when market is closed
-DELAYED        = 3   # 15-min delay, free
-DELAYED_FROZEN = 4   # delayed + frozen when market closed
+REALTIME = 1  # requires live data subscription
+FROZEN = 2  # last available price when market is closed
+DELAYED = 3  # 15-min delay, free
+DELAYED_FROZEN = 4  # delayed + frozen when market closed
 
-_CONNECT_TIMEOUT   = 10   # seconds to wait for connection to be ready
-_PRICE_TIMEOUT     = 10   # seconds to wait for market data tick
-_PRICE_POLL        = 0.25 # poll interval for price
+_CONNECT_TIMEOUT = 10  # seconds to wait for connection to be ready
+_PRICE_TIMEOUT = 10  # seconds to wait for market data tick
+_PRICE_POLL = 0.25  # poll interval for price
 _PRICE_CANCEL_WAIT = 0.5  # cooldown after cancelMktData (respects IBKR pacing)
-_RECONNECT_DELAYS  = [2, 5, 10, 30, 60]  # backoff schedule in seconds
+_RECONNECT_DELAYS = [2, 5, 10, 30, 60]  # backoff schedule in seconds
 
 
 class IBKRClient:
@@ -75,10 +75,15 @@ class IBKRClient:
             try:
                 logger.info(
                     "Connecting to IBKR at %s:%s (clientId=%s, attempt %s/%s) …",
-                    self._host, self._port, self._client_id, attempt, total_attempts,
+                    self._host,
+                    self._port,
+                    self._client_id,
+                    attempt,
+                    total_attempts,
                 )
                 self.ib.connect(
-                    self._host, self._port,
+                    self._host,
+                    self._port,
                     clientId=self._client_id,
                     readonly=False,
                     timeout=_CONNECT_TIMEOUT,
@@ -117,7 +122,10 @@ class IBKRClient:
                     delay = _RECONNECT_DELAYS[min(attempt - 1, len(_RECONNECT_DELAYS) - 1)]
                     logger.warning(
                         "Connection attempt %s/%s failed (%s). Retrying in %ss…",
-                        attempt, total_attempts, exc, delay,
+                        attempt,
+                        total_attempts,
+                        exc,
+                        delay,
                     )
                     time.sleep(delay)
 
@@ -217,7 +225,8 @@ class IBKRClient:
         if is_delayed:
             logger.debug(
                 "Price for %s is DELAYED (15-min lag) — "
-                "do not use for time-sensitive execution.", symbol
+                "do not use for time-sensitive execution.",
+                symbol,
             )
 
         contract = self.qualify_contract(Stock(symbol, exchange, currency))
@@ -245,7 +254,9 @@ class IBKRClient:
                 f"Could not obtain a valid price for {symbol} within {_PRICE_TIMEOUT}s."
             )
 
-        logger.debug("Market price for %s: %.4f%s", symbol, price, " (delayed)" if is_delayed else "")
+        logger.debug(
+            "Market price for %s: %.4f%s", symbol, price, " (delayed)" if is_delayed else ""
+        )
         return price
 
     @staticmethod
@@ -254,6 +265,7 @@ class IBKRClient:
         Pick the most relevant price from a ticker, ignoring NaN / sentinel values.
         Priority: last trade → close → bid/ask midpoint.
         """
+
         def valid(v) -> bool:
             return v is not None and not math.isnan(v) and v > 0
 
