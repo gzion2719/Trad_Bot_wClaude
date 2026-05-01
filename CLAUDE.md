@@ -85,6 +85,10 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 - IBKR has **revoked all 2FA opt-out paths** for trading. There is no API key, service account, or Trusted IP bypass. Weekly 2FA is the regulatory floor.
 
 **START HERE — next tasks:**
+0. **TONIGHT ~20:10 UTC — watch on_tick() fire, then deploy to VPS:**
+   - `sudo journalctl -fu tradebot` → confirm on_tick() runs and health.txt is written
+   - `cd /opt/tradebot && sudo git pull origin main && sudo systemctl restart tradebot`
+   - Confirm 2107/1100/1102 now appear as INFO/WARNING (not ERROR) in logs
 1. **First Sunday morning (next: 2026-05-03 ~09:00 IL time = 02:00 ET) — test the weekly re-auth flow.**
    - SSH chappy-vps → tunnel `ssh -L 5900:localhost:5900 chappy-vps` → TightVNC `localhost:5900`
    - Generate code in IBKR Mobile (Security → Generate Code), enter in gateway login dialog
@@ -427,6 +431,7 @@ GitHub branch protection is not enforced on this free private repo. Claude is th
 3. **Never say "open a PR" without specifying `base: <branch>` and `compare: <branch>`** — the user clicks whatever GitHub defaults to, which caused an accidental feature → main merge.
 4. **Before starting any work**, check current branch with `git branch` and confirm it is a `feature/*` or `hotfix/*` branch, never `main` or `develop` directly.
 5. **After a PR merges to main**, always open a follow-up PR or fast-forward `develop` to keep them in sync.
+6. **After creating a skill**, immediately re-read the manifest.json to confirm the entry persisted before declaring done — the system can overwrite the manifest between tool calls.
 
 ---
 
