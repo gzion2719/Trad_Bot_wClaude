@@ -5,6 +5,17 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 
 ---
 
+## 2026-05-02 — Bot recovery + reconnect auto-restart fix
+
+- Diagnosed ntfy "on_tick stale" alerts: IB Gateway had a 6-min IBKR server blip at 05:23 UTC May 2; bot exhausted its 10 reconnect attempts and went silent for ~31h while systemd still showed "active (running)".
+- Fixed `ReconnectManager`: added `os._exit(1)` after retries exhausted so systemd `Restart=on-failure` triggers a clean restart. `sys.exit` was insufficient — it only kills the daemon thread, not the process.
+- Investigated IBKR Trusted IP (5.9): account-level feature is one-IP-per-user; adding VPS IP blocks home PC access. Closed as won't do. Gateway API Trusted IPs already correct (`127.0.0.1` in IBC config).
+- Deployed fix: PR → develop → `sudo git pull origin develop && sudo systemctl restart tradebot` on VPS. Bot confirmed healthy, on_tick scheduled for 16:10 ET today.
+- **Process improvement:** WORKFLOW.md gains "Web research rule" — if WebFetch returns 403, go straight to WebSearch, don't retry the same domain.
+- **Next session:** design + implement mission control dashboard — bot stats, kill/restart buttons, IB Gateway login UI to replace weekly VNC 2FA.
+
+---
+
 ## 2026-05-01 — Stale-main caught after first ritual test failed
 
 - Tested ritual in fresh chat after develop→main merge — it didn't fire. Diagnosed: local `main` was 8 commits behind `origin/main`, and the project folder was parked on a stale feature branch (`feature/document-weekly-2fa-cadence`), so new chats loaded a pre-scaffold CLAUDE.md.

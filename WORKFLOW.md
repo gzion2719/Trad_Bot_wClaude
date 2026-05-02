@@ -121,3 +121,9 @@ sudo systemctl start tradebot
 ```
 
 Do not push code changes during a live incident. Stabilise first, investigate after.
+
+---
+
+## Web research rule
+
+If `WebFetch` returns 403 on the first attempt, go straight to `WebSearch` — do not retry the same domain. IBKR docs and most financial sites block direct fetches.
