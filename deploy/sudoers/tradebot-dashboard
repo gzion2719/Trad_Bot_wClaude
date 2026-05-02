@@ -1,0 +1,17 @@
+# Allow the dashboard process (User=tradebot in tradebot-dashboard.service)
+# to restart or stop the live trading bot via sudo without a password prompt.
+#
+# Scope is intentionally narrow: only these two exact commands. The dashboard
+# enforces an additional Bearer-token auth check before it ever invokes sudo.
+#
+# Install with:
+#   sudo cp deploy/sudoers/tradebot-dashboard /etc/sudoers.d/tradebot-dashboard
+#   sudo chown root:root /etc/sudoers.d/tradebot-dashboard
+#   sudo chmod 0440      /etc/sudoers.d/tradebot-dashboard
+#   sudo visudo -c       # validate syntax — refuse to reload on error
+#
+# Verify after install:
+#   sudo -u tradebot sudo -n /bin/systemctl restart tradebot.service   # works
+#   sudo -u tradebot sudo -n /bin/systemctl restart anything-else      # blocked
+
+tradebot ALL=(root) NOPASSWD: /bin/systemctl restart tradebot.service, /bin/systemctl stop tradebot.service

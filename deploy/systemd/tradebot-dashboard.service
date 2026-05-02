@@ -16,6 +16,10 @@ EnvironmentFile=/opt/tradebot/.env
 # adding token auth first (Phase 3).
 Environment=DASHBOARD_HOST=0.0.0.0
 Environment=DASHBOARD_PORT=8080
+# DASHBOARD_TOKEN gates POST /api/bot/restart and POST /api/bot/stop.
+# Set it in /opt/tradebot/.env (loaded via EnvironmentFile above) — never
+# hardcode it here. If unset, control endpoints return 503 (fail closed).
+# Also requires /etc/sudoers.d/tradebot-dashboard (see deploy/sudoers/).
 
 ExecStart=/opt/tradebot/venv/bin/python -m dashboard
 

@@ -1809,6 +1809,102 @@ def db08():
     ), f"gateway_port_open should be bool, got {type(result['gateway_port_open'])}"
 
 
+@test("DB-09", "control endpoints reject when DASHBOARD_TOKEN unset (503)")
+def db09():
+    import os
+
+    from fastapi import HTTPException
+
+    os.environ.pop("DASHBOARD_TOKEN", None)
+    try:
+        dashboard_app._check_token(authorization="Bearer anything")
+        raise AssertionError("expected HTTPException 503")
+    except HTTPException as exc:
+        assert exc.status_code == 503, f"expected 503, got {exc.status_code}"
+
+
+@test("DB-10", "control endpoints reject missing/wrong token (401)")
+def db10():
+    import os
+
+    from fastapi import HTTPException
+
+    os.environ["DASHBOARD_TOKEN"] = "secret-xyz"
+    try:
+        try:
+            dashboard_app._check_token(authorization=None)
+            raise AssertionError("expected HTTPException 401 for missing header")
+        except HTTPException as exc:
+            assert exc.status_code == 401, f"missing: expected 401, got {exc.status_code}"
+        try:
+            dashboard_app._check_token(authorization="Bearer wrong")
+            raise AssertionError("expected HTTPException 401 for wrong token")
+        except HTTPException as exc:
+            assert exc.status_code == 401, f"wrong: expected 401, got {exc.status_code}"
+        try:
+            dashboard_app._check_token(authorization="NotBearer secret-xyz")
+            raise AssertionError("expected HTTPException 401 for non-bearer scheme")
+        except HTTPException as exc:
+            assert exc.status_code == 401, f"scheme: expected 401, got {exc.status_code}"
+        # Correct token must NOT raise.
+        dashboard_app._check_token(authorization="Bearer secret-xyz")
+    finally:
+        os.environ.pop("DASHBOARD_TOKEN", None)
+
+
+@test("DB-11", "_systemctl_action returns ok on rc=0 (mocked subprocess)")
+def db11():
+    import subprocess as sp_module
+
+    class _FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    original_run = dashboard_app.subprocess.run
+    dashboard_app.subprocess.run = lambda *a, **kw: _FakeCompleted()  # type: ignore[assignment]
+    try:
+        result = dashboard_app._systemctl_action("restart")
+        assert result["ok"] is True
+        assert result["action"] == "restart"
+    finally:
+        dashboard_app.subprocess.run = original_run  # type: ignore[assignment]
+    _ = sp_module  # keep import explicit so the test reads cleanly
+
+
+@test("DB-12", "_systemctl_action raises 500 on non-zero rc (mocked subprocess)")
+def db12():
+    from fastapi import HTTPException
+
+    class _FailedCompleted:
+        returncode = 1
+        stdout = ""
+        stderr = "permission denied"
+
+    original_run = dashboard_app.subprocess.run
+    dashboard_app.subprocess.run = lambda *a, **kw: _FailedCompleted()  # type: ignore[assignment]
+    try:
+        try:
+            dashboard_app._systemctl_action("stop")
+            raise AssertionError("expected HTTPException 500")
+        except HTTPException as exc:
+            assert exc.status_code == 500, f"expected 500, got {exc.status_code}"
+            assert "rc=1" in str(exc.detail)
+    finally:
+        dashboard_app.subprocess.run = original_run  # type: ignore[assignment]
+
+
+@test("DB-13", "_systemctl_action rejects unsupported actions (400)")
+def db13():
+    from fastapi import HTTPException
+
+    try:
+        dashboard_app._systemctl_action("nuke")
+        raise AssertionError("expected HTTPException 400")
+    except HTTPException as exc:
+        assert exc.status_code == 400, f"expected 400, got {exc.status_code}"
+
+
 db01()
 db02()
 db03()
@@ -1817,6 +1913,11 @@ db05()
 db06()
 db07()
 db08()
+db09()
+db10()
+db11()
+db12()
+db13()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
