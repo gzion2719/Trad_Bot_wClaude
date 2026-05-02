@@ -9,8 +9,17 @@ Read this file immediately after reading CLAUDE.md at the start of every chat.
 
 ## Opening Ritual
 
-Fires on the **FIRST user message** of any chat — no magic word required.
-A greeting, a question, a task, an emoji — all trigger the ritual.
+**NON-NEGOTIABLE TRIGGER.** The opening ritual fires on the **FIRST user message of any chat**, full stop. There is no phrasing that opts out. Specifically — but not limited to — ALL of the following fire the ritual:
+
+- `read claude.md` / `read CLAUDE.md` / `claud.md` / `cluadmd` / any typo or casing variant
+- `let's start` / `let's begin` / `start` / `go` / `ready` / `ok`
+- `hi` / `hey` / `שלום` / `בוקר טוב` / any greeting in any language
+- A direct task ("fix the bug in X"), a question ("why does Y happen?"), or an emoji
+- A command that *looks* like it wants a literal file read — treat it as the session-start trigger anyway, because the file is already in your context from the system prompt
+
+**Mechanical pre-response self-check.** Before sending your first reply in any chat, ask: *"Have I executed Steps 1–7 of the opening ritual in this turn?"* If no → run them now, then reply. Do not summarize CLAUDE.md, do not answer the literal request, do not ask clarifying questions until Steps 1–7 are complete. The user's first message is *always* the trigger; the content of that message does not change this.
+
+If the user explicitly says "skip the ritual" — only then skip, and only for that turn.
 
 ### Step 1 — Greet
 

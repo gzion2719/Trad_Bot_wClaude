@@ -14,6 +14,15 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 - **Process improvement:** SESSION_PROTOCOL.md two-PR rule strengthened — every push must include BOTH feature→develop AND develop→main links plus full VPS deploy command in one message. Violated 3× this session before codification.
 - **Next session:** merge pending PRs → VPS deploy (`git pull + restart tradebot-dashboard`); then Dashboard Phase 4 (account balance) or Sunday 2FA dry-run (2026-05-03 ~09:00 IL).
 
+## 2026-05-02 — Opening ritual non-negotiable trigger rule
+
+- Slipped on session start: treated "read claude.md" as a literal file-read command and skipped Steps 1–7. User caught it.
+- Codified fix in SESSION_PROTOCOL.md: explicit trigger list (read claude.md / cluadmd / let's start / greetings / tasks / emojis / commands that look like literal file reads) + mechanical pre-response self-check before first reply.
+- Reinforced in CLAUDE.md header (always-loaded context) so the rule is visible even if SESSION_PROTOCOL.md isn't read first.
+- Only carve-out: user explicitly says "skip the ritual".
+- **Process improvement:** SESSION_PROTOCOL.md Opening Ritual gains non-negotiable trigger list + self-check; CLAUDE.md header gains reinforcement paragraph.
+- **Next session:** deploy Phase 2 + weekend fix to VPS (`git pull + restart tradebot-dashboard`); then Sunday 2FA dry-run (2026-05-03 ~09:00 IL) or Dashboard Phase 3.
+
 ## 2026-05-02 — Reconstructed previous session close (docs cleanup)
 
 - Opening ritual flagged drift: `git log` showed PRs #30/#31/#32/#33 + commits `d3e286d` and `b6515f4` on main, but CHATLOG.md and CLAUDE.md still described Phase 1 as the most recent work — previous chat had ended on an API error before its closing ritual could run.
