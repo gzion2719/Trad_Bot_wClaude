@@ -5,6 +5,17 @@ For sprint-by-sprint detail, see `TODO.md`. For the phased roadmap, see `docs/RO
 
 ---
 
+## Dashboard — Phase 4+ (UI & Analytics)
+
+| # | Priority | Item |
+|---|----------|------|
+| DB-P4-1 | P1 | Account balance card — live NetLiquidation + UnrealizedPnL from `/api/system` (extend backend to query `client.get_account_summary()`) + equity curve graph |
+| DB-P4-2 | P1 | Recent fills filtered per strategy — add `strategy_name` column to fills table; allow switching strategy in the UI (prep for multi-strategy) |
+| DB-P4-3 | P2 | Per-strategy analytics card — W/L ratio, total realized P&L, unrealized P&L, Sharpe, max drawdown, profit factor + equity curve graph per strategy |
+| DB-P4-4 | P2 | UI redesign — rethink card layout, typography, and color system for a more professional look; consider sidebar nav for multi-strategy view |
+
+---
+
 ## Infrastructure & Ops
 
 | # | Priority | Item |
