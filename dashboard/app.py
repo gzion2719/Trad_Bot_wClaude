@@ -6,6 +6,7 @@ Endpoints:
     GET /api/today         — TradeLog.daily_summary() for today UTC
     GET /api/recent-fills  — last N rows from TradeLog.get_history()
     GET /api/info          — static metadata (account, version, started_at)
+    GET /api/system        — bot PID/uptime, IB Gateway service + port 4001 status
 
 Bind: 127.0.0.1:8080 — reach via Tailscale (http://100.113.140.69:8080) or SSH tunnel.
 Never expose publicly without adding HTTP auth and TLS.
@@ -15,9 +16,11 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
@@ -117,6 +120,101 @@ def api_today() -> Dict[str, Any]:
 def api_recent_fills(limit: int = 20) -> List[Dict[str, Any]]:
     limit = max(1, min(limit, 200))
     return TradeLog().get_history(limit=limit)
+
+
+@app.get("/api/system")
+def api_system() -> Dict[str, Any]:
+    """Bot process info and IB Gateway status.
+
+    All fields degrade gracefully: if systemctl is unavailable (dev PC / Windows)
+    service fields return "unavailable" and numeric fields return None.
+
+    Fields:
+      bot_pid              — MainPID from systemd, or None
+      bot_active_since     — ISO timestamp when tradebot.service entered active state
+      bot_uptime_seconds   — seconds since active_since, or None
+      bot_service_status   — "active" | "inactive" | "failed" | "unavailable"
+      gateway_service_status — same set for ibgateway.service
+      gateway_port_open    — True if a TCP connection to 127.0.0.1:4001 succeeds
+    """
+    return {
+        **_systemctl_info("tradebot.service", prefix="bot"),
+        **_systemctl_info("ibgateway.service", prefix="gateway"),
+        "gateway_port_open": _probe_port("127.0.0.1", 4001),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _systemctl_info(service: str, prefix: str) -> Dict[str, Any]:
+    """Return PID + uptime for *service* under the given key prefix.
+
+    Keys returned (with prefix="bot"):
+      bot_service_status, bot_pid, bot_active_since, bot_uptime_seconds
+    """
+    try:
+        result = subprocess.run(
+            ["systemctl", "show", service, "--property=MainPID,ActiveEnterTimestamp"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        props: Dict[str, str] = {}
+        for line in result.stdout.splitlines():
+            if "=" in line:
+                k, _, v = line.partition("=")
+                props[k.strip()] = v.strip()
+
+        pid: Optional[int] = int(props["MainPID"]) if props.get("MainPID", "0") != "0" else None
+
+        active_since: Optional[str] = None
+        uptime_seconds: Optional[float] = None
+        raw_ts = props.get("ActiveEnterTimestamp", "")
+        if raw_ts:
+            try:
+                # systemd format: "Fri 2026-05-02 10:00:00 UTC"
+                ts = datetime.strptime(raw_ts, "%a %Y-%m-%d %H:%M:%S %Z").replace(
+                    tzinfo=timezone.utc
+                )
+                active_since = ts.isoformat()
+                uptime_seconds = round((datetime.now(timezone.utc) - ts).total_seconds(), 1)
+            except ValueError:
+                pass
+
+        status_result = subprocess.run(
+            ["systemctl", "is-active", service],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        service_status = status_result.stdout.strip() or "unknown"
+
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return {
+            f"{prefix}_service_status": "unavailable",
+            f"{prefix}_pid": None,
+            f"{prefix}_active_since": None,
+            f"{prefix}_uptime_seconds": None,
+        }
+
+    return {
+        f"{prefix}_service_status": service_status,
+        f"{prefix}_pid": pid,
+        f"{prefix}_active_since": active_since,
+        f"{prefix}_uptime_seconds": uptime_seconds,
+    }
+
+
+def _probe_port(host: str, port: int, timeout: float = 1.0) -> bool:
+    """Return True if a TCP connection to host:port succeeds within timeout."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def _get_app() -> FastAPI:

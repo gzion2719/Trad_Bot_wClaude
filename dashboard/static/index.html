@@ -80,6 +80,14 @@
     <div class="row"><span class="k">Port</span><span id="info-port">—</span></div>
     <div class="row"><span class="k">Dashboard up</span><span id="info-started">—</span></div>
   </div>
+
+  <div class="card">
+    <h2>System</h2>
+    <div class="big" id="sys-gateway-status">…</div>
+    <div class="row"><span class="k">Bot PID</span><span id="sys-bot-pid">—</span></div>
+    <div class="row"><span class="k">Bot uptime</span><span id="sys-bot-uptime">—</span></div>
+    <div class="row"><span class="k">Port 4001</span><span id="sys-port4001">—</span></div>
+  </div>
 </div>
 
 <div class="card" style="margin-top: 1rem;">
@@ -110,11 +118,12 @@ const fmtAge = (s) => {
 
 async function refresh() {
   try {
-    const [health, today, fills, info] = await Promise.all([
+    const [health, today, fills, info, sys] = await Promise.all([
       fetch("/api/health").then(r => r.json()),
       fetch("/api/today").then(r => r.json()),
       fetch("/api/recent-fills?limit=20").then(r => r.json()),
       fetch("/api/info").then(r => r.json()),
+      fetch("/api/system").then(r => r.json()),
     ]);
 
     // Health
@@ -157,6 +166,19 @@ async function refresh() {
         </tr>
       `).join("");
     }
+
+    // System
+    const gwStatus = sys.gateway_service_status;
+    const gwOk = gwStatus === "active";
+    const gwCls = gwOk ? "ok" : (gwStatus === "unavailable" ? "" : "err");
+    document.getElementById("sys-gateway-status").innerHTML =
+      `<span class="pulse ${gwOk ? '' : 'err'}"></span><span class="${gwCls}">Gateway ${gwStatus}</span>`;
+    document.getElementById("sys-bot-pid").textContent =
+      sys.bot_pid != null ? sys.bot_pid : (sys.bot_service_status === "unavailable" ? "n/a" : "—");
+    document.getElementById("sys-bot-uptime").textContent = fmtAge(sys.bot_uptime_seconds);
+    const p4 = sys.gateway_port_open;
+    document.getElementById("sys-port4001").innerHTML =
+      `<span class="${p4 ? 'ok' : 'err'}">${p4 ? "open" : "closed"}</span>`;
 
     document.getElementById("footer").textContent =
       "last refresh: " + new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";

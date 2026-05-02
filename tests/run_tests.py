@@ -1781,12 +1781,40 @@ def db06():
     assert isinstance(out, list)
 
 
+@test("DB-07", "api_system returns all expected keys")
+def db07():
+    result = dashboard_app.api_system()
+    expected = (
+        "bot_service_status",
+        "bot_pid",
+        "bot_active_since",
+        "bot_uptime_seconds",
+        "gateway_service_status",
+        "gateway_pid",
+        "gateway_active_since",
+        "gateway_uptime_seconds",
+        "gateway_port_open",
+    )
+    for key in expected:
+        assert key in result, f"missing key {key} in api_system()"
+
+
+@test("DB-08", "api_system gateway_port_open is a bool")
+def db08():
+    result = dashboard_app.api_system()
+    assert isinstance(
+        result["gateway_port_open"], bool
+    ), f"gateway_port_open should be bool, got {type(result['gateway_port_open'])}"
+
+
 db01()
 db02()
 db03()
 db04()
 db05()
 db06()
+db07()
+db08()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
