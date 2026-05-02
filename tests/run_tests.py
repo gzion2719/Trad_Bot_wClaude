@@ -1742,7 +1742,9 @@ def db04():
     from datetime import timedelta
 
     original = dashboard_app._HEALTH_FILE
-    old = datetime.now(timezone.utc) - timedelta(seconds=dashboard_app._STALE_AFTER_SECONDS + 3600)
+    old = datetime.now(timezone.utc) - timedelta(
+        seconds=dashboard_app._WEEKEND_STALE_SECONDS + 3600
+    )
     tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
     tmp.write(old.isoformat())
     tmp.close()
