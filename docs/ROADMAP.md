@@ -60,7 +60,7 @@ Key deliverables: systemd chain (xvfb → x11vnc → ibgateway → tradebot), IB
 **Remaining:**
 - 5.7 [ ] Monitoring dashboard (Grafana or simple web UI)
 - 5.8 [x] CI/CD pipeline — **now done (2026-05-01)**
-- 5.9 [ ] IBKR Trusted IP — add VPS IP `2.24.222.199` in IBKR account → Security → Trusted IPs
+- 5.9 [x] IBKR Trusted IP — **won't do**: one IP per user, would block home PC. Gateway API Trusted IPs already set to 127.0.0.1 in IBC config.
 - 5.16 [ ] IBKR support inquiry — ask about push 2FA for Israeli accounts
 
 **Acceptance check:** Bot survives a simulated VPS reboot; bot survives TWS daily restart; alerts fire correctly via ntfy.sh.

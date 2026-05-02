@@ -20,6 +20,7 @@ Typical usage inside a strategy:
 """
 
 import logging
+import os
 import threading
 import time
 from typing import Callable, Optional
@@ -212,13 +213,12 @@ class ReconnectManager:
                 else:
                     logger.critical(
                         "All %d reconnect attempts exhausted. Last error: %s. "
-                        "Bot is halted — manual intervention required.",
+                        "Exiting so systemd can restart the process cleanly.",
                         self._max_attempts,
                         exc,
                     )
                     self._halted.set()
-                    # Leave _connected_event cleared so strategies keep blocking
-                    # (they will see is_halted and exit their own loops)
+                    os._exit(1)  # os._exit needed — sys.exit only kills this thread
                 continue  # move on to next attempt (or exit loop if last attempt)
 
             # ── Step 2: Post-connect sync ──────────────────────────────────
@@ -237,9 +237,7 @@ class ReconnectManager:
                     exc,
                 )
                 self._halted.set()
-                # Do NOT set _connected_event — strategies must stay blocked
-                # until an operator restarts the bot.
-                return
+                os._exit(1)  # os._exit needed — sys.exit only kills this thread
 
             # ── Step 3: Notify waiters ─────────────────────────────────────
             self._connected_event.set()
