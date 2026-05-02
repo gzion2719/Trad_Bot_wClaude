@@ -30,7 +30,21 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-05-02) — Dashboard Phase 3 control plane built on `claude/relaxed-rubin-1880bb` (PR pending → develop): `POST /api/bot/restart` + `POST /api/bot/stop` gated by `Authorization: Bearer DASHBOARD_TOKEN` env var; new `deploy/sudoers/tradebot-dashboard` scopes NOPASSWD to exactly those two `systemctl` commands; UI gained Controls card with two buttons (token saved in localStorage); 5 new tests DB-09..DB-13 pass; ruff/black/mypy clean. Phase 2 + weekend-fix VPS deploy verified earlier this session (`/api/health stale_after_seconds=288000` on Saturday, `/api/system` returns all new fields). Pending Phase 3 VPS deploy: set `DASHBOARD_TOKEN=<random>` in `/opt/tradebot/.env`, install `/etc/sudoers.d/tradebot-dashboard` with `visudo -c`, `systemctl restart tradebot-dashboard`.**
+**Last session completed (2026-05-02) — Code review cycle started from `codereview.md`. Three PRs pushed, all pending merge to develop:**
+- **PR `feature/restore-ci-workflow`** (CR-01): removed `.github/workflows/` from `.gitignore`, committed `ci.yml` (ruff → black → mypy → pytest on every push/PR to main and develop).
+- **PR `feature/add-gitleaks-pregate`** (CR-06, stacked on PR above): added `gitleaks detect` to `make pre-push` and CI via `gitleaks/gitleaks-action@v2`; added `.gitleaks.toml` allowlisting placeholder strings.
+- **PR `feature/ntfy-private-topic`** (CR-02 + CR-11 + CR-12): ntfy topic now reads `${NTFY_TOPIC}` from `EnvironmentFile=/opt/tradebot/.env`; `setup.sh` generates a random 24-char suffix on first deploy; notification bodies stripped of journal logs; all 20 occurrences of the literal account ID removed from tracked files (CLAUDE.md, CHATLOG.md, SESSION_PROTOCOL.md, TEST_PLAN.md, deploy docs, broker comment).
+- `TODO.md` gained a `Code Review Cycle` section tracking all 20 CR issues.
+
+**Merge order:** PR 1 → develop first (unblocks CI gate), then PR 2 (gitleaks, stacked), then PR 3 (independent). After all three land on develop, open develop → main PR.
+
+**VPS deploy still pending from previous session:** set `DASHBOARD_TOKEN=<random>` in `/opt/tradebot/.env`, install `/etc/sudoers.d/tradebot-dashboard` with `visudo -c`, `systemctl restart tradebot-dashboard`. Also: after PR 3 deploys, update `.env` to add `NTFY_TOPIC=tradebot-<random>` and `IBKR_ACCOUNT_ID=<account>`, then `systemctl restart tradebot-health.timer tradebot-notify@tradebot.service`.
+
+**Next code review items (in execution priority order):**
+1. CR-08 — `chmod 600 /opt/ibc/config.ini` in setup.sh (one-liner)
+2. CR-09 — fix health timer stale threshold to match dashboard weekend logic
+3. CR-04 + CR-05 — bind dashboard to Tailscale IP + rate-limit `/api/bot/*`
+4. CR-03 — document and rehearse backup-operator 2FA runbook
 
 ### What was done last session (2026-05-02, dashboard Phase 2 + weekend-aware stale threshold) — RECONSTRUCTED
 
