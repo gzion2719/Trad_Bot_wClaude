@@ -5,6 +5,15 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 
 ---
 
+## 2026-05-02 — Mission control dashboard Phase 1 (5.7)
+
+- Built read-only dashboard: FastAPI app, 4 endpoints (`/api/health`, `/api/today`, `/api/recent-fills`, `/api/info`), auto-polling dark UI, `tradebot-dashboard.service`. Deployed to VPS, accessible from PC and iPhone via Tailscale at `http://100.113.140.69:8080`.
+- Fixed critical git rule mid-session: `pull/new/<branch>` URL defaults base to `main` — mandated `compare/<base>...<compare>` format in CLAUDE.md rule 2 + memory entry.
+- Dashboard rebound `127.0.0.1` → `0.0.0.0` for Tailscale mobile access; UFW has no allow for 8080 so public internet is blocked. Service file updated in repo to match.
+- Phase 3 design tabled: kill/restart needs token auth + narrow sudoers rule — read-only ships first, control plane is next session.
+- **Process improvement:** CLAUDE.md rule 2 bans `pull/new/` URLs — mandates `compare/` format. Memory entry `feedback_pr_url_format.md` added for cross-session persistence.
+- **Next session:** Dashboard Phase 2 (IB Gateway status card, bot uptime/PID) then Phase 3 control plane with token auth.
+
 ## 2026-05-02 — Reconnect asyncio threading fix (B-08)
 
 - Diagnosed root cause of recurring "on_tick stale" alerts: `ib_insync` calls `asyncio.get_event_loop()` internally; Python 3.12 raises `RuntimeError` in non-main threads, so every `ReconnectManager` reconnect attempt failed before reaching IBKR.

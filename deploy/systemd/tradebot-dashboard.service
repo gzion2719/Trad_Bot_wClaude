@@ -10,9 +10,11 @@ Group=tradebot
 WorkingDirectory=/opt/tradebot
 EnvironmentFile=/opt/tradebot/.env
 
-# Bind to localhost only. Reach via Tailscale (http://100.113.140.69:8080) or
-# `ssh -L 8080:localhost:8080 chappy-vps`. Never expose publicly without auth.
-Environment=DASHBOARD_HOST=127.0.0.1
+# Binds to 0.0.0.0 so Tailscale-connected devices (PC, phone) can reach it
+# directly at http://100.113.140.69:8080. UFW has no allow rule for 8080 so
+# the public internet cannot reach it. Never add a UFW allow for 8080 without
+# adding token auth first (Phase 3).
+Environment=DASHBOARD_HOST=0.0.0.0
 Environment=DASHBOARD_PORT=8080
 
 ExecStart=/opt/tradebot/venv/bin/python -m dashboard
