@@ -28,9 +28,20 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-05-02) — Reconnect asyncio threading bug fixed. `broker/ibkr_client.py` updated to use `run_coroutine_threadsafe`. Deployed to VPS. Bot healthy.**
+**Last session completed (2026-05-02) — Mission control dashboard Phase 1 (read-only telemetry) built on `feature/dashboard-readonly`. Not yet deployed; pending PR to develop → main → VPS install.**
 
-### What was done this session (2026-05-02)
+### What was done this session (2026-05-02, dashboard Phase 1)
+
+**Mission control dashboard — Phase 1 read-only (ROADMAP 5.7):**
+- New `dashboard/` module with FastAPI app: `dashboard/app.py` (routes), `dashboard/__main__.py` (uvicorn entry), `dashboard/static/index.html` (auto-polling UI, dark theme, refreshes every 5s).
+- Endpoints: `GET /api/health` (reads `data/health.txt`, classifies ok/stale/missing/unreadable against the same 26h threshold as `tradebot-health.timer`), `GET /api/today` (`TradeLog.daily_summary()`), `GET /api/recent-fills?limit=N` (clamped 1–200), `GET /api/info` (account/host/port metadata).
+- New systemd unit `deploy/systemd/tradebot-dashboard.service`: separate process from `tradebot.service` so a dashboard crash cannot affect the live bot. Binds `127.0.0.1:8080`. Reach via Tailscale `http://100.113.140.69:8080` or `ssh -L 8080:localhost:8080 chappy-vps`. **Never expose publicly without HTTP auth + TLS.**
+- Added `fastapi>=0.110.0` and `uvicorn[standard]>=0.27.0` to `requirements.txt`.
+- Added 6 tests (DB-01 through DB-06) to `tests/run_tests.py` Section 18 — exercise route functions directly (no HTTP layer / no httpx dep). All 6 pass locally.
+- ruff ✅ black ✅ mypy ✅ (mypy uses `--ignore-missing-imports` so FastAPI lack of stubs is fine). black auto-reformatted `tests/run_tests.py`.
+- **Scope deliberately limited to read-only.** Control plane (kill/restart bot) and IB Gateway login surface (replace VPN VNC 2FA) are explicitly deferred — separate phases tracked in BACKLOG. Bundling these would have tripled the blast radius.
+
+### What was done earlier this session (2026-05-02, B-08 reconnect fix)
 
 **Reconnect always-failing bug fixed (B-08):**
 - Root cause: `ib_insync` calls `asyncio.get_event_loop()` internally; Python 3.12 raises `RuntimeError` in non-main threads — every `ReconnectManager` reconnect attempt failed before reaching IBKR.
@@ -92,11 +103,19 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 - IBKR has **revoked all 2FA opt-out paths** for trading. There is no API key, service account, or Trusted IP bypass. Weekly 2FA is the regulatory floor.
 
 **START HERE — next tasks:**
-0. **TONIGHT ~20:10 UTC — watch on_tick() fire, then deploy to VPS:**
-   - `sudo journalctl -fu tradebot` → confirm on_tick() runs and health.txt is written
-   - `cd /opt/tradebot && sudo git pull origin main && sudo systemctl restart tradebot`
-   - Confirm 2107/1100/1102 now appear as INFO/WARNING (not ERROR) in logs
-1. **First Sunday morning (next: 2026-05-03 ~09:00 IL time = 02:00 ET) — test the weekly re-auth flow.**
+0. **First Sunday morning (next: 2026-05-03 ~09:00 IL time = 02:00 ET) — test the weekly re-auth flow.**
+   - SSH chappy-vps → tunnel `ssh -L 5900:localhost:5900 chappy-vps` → TightVNC `localhost:5900`
+   - Generate code in IBKR Mobile (Security → Generate Code), enter in gateway login dialog
+   - Confirm gateway logs in and bot reconnects within 2 min: `sudo journalctl -fu tradebot`
+1. **Deploy dashboard to VPS** (after PR `feature/dashboard-readonly` → develop → main merges):
+   - `ssh chappy-vps && sudo -i`
+   - `cd /opt/tradebot && git pull origin main`
+   - `/opt/tradebot/venv/bin/pip install -r requirements.txt` (picks up fastapi/uvicorn)
+   - `cp deploy/systemd/tradebot-dashboard.service /etc/systemd/system/`
+   - `systemctl daemon-reload && systemctl enable --now tradebot-dashboard.service`
+   - Verify from local PC via Tailscale: `curl http://100.113.140.69:8080/api/health`
+   - Then open `http://100.113.140.69:8080` in a browser
+2. **(Old item, was 1) First Sunday morning (next: 2026-05-03 ~09:00 IL time = 02:00 ET) — test the weekly re-auth flow.**
    - SSH chappy-vps → tunnel `ssh -L 5900:localhost:5900 chappy-vps` → TightVNC `localhost:5900`
    - Generate code in IBKR Mobile (Security → Generate Code), enter in gateway login dialog
    - Confirm gateway logs in and bot reconnects within 2 min: `sudo journalctl -fu tradebot`
@@ -423,19 +442,20 @@ git push -u origin hotfix/fix-description
 
 ### `gh` CLI note
 
-`gh` is not installed on the dev PC. Open PRs via browser:
-`https://github.com/gzion2719/Trad_Bot_wClaude/pull/new/<branch-name>`
+`gh` is not installed on the dev PC. Open PRs via browser — **always use the `compare` URL format** (see rule 2 below). Never use `pull/new/<branch>` — it lets GitHub default the base to `main`.
 
 ### Claude-specific rules (enforce every session — no exceptions)
 
 GitHub branch protection is not enforced on this free private repo. Claude is the enforcement layer.
 
 1. **Always create a feature branch from `develop`**, never from `main`.
-2. **When giving the user a PR URL, always state the base branch explicitly:**
-   - Feature work → base: `develop`
-   - Shipping to production → base: `main`, compare: `develop`
-   - Hotfix → base: `main` first, then a second PR base: `develop`
-3. **Never say "open a PR" without specifying `base: <branch>` and `compare: <branch>`** — the user clicks whatever GitHub defaults to, which caused an accidental feature → main merge.
+2. **Always use the `compare/<base>...<compare>` URL format for every PR link. Never use `pull/new/<branch>`.**
+   `pull/new/<branch>` lets GitHub silently default the base to `main` regardless of what you write in prose — this caused a feature → main merge and again in May 2026 when the dashboard PR was given with the wrong URL.
+   - Feature work: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/develop...<feature-branch>`
+   - Shipping to production: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/main...develop`
+   - Hotfix → main: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/main...<hotfix-branch>`
+   - Hotfix → develop: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/develop...<hotfix-branch>`
+3. **Never say "open a PR" without providing the full `compare/` URL** — prose-only base/compare instructions are not enough; the URL must encode the base branch mechanically.
 4. **Before starting any work**, check current branch with `git branch` and confirm it is a `feature/*` or `hotfix/*` branch, never `main` or `develop` directly.
 5. **After a PR merges to main**, always open a follow-up PR or fast-forward `develop` to keep them in sync.
 6. **After creating a skill**, immediately re-read the manifest.json to confirm the entry persisted before declaring done — the system can overwrite the manifest between tool calls.
