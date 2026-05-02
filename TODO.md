@@ -264,6 +264,7 @@ These two questions are not blocking Sprint 2 or 3, but must be answered before 
 | B-05 | S1 | `cancelMktData()` not called if exception during price polling | Fixed |
 | B-06 | S1 | Double-lock race in `_handle_order_status()` Cancelled branch | Fixed |
 | B-07 | S2 | `PendingCancel` not in `OrderStatus` enum — logged false warnings | Fixed |
+| B-08 | S1 | `ReconnectManager` reconnect always failed — `ib_insync` calls `asyncio.get_event_loop()` internally; Python 3.12 raises RuntimeError in non-main threads. Fix: `run_coroutine_threadsafe(ib.connectAsync(), main_loop)` in `broker/ibkr_client.py` | Fixed 2026-05-02 |
 
 ---
 

@@ -28,9 +28,16 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-05-01, continued) — Code quality gate: ruff ✅ black ✅ mypy ✅. pyproject.toml added. All code quality issues fixed. Branch `claude/hardcore-leavitt-18927f` ready to PR → develop.**
+**Last session completed (2026-05-02) — Reconnect asyncio threading bug fixed. `broker/ibkr_client.py` updated to use `run_coroutine_threadsafe`. Deployed to VPS. Bot healthy.**
 
-### What was done this session (2026-05-01, continued)
+### What was done this session (2026-05-02)
+
+**Reconnect always-failing bug fixed (B-08):**
+- Root cause: `ib_insync` calls `asyncio.get_event_loop()` internally; Python 3.12 raises `RuntimeError` in non-main threads — every `ReconnectManager` reconnect attempt failed before reaching IBKR.
+- Fix in `broker/ibkr_client.py`: save main event loop on first `connect()` call (main thread); on subsequent calls from daemon thread use `asyncio.run_coroutine_threadsafe(ib.connectAsync(), main_loop)`. Also replaced `ib.sleep()` with `time.sleep()` in post-connect poll.
+- ruff ✅ black ✅ mypy ✅. PR `feature/fix-reconnect-asyncio-thread` → develop → main. Deployed via `git pull origin main && systemctl restart tradebot`. Bot confirmed connected (PID 52545).
+
+### What was done last session (2026-05-01, continued)
 
 **Code quality gate — made ruff + black + mypy all pass:**
 - Created `pyproject.toml` — ruff config (ignores E402 intentional docstring pattern, E702 intentional semicolons in test runner); black line-length=100
@@ -502,3 +509,4 @@ cd "C:\Users\galzi\OneDrive - Afiki-C\Afikim\TradeBot"
 - **No virtual environment yet** (Sprint 5.2) — running system Python directly.
 - **`BarScheduler` stops after 5 consecutive `on_tick()` exceptions** — requires manual restart. Strategies should catch transient exceptions internally if they don't want the scheduler to stop.
 - **`IBKRFeed` delivers 5-second bars only** — for 1-min or daily bars, use `BarScheduler` polling `feed.get_latest()` on a timer.
+- **`IBKRClient.connect()` is thread-safe via `run_coroutine_threadsafe`** — Python 3.12 provides no asyncio event loop in non-main threads. `ReconnectManager` calls `connect()` from a daemon thread; the fix saves the main loop on first call and uses `asyncio.run_coroutine_threadsafe(ib.connectAsync(), main_loop)` for reconnects. If you see "There is no current event loop in thread ReconnectManager" in logs, the fix in `broker/ibkr_client.py` is not deployed.
