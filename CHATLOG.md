@@ -5,7 +5,17 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 
 ---
 
+## 2026-05-02 — Dashboard Phase 3 control plane + bot/gateway status indicators
+
+- Verified Phase 2 + weekend-fix on VPS: `/api/health` returns `stale_after_seconds=288000` on Saturday ✅; `/api/system` returns all fields ✅. The pending deploy note in CLAUDE.md was stale — code was already live.
+- Built Phase 3 control plane: `POST /api/bot/restart` + `POST /api/bot/stop` gated by `Authorization: Bearer DASHBOARD_TOKEN`; `deploy/sudoers/tradebot-dashboard` scopes NOPASSWD to exactly those two commands; UI Controls card with token in localStorage; DB-09..DB-13 pass; ruff/black/mypy ✅. Deployed and browser-tested.
+- Added bot status indicator (BOT / GATEWAY side-by-side pulse dots; red "Stopped" when bot is down); gateway label now shows "Logged in" / "Awaiting login" / "Down" by combining `gateway_service_status` + `gateway_port_open` — no backend changes needed.
+- Added Dashboard Phase 4+ to BACKLOG: account balance+graph, per-strategy fills, per-strategy analytics (W/L, P&L, Sharpe, drawdown), UI redesign (DB-P4-1..4).
+- **Process improvement:** SESSION_PROTOCOL.md two-PR rule strengthened — every push must include BOTH feature→develop AND develop→main links plus full VPS deploy command in one message. Violated 3× this session before codification.
+- **Next session:** merge pending PRs → VPS deploy (`git pull + restart tradebot-dashboard`); then Dashboard Phase 4 (account balance) or Sunday 2FA dry-run (2026-05-03 ~09:00 IL).
+
 ## 2026-05-02 — Opening ritual non-negotiable trigger rule
+
 - Slipped on session start: treated "read claude.md" as a literal file-read command and skipped Steps 1–7. User caught it.
 - Codified fix in SESSION_PROTOCOL.md: explicit trigger list (read claude.md / cluadmd / let's start / greetings / tasks / emojis / commands that look like literal file reads) + mechanical pre-response self-check before first reply.
 - Reinforced in CLAUDE.md header (always-loaded context) so the rule is visible even if SESSION_PROTOCOL.md isn't read first.
