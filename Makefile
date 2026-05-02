@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: help install install-dev lint format type-check test pre-push
+.PHONY: help install install-dev lint format type-check test secret-scan pre-push
 
 help:
 	@echo "Available targets:"
@@ -10,6 +10,7 @@ help:
 	@echo "  format         Auto-format with black"
 	@echo "  type-check     Run mypy type checker"
 	@echo "  test           Run full test suite"
+	@echo "  secret-scan    Run gitleaks secret scanner (requires gitleaks installed)"
 	@echo "  pre-push       Full local gate (mirrors CI exactly) — run before every push"
 
 install:
@@ -31,7 +32,11 @@ type-check:
 test:
 	$(PYTHON) -m tests.run_tests
 
+secret-scan:
+	gitleaks detect --redact --no-git -s .
+
 pre-push: lint
 	black --check .
 	mypy . --ignore-missing-imports --exclude 'tests/'
 	$(PYTHON) -m tests.run_tests
+	gitleaks detect --redact --no-git -s .
