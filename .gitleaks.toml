@@ -1,0 +1,10 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known safe placeholder values"
+regexes = [
+  # Example placeholder in deploy/ibc/config.ini — not a real credential
+  "YOUR_IBKR_USERNAME",
+  "YOUR_IBKR_PASSWORD",
+]
