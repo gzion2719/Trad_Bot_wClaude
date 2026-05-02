@@ -28,9 +28,20 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-05-02) — Reconnect asyncio threading bug fixed. `broker/ibkr_client.py` updated to use `run_coroutine_threadsafe`. Deployed to VPS. Bot healthy.**
+**Last session completed (2026-05-02) — Mission control dashboard Phase 1 (read-only telemetry) built on `feature/dashboard-readonly`. Not yet deployed; pending PR to develop → main → VPS install.**
 
-### What was done this session (2026-05-02)
+### What was done this session (2026-05-02, dashboard Phase 1)
+
+**Mission control dashboard — Phase 1 read-only (ROADMAP 5.7):**
+- New `dashboard/` module with FastAPI app: `dashboard/app.py` (routes), `dashboard/__main__.py` (uvicorn entry), `dashboard/static/index.html` (auto-polling UI, dark theme, refreshes every 5s).
+- Endpoints: `GET /api/health` (reads `data/health.txt`, classifies ok/stale/missing/unreadable against the same 26h threshold as `tradebot-health.timer`), `GET /api/today` (`TradeLog.daily_summary()`), `GET /api/recent-fills?limit=N` (clamped 1–200), `GET /api/info` (account/host/port metadata).
+- New systemd unit `deploy/systemd/tradebot-dashboard.service`: separate process from `tradebot.service` so a dashboard crash cannot affect the live bot. Binds `127.0.0.1:8080`. Reach via Tailscale `http://100.113.140.69:8080` or `ssh -L 8080:localhost:8080 chappy-vps`. **Never expose publicly without HTTP auth + TLS.**
+- Added `fastapi>=0.110.0` and `uvicorn[standard]>=0.27.0` to `requirements.txt`.
+- Added 6 tests (DB-01 through DB-06) to `tests/run_tests.py` Section 18 — exercise route functions directly (no HTTP layer / no httpx dep). All 6 pass locally.
+- ruff ✅ black ✅ mypy ✅ (mypy uses `--ignore-missing-imports` so FastAPI lack of stubs is fine). black auto-reformatted `tests/run_tests.py`.
+- **Scope deliberately limited to read-only.** Control plane (kill/restart bot) and IB Gateway login surface (replace VPN VNC 2FA) are explicitly deferred — separate phases tracked in BACKLOG. Bundling these would have tripled the blast radius.
+
+### What was done earlier this session (2026-05-02, B-08 reconnect fix)
 
 **Reconnect always-failing bug fixed (B-08):**
 - Root cause: `ib_insync` calls `asyncio.get_event_loop()` internally; Python 3.12 raises `RuntimeError` in non-main threads — every `ReconnectManager` reconnect attempt failed before reaching IBKR.
@@ -92,11 +103,19 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 - IBKR has **revoked all 2FA opt-out paths** for trading. There is no API key, service account, or Trusted IP bypass. Weekly 2FA is the regulatory floor.
 
 **START HERE — next tasks:**
-0. **TONIGHT ~20:10 UTC — watch on_tick() fire, then deploy to VPS:**
-   - `sudo journalctl -fu tradebot` → confirm on_tick() runs and health.txt is written
-   - `cd /opt/tradebot && sudo git pull origin main && sudo systemctl restart tradebot`
-   - Confirm 2107/1100/1102 now appear as INFO/WARNING (not ERROR) in logs
-1. **First Sunday morning (next: 2026-05-03 ~09:00 IL time = 02:00 ET) — test the weekly re-auth flow.**
+0. **First Sunday morning (next: 2026-05-03 ~09:00 IL time = 02:00 ET) — test the weekly re-auth flow.**
+   - SSH chappy-vps → tunnel `ssh -L 5900:localhost:5900 chappy-vps` → TightVNC `localhost:5900`
+   - Generate code in IBKR Mobile (Security → Generate Code), enter in gateway login dialog
+   - Confirm gateway logs in and bot reconnects within 2 min: `sudo journalctl -fu tradebot`
+1. **Deploy dashboard to VPS** (after PR `feature/dashboard-readonly` → develop → main merges):
+   - `ssh chappy-vps && sudo -i`
+   - `cd /opt/tradebot && git pull origin main`
+   - `/opt/tradebot/venv/bin/pip install -r requirements.txt` (picks up fastapi/uvicorn)
+   - `cp deploy/systemd/tradebot-dashboard.service /etc/systemd/system/`
+   - `systemctl daemon-reload && systemctl enable --now tradebot-dashboard.service`
+   - Verify from local PC via Tailscale: `curl http://100.113.140.69:8080/api/health`
+   - Then open `http://100.113.140.69:8080` in a browser
+2. **(Old item, was 1) First Sunday morning (next: 2026-05-03 ~09:00 IL time = 02:00 ET) — test the weekly re-auth flow.**
    - SSH chappy-vps → tunnel `ssh -L 5900:localhost:5900 chappy-vps` → TightVNC `localhost:5900`
    - Generate code in IBKR Mobile (Security → Generate Code), enter in gateway login dialog
    - Confirm gateway logs in and bot reconnects within 2 min: `sudo journalctl -fu tradebot`

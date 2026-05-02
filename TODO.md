@@ -176,7 +176,7 @@ backtester/
 | 5.4 | [x] | P0 | IBC (headless IB Gateway) setup — `deploy/ibc/config.ini` + `deploy/ibc/start_ibgateway.sh` created. Run `deploy/setup.sh` on VPS to install. |
 | 5.5 | [x] | P0 | `systemd` units created — `ibgateway.service`, `tradebot.service`, `tradebot-notify@.service`, `tradebot-health.service/.timer`. All in `deploy/systemd/`. |
 | 5.6 | [x] | P1 | Health heartbeat — `on_tick()` writes UTC timestamp to `data/health.txt`; `tradebot-health.timer` checks every 2h, notifies via ntfy.sh if stale >26h |
-| 5.7 | [ ] | P2 | Monitoring dashboard (simple web UI or Grafana) |
+| 5.7 | [~] | P2 | Monitoring dashboard — Phase 1 (read-only telemetry) done 2026-05-02: FastAPI app in `dashboard/` with `/api/health`, `/api/today`, `/api/recent-fills`, `/api/info` + polling HTML UI. `tradebot-dashboard.service` binds 127.0.0.1:8080, reach via Tailscale. Pending: control plane (kill/restart) and IB Gateway login surface — separate phases. |
 | 5.8 | [x] | P2 | CI/CD pipeline (auto-run tests on push to GitHub) — `.github/workflows/ci.yml` + `Makefile` added 2026-05-01 |
 | 5.9 | [x] | P1 | IBKR Trusted IP whitelist — **CLOSED: won't do.** Account-level IP Restrictions allows only one IP per user; adding VPS would block home PC access. Takes a business day to change. Gateway API Trusted IPs (different feature) already set to 127.0.0.1 in IBC config — no action needed. |
 | 5.10 | [x] | P0 | VPS deployment debugged — IBC empty password fixed, Read-Only API unchecked + `ReadOnlyApi=no` in config, 2FA loop resolved via `ExistingSessionDetectedAction=manual`, `UseSSL=yes` added |

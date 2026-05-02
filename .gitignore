@@ -20,6 +20,14 @@ build/
 # Logs
 logs/
 
+# SQLite runtime artifacts (TradeLog)
+*.db
+*.db-wal
+*.db-shm
+
+# Runtime telemetry
+data/health.txt
+
 # IDE
 .vscode/
 .idea/
