@@ -5,6 +5,25 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 
 ---
 
+## 2026-05-02 — Reconstructed previous session close (docs cleanup)
+
+- Opening ritual flagged drift: `git log` showed PRs #30/#31/#32/#33 + commits `d3e286d` and `b6515f4` on main, but CHATLOG.md and CLAUDE.md still described Phase 1 as the most recent work — previous chat had ended on an API error before its closing ritual could run.
+- User provided full transcript of the missed session; reconstructed a complete CHATLOG entry for "Dashboard Phase 2 + weekend-aware stale threshold" from transcript + git evidence.
+- Updated CLAUDE.md Current state header + START HERE tasks (deploy command now points at already-merged main, not unmerged feature branch); refreshed TODO.md 5.7 and ROADMAP.md 5.7 to mark Phase 2 + weekend fix as shipped.
+- Added "Debugging discipline" section to WORKFLOW.md (read producer cadence before hypothesizing failure modes) and a SESSION_PROTOCOL.md Step 5 sub-rule (reconstruct missing CHATLOG entries before piling new work on stale state).
+- **Process improvement:** SESSION_PROTOCOL.md Step 5 gains "git/CHATLOG drift = reconstruct first" rule; WORKFLOW.md gains "Debugging discipline" section. Both edits in this session.
+- **Next session:** deploy Phase 2 + weekend fix to VPS (`git pull + restart tradebot-dashboard`); then choose between Dashboard Phase 3 (control plane) or Sunday 2FA dry-run.
+
+## 2026-05-02 — Dashboard Phase 2 + weekend-aware stale threshold (5.7) [reconstructed close]
+
+- Built dashboard Phase 2 System card: `/api/system` returns bot PID/uptime + IB Gateway service status (`systemctl show ... MainPID,ActiveEnterTimestamp`) + port 4001 listen check. UI gained green pulsing gateway indicator + human-readable uptime. Shipped `d3e286d` via PRs #30 → develop, #31 → main.
+- Diagnosed dashboard "stale liveness" alarm (last tick 42.5h ago on Saturday): SMA strategy fires `on_tick()` once daily at 16:10 ET via custom `_daily_scheduler` in `main.py` (not BarScheduler), so 72h weekend gap > 26h hardcoded threshold = false positive. Bot was healthy throughout.
+- Fixed `dashboard/app.py` with `_stale_threshold_seconds()` returning 80h on Sat/Sun/Monday-pre-tick, 26h trading days; updated DB-03/DB-04 tests; ruff/black/mypy ✅. Shipped `b6515f4` via PRs #32 → develop, #33 → main.
+- **Pending VPS deploy:** `ssh chappy-vps && sudo -i && cd /opt/tradebot && git pull origin main && systemctl restart tradebot-dashboard` to pick up Phase 2 + weekend fix.
+- Originating chat ended on API error before closing ritual — entry reconstructed from full transcript + git log in the next session.
+- **Process improvement:** WORKFLOW.md gains "Debugging discipline" section — before hypothesizing failure modes for a "stopped" symptom, read the producer to confirm expected cadence. Cost us several rounds chasing a phantom BarScheduler-stopped bug before the user intuited "could it just be the weekend?".
+- **Next session:** verify VPS dashboard restart picks up Phase 2 + weekend fix; choose between Dashboard Phase 3 (control plane + token auth) or Sunday 2FA dry-run (next test = 2026-05-03 ~09:00 IL).
+
 ## 2026-05-02 — Mission control dashboard Phase 1 (5.7)
 
 - Built read-only dashboard: FastAPI app, 4 endpoints (`/api/health`, `/api/today`, `/api/recent-fills`, `/api/info`), auto-polling dark UI, `tradebot-dashboard.service`. Deployed to VPS, accessible from PC and iPhone via Tailscale at `http://100.113.140.69:8080`.

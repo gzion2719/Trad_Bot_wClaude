@@ -28,9 +28,25 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-05-02) — Mission control dashboard Phase 1 (read-only telemetry) built on `feature/dashboard-readonly`. Not yet deployed; pending PR to develop → main → VPS install.**
+**Last session completed (2026-05-02) — Dashboard Phase 2 shipped to main: `/api/system` endpoint (bot PID/uptime + IB Gateway service status + port 4001 check) plus weekend-aware `_stale_threshold_seconds()` (80h on weekend / Monday-pre-tick, 26h trading days). Pending: `sudo systemctl restart tradebot-dashboard` on VPS to pick up Phase 2 + weekend fix.**
 
-### What was done this session (2026-05-02, dashboard Phase 1)
+### What was done last session (2026-05-02, dashboard Phase 2 + weekend-aware stale threshold) — RECONSTRUCTED
+
+This entry was reconstructed in the next session because the originating chat ended on an API error before the closing ritual could run. Source: full chat transcript provided by user + git log of commits `d3e286d`, `b6515f4` and PRs #30/#31/#32/#33.
+
+**Phase 2 — IB Gateway status + bot uptime/PID (`d3e286d`, PRs #30 → develop, #31 → main):**
+- New endpoint `GET /api/system` returns `bot_pid`, `bot_uptime_seconds`, `bot_service_status`, `gateway_pid`, `gateway_uptime_seconds`, `gateway_service_status`, plus port 4001 listen check.
+- Implementation reads `systemctl show <service> --property=MainPID,ActiveEnterTimestamp` and `systemctl is-active <service>`. Degrades gracefully on dev PC / Windows where systemctl is unavailable.
+- Dashboard UI gained a "System" card with green pulsing dot when gateway is active, bot uptime in human-readable form, and port-open indicator.
+- User confirmed live read on VPS via Tailscale: gateway active ✅, bot PID 52545 ✅, uptime 6.3h ✅, port 4001 open ✅.
+
+**Weekend-aware stale threshold fix (`b6515f4`, PRs #32 → develop, #33 → main):**
+- Diagnosis: dashboard showed Liveness "stale" (last tick 42.5h ago = Friday Apr 30 20:10 UTC) on a Saturday. Initial wrong-path: hypothesized `BarScheduler` stopped after 5 consecutive `on_tick()` exceptions. User intuited the actual cause: it was the weekend.
+- Root cause: SMA strategy doesn't use `BarScheduler` — it uses a custom `_daily_scheduler` in `main.py` that fires `on_tick()` once per day at 16:10 ET. Weekend gap = ~72h, but the dashboard's hardcoded `_STALE_AFTER_SECONDS = 26h` threshold wasn't aware of this. Bot was healthy the whole time; alarm was a false positive.
+- Fix in `dashboard/app.py`: replaced constant with `_stale_threshold_seconds()` returning 80h on Saturday/Sunday/Monday-before-16:10-ET, 26h on regular trading days. Updated DB-03/DB-04 tests to cover both branches. ruff/black/mypy all ✅.
+- Process improvement codified in `WORKFLOW.md` "Debugging discipline" section: before hypothesizing failure modes for a "stopped" symptom, read the producer to confirm expected cadence.
+
+### What was done earlier this session (2026-05-02, dashboard Phase 1)
 
 **Mission control dashboard — Phase 1 read-only (ROADMAP 5.7):**
 - New `dashboard/` module with FastAPI app: `dashboard/app.py` (routes), `dashboard/__main__.py` (uvicorn entry), `dashboard/static/index.html` (auto-polling UI, dark theme, refreshes every 5s).
@@ -103,26 +119,17 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 - IBKR has **revoked all 2FA opt-out paths** for trading. There is no API key, service account, or Trusted IP bypass. Weekly 2FA is the regulatory floor.
 
 **START HERE — next tasks:**
-0. **First Sunday morning (next: 2026-05-03 ~09:00 IL time = 02:00 ET) — test the weekly re-auth flow.**
+1. **Deploy Phase 2 + weekend fix to VPS** — pulls already-on-main `/api/system` endpoint and weekend-aware stale threshold:
+   - `ssh chappy-vps && sudo -i && cd /opt/tradebot && git pull origin main && systemctl restart tradebot-dashboard`
+   - Verify: `curl http://100.113.140.69:8080/api/system` returns the new fields; `curl http://100.113.140.69:8080/api/health` shows `ok` on Sat/Sun (not `stale`).
+2. **First Sunday morning (next: 2026-05-03 ~09:00 IL time = 02:00 ET) — test the weekly re-auth flow.**
    - SSH chappy-vps → tunnel `ssh -L 5900:localhost:5900 chappy-vps` → TightVNC `localhost:5900`
    - Generate code in IBKR Mobile (Security → Generate Code), enter in gateway login dialog
    - Confirm gateway logs in and bot reconnects within 2 min: `sudo journalctl -fu tradebot`
-1. **Deploy dashboard to VPS** (after PR `feature/dashboard-readonly` → develop → main merges):
-   - `ssh chappy-vps && sudo -i`
-   - `cd /opt/tradebot && git pull origin main`
-   - `/opt/tradebot/venv/bin/pip install -r requirements.txt` (picks up fastapi/uvicorn)
-   - `cp deploy/systemd/tradebot-dashboard.service /etc/systemd/system/`
-   - `systemctl daemon-reload && systemctl enable --now tradebot-dashboard.service`
-   - Verify from local PC via Tailscale: `curl http://100.113.140.69:8080/api/health`
-   - Then open `http://100.113.140.69:8080` in a browser
-2. **(Old item, was 1) First Sunday morning (next: 2026-05-03 ~09:00 IL time = 02:00 ET) — test the weekly re-auth flow.**
-   - SSH chappy-vps → tunnel `ssh -L 5900:localhost:5900 chappy-vps` → TightVNC `localhost:5900`
-   - Generate code in IBKR Mobile (Security → Generate Code), enter in gateway login dialog
-   - Confirm gateway logs in and bot reconnects within 2 min: `sudo journalctl -fu tradebot`
-2. **Send IBKR support inquiry** (drafted in Obsidian) asking about: (a) switching from Interactive IL Key to push-notification IB Key, (b) any unattended weekly auth options for paper accounts.
-3. **Monitor paper trading** — `sudo journalctl -fu tradebot` daily; check `TradeLog.daily_summary()` each trading day.
-4. **5.9 — IBKR Trusted IP** — still pending. Add VPS IP `2.24.222.199` in IBKR account → Security → Trusted IPs. (May not affect 2FA frequency given the weekly-token model, but worth doing.)
-5. **4.5 — Tune** — after 1+ week paper results, test sma_fast=20/sma_slow=50; validate on 2008/2022 bear regimes.
+3. **Dashboard Phase 3 — control plane** (kill/restart bot endpoints with token auth + narrow sudoers rule). Fresh feature branch from `develop`.
+4. **Send IBKR support inquiry** (drafted in Obsidian) asking about: (a) switching from Interactive IL Key to push-notification IB Key, (b) any unattended weekly auth options for paper accounts.
+5. **Monitor paper trading** — `sudo journalctl -fu tradebot` daily; check `TradeLog.daily_summary()` each trading day.
+6. **4.5 — Tune** — after 1+ week paper results, test sma_fast=20/sma_slow=50; validate on 2008/2022 bear regimes.
 
 **Pre-live hardening items (non-blocking for paper, tracked):**
 - Q4: if avg_cost==0 on reconcile, consider deferring `_in_position=True` until stop can be computed
