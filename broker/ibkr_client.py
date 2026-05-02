@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
+import threading
 import time
 from typing import Callable, Optional
 
@@ -49,6 +51,9 @@ class IBKRClient:
         self._client_id = client_id
         self.ib = IB()
         self._on_disconnect_cb: Optional[Callable] = None
+        # Saved by connect() on the main thread; used by _connect_async() in
+        # ReconnectManager's daemon thread (Python 3.12 has no shared event loop).
+        self._main_loop: Optional[asyncio.AbstractEventLoop] = None
 
     # ------------------------------------------------------------------
     # Connection
@@ -64,6 +69,13 @@ class IBKRClient:
         Raises:
             ConnectionError: All retry attempts exhausted.
         """
+        # Save the event loop on the first call (always from the main thread).
+        # ReconnectManager's daemon thread calls connect() on subsequent
+        # disconnects; Python 3.12 provides no event loop in non-main threads,
+        # so we schedule the async handshake on the saved main loop instead.
+        if threading.current_thread() is threading.main_thread():
+            self._main_loop = asyncio.get_event_loop()
+
         if self.ib.isConnected():
             logger.warning("Already connected — skipping.")
             return
@@ -81,13 +93,32 @@ class IBKRClient:
                     attempt,
                     total_attempts,
                 )
-                self.ib.connect(
-                    self._host,
-                    self._port,
-                    clientId=self._client_id,
-                    readonly=False,
-                    timeout=_CONNECT_TIMEOUT,
-                )
+                # When reconnecting from ReconnectManager's daemon thread, the
+                # main asyncio loop is already running (ib.run() in main.py).
+                # run_coroutine_threadsafe schedules connectAsync() on it safely.
+                if (
+                    threading.current_thread() is not threading.main_thread()
+                    and self._main_loop is not None
+                    and self._main_loop.is_running()
+                ):
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.ib.connectAsync(
+                            self._host,
+                            self._port,
+                            clientId=self._client_id,
+                            timeout=_CONNECT_TIMEOUT,
+                        ),
+                        self._main_loop,
+                    )
+                    future.result(timeout=_CONNECT_TIMEOUT + 5)
+                else:
+                    self.ib.connect(
+                        self._host,
+                        self._port,
+                        clientId=self._client_id,
+                        readonly=False,
+                        timeout=_CONNECT_TIMEOUT,
+                    )
                 # Always remove before adding — connect() may be called multiple times
                 # (e.g., by ReconnectManager) and += would accumulate duplicate handlers,
                 # causing _on_disconnected to fire N times on the next drop.
@@ -97,10 +128,11 @@ class IBKRClient:
                     pass  # not yet registered — safe to ignore
                 self.ib.disconnectedEvent += self._on_disconnected
 
-                # Wait until account state is populated (async handshake)
+                # Wait until account state is populated (async handshake).
+                # Use time.sleep — ib.sleep() is not safe from non-main threads.
                 deadline = time.time() + _CONNECT_TIMEOUT
                 while not self.ib.wrapper.accounts and time.time() < deadline:
-                    self.ib.sleep(0.1)
+                    time.sleep(0.1)
 
                 if not self.ib.wrapper.accounts:
                     raise ConnectionError("Connected but account state never populated.")
