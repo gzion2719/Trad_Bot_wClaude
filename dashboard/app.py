@@ -34,9 +34,39 @@ _ROOT = Path(__file__).resolve().parent.parent
 _HEALTH_FILE = _ROOT / "data" / "health.txt"
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-# Threshold matching deploy/systemd/tradebot-health.service (26h tolerance for the
-# weekend gap between Friday's tick and Monday's tick). Above this, we mark stale.
-_STALE_AFTER_SECONDS = 93600
+# The strategy fires on_tick() once per trading day at 16:10 ET.
+# Weekend gaps: Fri 16:10 ET → Mon 16:10 ET = ~72h.
+# _stale_threshold_seconds() returns a day-aware value so the dashboard
+# doesn't false-alarm on weekends and holidays.
+_WEEKDAY_STALE_SECONDS = 26 * 3600  # normal trading day: 26h
+_WEEKEND_STALE_SECONDS = 80 * 3600  # covers Fri → Mon morning (72h + buffer)
+
+
+def _stale_threshold_seconds() -> float:
+    """Return the appropriate stale threshold for the current time.
+
+    Uses US/Eastern time:
+      - Sat/Sun:          80h (Fri tick is up to ~72h old by Mon morning)
+      - Mon before 16:10: 80h (same weekend gap, not yet ticked today)
+      - All other times:  26h (normal 24h trading-day cadence)
+    """
+    try:
+        from zoneinfo import ZoneInfo
+
+        et_tz = ZoneInfo("America/New_York")
+    except Exception:
+        from datetime import timedelta
+
+        et_tz = timezone(timedelta(hours=-5))  # type: ignore[assignment]
+
+    now_et = datetime.now(et_tz)
+    wd = now_et.weekday()  # 0=Mon … 4=Fri, 5=Sat, 6=Sun
+    if wd in (5, 6):  # weekend
+        return _WEEKEND_STALE_SECONDS
+    if wd == 0 and (now_et.hour < 16 or (now_et.hour == 16 and now_et.minute < 10)):
+        return _WEEKEND_STALE_SECONDS  # Monday before today's tick
+    return _WEEKDAY_STALE_SECONDS
+
 
 _STARTED_AT = datetime.now(timezone.utc).isoformat()
 
@@ -73,17 +103,19 @@ def api_health() -> Dict[str, Any]:
     """Read data/health.txt and report liveness.
 
     status values:
-      * "ok"       — last tick within _STALE_AFTER_SECONDS
+      * "ok"       — last tick within the day-aware stale threshold
       * "stale"    — file exists but tick is older than threshold
       * "missing"  — file does not exist (bot has not ticked since deploy)
       * "unreadable" — file exists but contents do not parse as ISO datetime
     """
+    threshold = _stale_threshold_seconds()
+
     if not _HEALTH_FILE.exists():
         return {
             "status": "missing",
             "last_tick": None,
             "age_seconds": None,
-            "stale_after_seconds": _STALE_AFTER_SECONDS,
+            "stale_after_seconds": threshold,
         }
 
     try:
@@ -95,19 +127,19 @@ def api_health() -> Dict[str, Any]:
             "status": "unreadable",
             "last_tick": None,
             "age_seconds": None,
-            "stale_after_seconds": _STALE_AFTER_SECONDS,
+            "stale_after_seconds": threshold,
         }
 
     if last_tick.tzinfo is None:
         last_tick = last_tick.replace(tzinfo=timezone.utc)
 
     age = (datetime.now(timezone.utc) - last_tick).total_seconds()
-    status = "ok" if age <= _STALE_AFTER_SECONDS else "stale"
+    status = "ok" if age <= threshold else "stale"
     return {
         "status": status,
         "last_tick": last_tick.isoformat(),
         "age_seconds": round(age, 1),
-        "stale_after_seconds": _STALE_AFTER_SECONDS,
+        "stale_after_seconds": threshold,
     }
 
 
