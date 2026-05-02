@@ -213,12 +213,17 @@ async function refresh() {
     document.getElementById("sys-bot-status").innerHTML =
       `<span class="pulse ${botOk ? '' : 'err'}"></span><span class="${botCls}">${botLabel}</span>`;
 
-    // System — gateway status
+    // System — gateway status (active + port open = logged in; active + port closed = awaiting 2FA)
     const gwStatus = sys.gateway_service_status;
-    const gwOk = gwStatus === "active";
-    const gwCls = gwOk ? "ok" : (gwStatus === "unavailable" ? "" : "err");
+    const gwPortOpen = sys.gateway_port_open;
+    const gwLoggedIn = gwStatus === "active" && gwPortOpen;
+    const gwAwaiting = gwStatus === "active" && !gwPortOpen;
+    const gwDown = gwStatus === "inactive" || gwStatus === "failed";
+    const gwPulseCls = gwLoggedIn ? "" : (gwAwaiting ? "warn" : "err");
+    const gwTextCls  = gwLoggedIn ? "ok" : (gwAwaiting ? "warn" : (gwDown ? "err" : ""));
+    const gwLabel    = gwLoggedIn ? "Logged in" : (gwAwaiting ? "Awaiting login" : gwDown ? "Down" : gwStatus);
     document.getElementById("sys-gateway-status").innerHTML =
-      `<span class="pulse ${gwOk ? '' : 'err'}"></span><span class="${gwCls}">${gwOk ? "Active" : gwStatus}</span>`;
+      `<span class="pulse ${gwPulseCls}"></span><span class="${gwTextCls}">${gwLabel}</span>`;
     document.getElementById("sys-bot-pid").textContent =
       sys.bot_pid != null ? sys.bot_pid : (botStatus === "unavailable" ? "n/a" : "—");
     document.getElementById("sys-bot-uptime").textContent = fmtAge(sys.bot_uptime_seconds);
