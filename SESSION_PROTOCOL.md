@@ -145,6 +145,8 @@ It is a verbatim mirror of what `.github/workflows/ci.yml` runs.
 
 **Mechanical pre-send self-check.** Re-read your draft's first 3 lines before sending. If they don't contain `make pre-push`, the draft is wrong — prepend it. This applies to ANY "ready to commit" handoff, not just closing ones.
 
+**develop → main sync check.** After every PR that merges into `develop`, always prompt the user to open a follow-up PR: base `main`, compare `develop`. Do not skip this — `main` is what runs on the VPS.
+
 ### Step 6 — Close warmly
 
 One line. In English (the project's output language).
