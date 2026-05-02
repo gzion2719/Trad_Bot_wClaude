@@ -1,6 +1,6 @@
-"""FastAPI app for the read-only TradeBot dashboard.
+"""FastAPI app for the TradeBot dashboard.
 
-Endpoints:
+Read-only endpoints:
     GET /                  — serves static/index.html (auto-polling UI)
     GET /api/health        — bot liveness from data/health.txt
     GET /api/today         — TradeLog.daily_summary() for today UTC
@@ -8,12 +8,17 @@ Endpoints:
     GET /api/info          — static metadata (account, version, started_at)
     GET /api/system        — bot PID/uptime, IB Gateway service + port 4001 status
 
-Bind: 127.0.0.1:8080 — reach via Tailscale (http://100.113.140.69:8080) or SSH tunnel.
-Never expose publicly without adding HTTP auth and TLS.
+Control-plane endpoints (require Authorization: Bearer <DASHBOARD_TOKEN>):
+    POST /api/bot/restart  — sudo systemctl restart tradebot.service
+    POST /api/bot/stop     — sudo systemctl stop tradebot.service
+
+Bind: 0.0.0.0:8080 — reach via Tailscale (http://100.113.140.69:8080) or SSH tunnel.
+Never expose publicly without TLS. Tailscale provides transport encryption.
 """
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import socket
@@ -22,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -152,6 +157,75 @@ def api_today() -> Dict[str, Any]:
 def api_recent_fills(limit: int = 20) -> List[Dict[str, Any]]:
     limit = max(1, min(limit, 200))
     return TradeLog().get_history(limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# Control plane (Phase 3) — token-gated POST endpoints
+# ---------------------------------------------------------------------------
+
+
+def _check_token(authorization: Optional[str] = Header(default=None)) -> None:
+    """Bearer-token auth dependency for control endpoints.
+
+    Reads DASHBOARD_TOKEN from the environment (set by systemd via
+    /opt/tradebot/.env). Returns 503 if the token is not configured (fail
+    closed) and 401 if the caller's token is missing or wrong.
+    """
+    expected = os.getenv("DASHBOARD_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="DASHBOARD_TOKEN not configured")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    provided = authorization[len("Bearer ") :].strip()
+    if not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="invalid token")
+
+
+_ALLOWED_ACTIONS = ("restart", "stop")
+
+
+def _systemctl_action(action: str) -> Dict[str, Any]:
+    """Execute `sudo -n /bin/systemctl <action> tradebot.service`.
+
+    The sudoers rule at /etc/sudoers.d/tradebot-dashboard scopes NOPASSWD
+    privilege to exactly these two commands for the `tradebot` user. Anything
+    else returns 400.
+    """
+    if action not in _ALLOWED_ACTIONS:
+        raise HTTPException(status_code=400, detail=f"unsupported action {action!r}")
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", "/bin/systemctl", action, "tradebot.service"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        logger.error("systemctl %s tradebot.service failed: %s", action, exc)
+        raise HTTPException(status_code=500, detail=f"systemctl {action} failed: {exc}")
+    if result.returncode != 0:
+        logger.error(
+            "systemctl %s tradebot.service rc=%d stderr=%s",
+            action,
+            result.returncode,
+            result.stderr,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"systemctl {action} rc={result.returncode}: {result.stderr.strip()}",
+        )
+    logger.warning("systemctl %s tradebot.service succeeded (dashboard-initiated)", action)
+    return {"ok": True, "action": action, "stdout": result.stdout.strip()}
+
+
+@app.post("/api/bot/restart")
+def api_bot_restart(_: None = Depends(_check_token)) -> Dict[str, Any]:
+    return _systemctl_action("restart")
+
+
+@app.post("/api/bot/stop")
+def api_bot_stop(_: None = Depends(_check_token)) -> Dict[str, Any]:
+    return _systemctl_action("stop")
 
 
 @app.get("/api/system")
