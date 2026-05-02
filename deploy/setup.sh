@@ -65,16 +65,24 @@ chown -R root:root "$IBC_DIR"
 
 echo "=== [8/9] Create .env (edit this with real values) ==="
 if [ ! -f "$BOT_DIR/.env" ]; then
-    cat > "$BOT_DIR/.env" <<'EOF'
+    # Generate a random 32-char suffix for the ntfy topic so it is unguessable
+    NTFY_SUFFIX=$(head -c 24 /dev/urandom | base64 | tr -dc 'a-z0-9' | head -c 24)
+    cat > "$BOT_DIR/.env" <<EOF
 IB_HOST=127.0.0.1
 IB_PORT=4001
 IB_CLIENT_ID=1
+# Your IBKR account ID (e.g. DUE... for paper, U... for live) — used for log context only
+IBKR_ACCOUNT_ID=CHANGEME
+# ntfy.sh topic — keep this secret; generated randomly on first setup
+NTFY_TOPIC=tradebot-${NTFY_SUFFIX}
+# Dashboard control-plane auth token (generate with: openssl rand -hex 32)
+DASHBOARD_TOKEN=CHANGEME
 EOF
     chown $TRADEBOT_USER:$TRADEBOT_USER "$BOT_DIR/.env"
     chmod 600 "$BOT_DIR/.env"
-    echo "Created $BOT_DIR/.env -- no changes needed, port 4001 is correct for IB Gateway paper."
+    echo "Created $BOT_DIR/.env — fill in IBKR_ACCOUNT_ID and DASHBOARD_TOKEN before starting."
 else
-    echo "$BOT_DIR/.env already exists -- skipping."
+    echo "$BOT_DIR/.env already exists — skipping. Ensure NTFY_TOPIC and IBKR_ACCOUNT_ID are set."
 fi
 
 echo "=== [9/9] Install and enable systemd units ==="
@@ -95,8 +103,8 @@ echo "     nano /opt/ibc/config.ini"
 echo "     (set IbLoginId and IbPassword)"
 echo ""
 echo "  2. Subscribe to failure alerts on your phone:"
-echo "     Open https://ntfy.sh/tradebot-DUE090987"
-echo "     or install the ntfy app and subscribe to: tradebot-DUE090987"
+echo "     Read NTFY_TOPIC from /opt/tradebot/.env, then:"
+echo "     Open https://ntfy.sh/<NTFY_TOPIC> or subscribe via the ntfy app"
 echo ""
 echo "  3. Start services:"
 echo "     systemctl start ibgateway"

@@ -249,4 +249,4 @@ You produce:
 > ---
 > **In plain English:** Today we tested the Sunday morning recovery routine for the first time — the weekly flow where IBKR invalidates all tokens and someone has to enter a fresh 2FA code. It worked in 18 seconds. We documented the exact steps in CLAUDE.md so any team member can do it in under a minute, and we tightened the session protocol to avoid reading files we don't need yet.
 >
-> **Example:** The full recovery sequence is: `ssh chappy-vps`, open a second terminal with `ssh -L 5900:localhost:5900 chappy-vps`, connect TightVNC to `localhost:5900`, enter the 6-digit code from IBKR Mobile, then confirm with `sudo journalctl -fu tradebot` that the bot shows `Connected | account=DUE090987`.
+> **Example:** The full recovery sequence is: `ssh chappy-vps`, open a second terminal with `ssh -L 5900:localhost:5900 chappy-vps`, connect TightVNC to `localhost:5900`, enter the 6-digit code from IBKR Mobile, then confirm with `sudo journalctl -fu tradebot` that the bot shows `Connected | account=<your-account-id>`.
