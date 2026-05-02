@@ -1684,6 +1684,111 @@ bt07()
 bt08()
 
 
+section("18. DASHBOARD TESTS")
+
+# Dashboard route functions are imported and called directly — no HTTP server,
+# no TestClient. Each route is a plain function that returns a dict; we exercise
+# them and assert structure. This avoids pulling httpx into the test gate.
+
+from dashboard import app as dashboard_app
+
+
+@test("DB-01", "api_info returns expected keys")
+def db01():
+    info = dashboard_app.api_info()
+    for key in ("account", "host", "port", "dashboard_started_at", "version"):
+        assert key in info, f"missing key {key} in api_info()"
+    assert isinstance(info["port"], int)
+
+
+@test("DB-02", "api_health reports 'missing' when health.txt absent")
+def db02():
+    original = dashboard_app._HEALTH_FILE
+    fake = original.parent / "health_definitely_missing_xyz.txt"
+    dashboard_app._HEALTH_FILE = fake
+    try:
+        result = dashboard_app.api_health()
+        assert result["status"] == "missing", f"expected 'missing', got {result['status']}"
+        assert result["last_tick"] is None
+        assert result["age_seconds"] is None
+    finally:
+        dashboard_app._HEALTH_FILE = original
+
+
+@test("DB-03", "api_health reports 'ok' for a fresh tick")
+def db03():
+    import tempfile
+
+    original = dashboard_app._HEALTH_FILE
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
+    tmp.write(datetime.now(timezone.utc).isoformat())
+    tmp.close()
+    dashboard_app._HEALTH_FILE = Path(tmp.name)
+    try:
+        result = dashboard_app.api_health()
+        assert result["status"] == "ok", f"expected 'ok', got {result['status']}"
+        assert result["age_seconds"] is not None
+        assert (
+            result["age_seconds"] < 60
+        ), f"fresh tick should be <60s old, got {result['age_seconds']}"
+    finally:
+        dashboard_app._HEALTH_FILE = original
+        Path(tmp.name).unlink(missing_ok=True)
+
+
+@test("DB-04", "api_health reports 'stale' for an old tick")
+def db04():
+    import tempfile
+    from datetime import timedelta
+
+    original = dashboard_app._HEALTH_FILE
+    old = datetime.now(timezone.utc) - timedelta(seconds=dashboard_app._STALE_AFTER_SECONDS + 3600)
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
+    tmp.write(old.isoformat())
+    tmp.close()
+    dashboard_app._HEALTH_FILE = Path(tmp.name)
+    try:
+        result = dashboard_app.api_health()
+        assert result["status"] == "stale", f"expected 'stale', got {result['status']}"
+    finally:
+        dashboard_app._HEALTH_FILE = original
+        Path(tmp.name).unlink(missing_ok=True)
+
+
+@test("DB-05", "api_health reports 'unreadable' on garbage contents")
+def db05():
+    import tempfile
+
+    original = dashboard_app._HEALTH_FILE
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
+    tmp.write("not-a-datetime")
+    tmp.close()
+    dashboard_app._HEALTH_FILE = Path(tmp.name)
+    try:
+        result = dashboard_app.api_health()
+        assert result["status"] == "unreadable", f"expected 'unreadable', got {result['status']}"
+    finally:
+        dashboard_app._HEALTH_FILE = original
+        Path(tmp.name).unlink(missing_ok=True)
+
+
+@test("DB-06", "api_recent_fills clamps limit to [1, 200]")
+def db06():
+    # Don't care about results; just confirm no exception and returns a list.
+    out = dashboard_app.api_recent_fills(limit=99999)
+    assert isinstance(out, list)
+    out = dashboard_app.api_recent_fills(limit=-5)
+    assert isinstance(out, list)
+
+
+db01()
+db02()
+db03()
+db04()
+db05()
+db06()
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # CLEANUP & SUMMARY
 # ══════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,28 @@
+[Unit]
+Description=TradeBot mission control dashboard (read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tradebot
+Group=tradebot
+WorkingDirectory=/opt/tradebot
+EnvironmentFile=/opt/tradebot/.env
+
+# Bind to localhost only. Reach via Tailscale (http://100.113.140.69:8080) or
+# `ssh -L 8080:localhost:8080 chappy-vps`. Never expose publicly without auth.
+Environment=DASHBOARD_HOST=127.0.0.1
+Environment=DASHBOARD_PORT=8080
+
+ExecStart=/opt/tradebot/venv/bin/python -m dashboard
+
+Restart=on-failure
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tradebot-dashboard
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TradeBot — Mission Control</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --accent: #58a6ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 1.5rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  h1 { margin: 0 0 0.25rem 0; font-size: 1.4rem; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+  .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 1rem;
+  }
+  .card h2 { margin: 0 0 0.75rem 0; font-size: 0.9rem; color: var(--muted);
+             text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .big { font-size: 1.6rem; font-weight: 600; }
+  .ok { color: var(--ok); }
+  .warn { color: var(--warn); }
+  .err { color: var(--err); }
+  .row { display: flex; justify-content: space-between; padding: 0.25rem 0; font-size: 0.9rem; }
+  .row .k { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.05em; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .footer { margin-top: 2rem; color: var(--muted); font-size: 0.75rem; }
+  .pulse {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--ok); margin-right: 0.4rem;
+    animation: pulse 2s infinite ease-in-out;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .pulse.warn { background: var(--warn); }
+  .pulse.err { background: var(--err); }
+</style>
+</head>
+<body>
+
+<h1>TradeBot — Mission Control</h1>
+<div class="sub" id="sub">read-only · polling every 5s</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Liveness</h2>
+    <div class="big" id="health-status">…</div>
+    <div class="row"><span class="k">Last tick</span><span id="health-last">—</span></div>
+    <div class="row"><span class="k">Age</span><span id="health-age">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Today (UTC)</h2>
+    <div class="big" id="today-pnl">—</div>
+    <div class="row"><span class="k">Trades</span><span id="today-trades">0</span></div>
+    <div class="row"><span class="k">Buys / Sells</span><span id="today-bs">0 / 0</span></div>
+    <div class="row"><span class="k">Net flow</span><span id="today-net">$0</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Connection</h2>
+    <div class="row"><span class="k">Account</span><span id="info-account">—</span></div>
+    <div class="row"><span class="k">Host</span><span id="info-host">—</span></div>
+    <div class="row"><span class="k">Port</span><span id="info-port">—</span></div>
+    <div class="row"><span class="k">Dashboard up</span><span id="info-started">—</span></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top: 1rem;">
+  <h2>Recent fills</h2>
+  <table id="fills-table">
+    <thead>
+      <tr>
+        <th>Time</th><th>Symbol</th><th>Side</th><th class="num">Qty</th>
+        <th class="num">Price</th><th class="num">Value</th><th class="num">Realized P&amp;L</th>
+      </tr>
+    </thead>
+    <tbody id="fills-body">
+      <tr><td colspan="7" style="color: var(--muted); text-align: center;">no fills yet</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="footer" id="footer">last refresh: —</div>
+
+<script>
+const fmtMoney = (n) => n == null ? "—" : (n < 0 ? "-$" : "$") + Math.abs(n).toFixed(2);
+const fmtAge = (s) => {
+  if (s == null) return "—";
+  if (s < 60) return s.toFixed(0) + "s";
+  if (s < 3600) return (s / 60).toFixed(1) + "m";
+  return (s / 3600).toFixed(1) + "h";
+};
+
+async function refresh() {
+  try {
+    const [health, today, fills, info] = await Promise.all([
+      fetch("/api/health").then(r => r.json()),
+      fetch("/api/today").then(r => r.json()),
+      fetch("/api/recent-fills?limit=20").then(r => r.json()),
+      fetch("/api/info").then(r => r.json()),
+    ]);
+
+    // Health
+    const cls = health.status === "ok" ? "ok"
+              : health.status === "stale" ? "warn" : "err";
+    document.getElementById("health-status").innerHTML =
+      `<span class="pulse ${cls === 'ok' ? '' : cls}"></span><span class="${cls}">${health.status}</span>`;
+    document.getElementById("health-last").textContent = health.last_tick || "—";
+    document.getElementById("health-age").textContent = fmtAge(health.age_seconds);
+
+    // Today
+    const pnl = today.realized_pnl;
+    const pnlEl = document.getElementById("today-pnl");
+    pnlEl.textContent = fmtMoney(pnl);
+    pnlEl.className = "big " + (pnl == null ? "" : pnl >= 0 ? "ok" : "err");
+    document.getElementById("today-trades").textContent = today.total_trades;
+    document.getElementById("today-bs").textContent = `${today.buys} / ${today.sells}`;
+    document.getElementById("today-net").textContent = fmtMoney(today.net_flow);
+
+    // Info
+    document.getElementById("info-account").textContent = info.account;
+    document.getElementById("info-host").textContent = info.host;
+    document.getElementById("info-port").textContent = info.port;
+    document.getElementById("info-started").textContent = info.dashboard_started_at;
+
+    // Fills
+    const body = document.getElementById("fills-body");
+    if (!fills.length) {
+      body.innerHTML = '<tr><td colspan="7" style="color: var(--muted); text-align: center;">no fills yet</td></tr>';
+    } else {
+      body.innerHTML = fills.map(f => `
+        <tr>
+          <td>${(f.filled_at || "").replace("T", " ").slice(0, 19)}</td>
+          <td>${f.symbol}</td>
+          <td class="${f.action === 'BUY' ? 'ok' : 'warn'}">${f.action}</td>
+          <td class="num">${f.quantity}</td>
+          <td class="num">${f.fill_price?.toFixed(4) ?? "—"}</td>
+          <td class="num">${fmtMoney(f.fill_value)}</td>
+          <td class="num ${f.realized_pnl == null ? '' : f.realized_pnl >= 0 ? 'ok' : 'err'}">${fmtMoney(f.realized_pnl)}</td>
+        </tr>
+      `).join("");
+    }
+
+    document.getElementById("footer").textContent =
+      "last refresh: " + new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
+  } catch (e) {
+    document.getElementById("footer").textContent = "refresh error: " + e.message;
+  }
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
