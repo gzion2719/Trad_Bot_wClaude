@@ -5,6 +5,15 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 
 ---
 
+## 2026-05-02 — Reconnect asyncio threading fix (B-08)
+
+- Diagnosed root cause of recurring "on_tick stale" alerts: `ib_insync` calls `asyncio.get_event_loop()` internally; Python 3.12 raises `RuntimeError` in non-main threads, so every `ReconnectManager` reconnect attempt failed before reaching IBKR.
+- Fixed `broker/ibkr_client.py`: save main event loop on first `connect()` (main thread); reconnects from daemon thread use `asyncio.run_coroutine_threadsafe(ib.connectAsync(), main_loop)`. Also replaced `ib.sleep()` with `time.sleep()` in post-connect poll.
+- Deployed via `feature/fix-reconnect-asyncio-thread` → PR #21 develop → PR #22 main → VPS `git pull + restart`. Bot confirmed healthy (PID 52545, connected DUE090987).
+- Real test is the next IBKR server blip — watch for `Reconnected to TWS successfully` instead of the event loop error chain.
+- **Process improvement:** asyncio thread limitation added to CLAUDE.md known limitations — future sessions won't need to re-diagnose this pattern.
+- **Next session:** confirm first live reconnect worked; then begin mission control dashboard (ROADMAP 5.7).
+
 ## 2026-05-02 — Bot recovery + reconnect auto-restart fix
 
 - Diagnosed ntfy "on_tick stale" alerts: IB Gateway had a 6-min IBKR server blip at 05:23 UTC May 2; bot exhausted its 10 reconnect attempts and went silent for ~31h while systemd still showed "active (running)".
