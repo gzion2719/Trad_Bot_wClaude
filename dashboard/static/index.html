@@ -63,12 +63,16 @@
   .ctrl-msg { margin-top: 0.6rem; font-size: 0.8rem; color: var(--muted); min-height: 1em; }
   .ctrl-msg.ok  { color: var(--ok); }
   .ctrl-msg.err { color: var(--err); }
+  .sys-status-row { display: flex; align-items: center; gap: 1rem; }
+  .sys-status-row > div { flex: 1; }
+  .sys-divider { flex: 0 0 1px !important; width: 1px; background: var(--border); align-self: stretch; }
+  .sys-label { font-size: 0.65rem; color: var(--muted); letter-spacing: 0.1em; font-weight: 600; margin-bottom: 0.25rem; }
 </style>
 </head>
 <body>
 
 <h1>TradeBot — Mission Control</h1>
-<div class="sub" id="sub">read-only · polling every 5s</div>
+<div class="sub" id="sub">polling every 5s</div>
 
 <div class="grid">
   <div class="card">
@@ -96,8 +100,18 @@
 
   <div class="card">
     <h2>System</h2>
-    <div class="big" id="sys-gateway-status">…</div>
-    <div class="row"><span class="k">Bot PID</span><span id="sys-bot-pid">—</span></div>
+    <div class="sys-status-row">
+      <div>
+        <div class="sys-label">BOT</div>
+        <div class="big" id="sys-bot-status">…</div>
+      </div>
+      <div class="sys-divider"></div>
+      <div>
+        <div class="sys-label">GATEWAY</div>
+        <div class="big" id="sys-gateway-status">…</div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:0.75rem"><span class="k">Bot PID</span><span id="sys-bot-pid">—</span></div>
     <div class="row"><span class="k">Bot uptime</span><span id="sys-bot-uptime">—</span></div>
     <div class="row"><span class="k">Port 4001</span><span id="sys-port4001">—</span></div>
   </div>
@@ -190,14 +204,23 @@ async function refresh() {
       `).join("");
     }
 
-    // System
+    // System — bot status
+    const botStatus = sys.bot_service_status;
+    const botOk = botStatus === "active";
+    const botStopped = botStatus === "inactive" || botStatus === "failed";
+    const botCls = botOk ? "ok" : (botStopped ? "err" : "");
+    const botLabel = botOk ? "Active" : (botStatus === "failed" ? "Failed" : botStopped ? "Stopped" : botStatus);
+    document.getElementById("sys-bot-status").innerHTML =
+      `<span class="pulse ${botOk ? '' : 'err'}"></span><span class="${botCls}">${botLabel}</span>`;
+
+    // System — gateway status
     const gwStatus = sys.gateway_service_status;
     const gwOk = gwStatus === "active";
     const gwCls = gwOk ? "ok" : (gwStatus === "unavailable" ? "" : "err");
     document.getElementById("sys-gateway-status").innerHTML =
-      `<span class="pulse ${gwOk ? '' : 'err'}"></span><span class="${gwCls}">Gateway ${gwStatus}</span>`;
+      `<span class="pulse ${gwOk ? '' : 'err'}"></span><span class="${gwCls}">${gwOk ? "Active" : gwStatus}</span>`;
     document.getElementById("sys-bot-pid").textContent =
-      sys.bot_pid != null ? sys.bot_pid : (sys.bot_service_status === "unavailable" ? "n/a" : "—");
+      sys.bot_pid != null ? sys.bot_pid : (botStatus === "unavailable" ? "n/a" : "—");
     document.getElementById("sys-bot-uptime").textContent = fmtAge(sys.bot_uptime_seconds);
     const p4 = sys.gateway_port_open;
     document.getElementById("sys-port4001").innerHTML =
