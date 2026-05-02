@@ -102,6 +102,14 @@ If any red flag fires: paste the relevant section of CLAUDE.md or CHATLOG.md int
 
 ---
 
+## Debugging discipline
+
+Before hypothesizing failure modes for a "stopped" or "stale" symptom, read the producer code to confirm the **expected** cadence. Most "X stopped firing" investigations are actually "X is firing on the cadence I forgot it had." Check expected behavior first, then look for failure modes.
+
+Example (2026-05-02): dashboard "stale liveness" alarm chased a phantom BarScheduler-stopped bug for several rounds before someone asked "could it just be the weekend?" — the SMA strategy fires `on_tick()` once daily at 16:10 ET, and the 72h weekend gap exceeded a 26h threshold. Reading `main.py` first would have surfaced this immediately.
+
+---
+
 ## Emergency protocol
 
 If the bot is making unexpected live trades or the VPS is behaving incorrectly:

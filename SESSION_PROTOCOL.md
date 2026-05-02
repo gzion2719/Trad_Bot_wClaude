@@ -45,6 +45,7 @@ Flag any drift:
 - If on `main` or `develop` directly → warn, ask which branch to create
 - If there are uncommitted changes from a prior session → surface them
 - If the branch name doesn't match the planned focus → note it
+- **If `git log` shows merged work that CHATLOG.md doesn't mention** → previous session likely ended without closing (API error, accidental close, network drop). Offer to reconstruct the missing CHATLOG entry from git + chat transcript BEFORE starting new work. Don't pile new context on top of stale state.
 
 ### Step 6 — Ask for focus
 
