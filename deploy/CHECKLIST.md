@@ -37,11 +37,13 @@ IbPassword=YOUR_IBKR_PASSWORD
 Save: Ctrl+X → Y → Enter
 
 ### Step 5 — Subscribe to failure alerts (free, takes 30 seconds)
-On your phone, install the **ntfy** app (iOS or Android), then subscribe to:
+The ntfy topic was generated randomly during `setup.sh` and stored in `/opt/tradebot/.env`.
+Read it with:
 ```
-tradebot-DUE090987
+grep NTFY_TOPIC /opt/tradebot/.env
 ```
-Or visit https://ntfy.sh/tradebot-DUE090987 in a browser to see alerts there.
+On your phone, install the **ntfy** app (iOS or Android), then subscribe to the topic shown above.
+Or visit `https://ntfy.sh/<NTFY_TOPIC>` in a browser to see alerts there.
 You will only receive a notification when something fails — not on normal trades.
 
 ### Step 6 — Start IB Gateway
@@ -118,7 +120,7 @@ journalctl -fu tradebot --since today
 | See last 100 log lines | `journalctl -u tradebot -n 100 --no-pager` |
 | See IB Gateway logs | `journalctl -u ibgateway -n 100 --no-pager` |
 | Check disk usage | `df -h /opt/tradebot` |
-| Test ntfy alert | `curl -d "test" https://ntfy.sh/tradebot-DUE090987` |
+| Test ntfy alert | `source /opt/tradebot/.env && curl -d "test" https://ntfy.sh/${NTFY_TOPIC}` |
 
 ---
 

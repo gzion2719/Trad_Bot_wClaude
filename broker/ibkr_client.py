@@ -207,8 +207,8 @@ class IBKRClient:
 
     @property
     def is_paper(self) -> bool:
-        # Paper accounts at IBKR always start with 'D' (e.g. DUE090987).
-        # Live accounts start with 'U'. This is more reliable than port-based
+        # Paper accounts at IBKR always start with 'D'; live accounts start with 'U'.
+        # This is more reliable than port-based
         # detection because IB Gateway paper can be configured on any port
         # via OverrideTwsApiPort.
         acct = self.account

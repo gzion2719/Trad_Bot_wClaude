@@ -3,12 +3,12 @@ Description=TradeBot daily health check
 
 [Service]
 Type=oneshot
+EnvironmentFile=/opt/tradebot/.env
 ExecStart=/bin/bash -c '\
     HEALTH_FILE=/opt/tradebot/data/health.txt; \
-    NTFY_TOPIC=tradebot-DUE090987; \
     if [ ! -f "$HEALTH_FILE" ]; then \
         curl -s --max-time 10 \
-            -X POST "https://ntfy.sh/$NTFY_TOPIC" \
+            -X POST "https://ntfy.sh/${NTFY_TOPIC}" \
             -H "Title: TradeBot health: health.txt missing" \
             -H "Priority: high" \
             -H "Tags: warning" \
@@ -22,7 +22,7 @@ ExecStart=/bin/bash -c '\
     AGE=$(( NOW - LAST_TS )); \
     if [ "$AGE" -gt 93600 ]; then \
         curl -s --max-time 10 \
-            -X POST "https://ntfy.sh/$NTFY_TOPIC" \
+            -X POST "https://ntfy.sh/${NTFY_TOPIC}" \
             -H "Title: TradeBot health: on_tick stale" \
             -H "Priority: high" \
             -H "Tags: warning" \

@@ -103,7 +103,7 @@ This entry was reconstructed in the next session because the originating chat en
 
 **Recovered bot from 6-day outage (Apr 24 → Apr 30):**
 - Root cause: IBKR's weekly token reset on Sunday Apr 26 (~01:00 ET) invalidated the gateway session — stuck at 2FA prompt all week
-- Recovery: VNC tunnel → IB Gateway login → SMS code → `tradebot.service` restart. Reconnected to DUE090987 in <30 seconds.
+- Recovery: VNC tunnel → IB Gateway login → SMS code → `tradebot.service` restart. Reconnected to &lt;account-id&gt; in <30 seconds.
 
 **IB Gateway transitioned to full systemd management:**
 - Created 3 new systemd units: `xvfb.service`, `x11vnc.service`, `ibgateway.service`
@@ -156,7 +156,7 @@ This entry was reconstructed in the next session because the originating chat en
 | Bot dir | `/opt/tradebot` |
 | IBC dir | `/opt/ibc` |
 | IB Gateway dir | `/opt/ibgw` |
-| Notification | ntfy.sh topic: `tradebot-DUE090987` |
+| Notification | ntfy.sh topic: see `NTFY_TOPIC` in `/opt/tradebot/.env` |
 | Systemd units | `xvfb.service` → `x11vnc.service` → `ibgateway.service` → `tradebot.service` (chain auto-starts on boot) |
 
 **Access pattern:** `ssh chappy-vps` → `sudo -i` → work in `/opt/`
@@ -175,7 +175,7 @@ IBKR's security model:
 1. SSH `chappy-vps`, then in a second local terminal: `ssh -L 5900:localhost:5900 chappy-vps`
 2. TightVNC → `localhost:5900` → see IB Gateway login dialog
 3. IBKR Mobile app → Security → **Generate Code** → enter the 6 digits in the dialog
-4. Verify: `ss -tlnp | grep 4001` shows LISTEN, then `sudo journalctl -fu tradebot` shows `Connected | account=DUE090987`
+4. Verify: `ss -tlnp | grep 4001` shows LISTEN, then `sudo journalctl -fu tradebot` shows `Connected | account=&lt;account-id&gt;`
 
 ### What we did to harden against missed Sundays
 - `ReloginAfterSecondFactorAuthenticationTimeout=yes` in `/opt/ibc/config.ini` — IBC re-prompts if a 2FA code expires unanswered (instead of sitting silently)
@@ -384,7 +384,7 @@ min_reward_risk_ratio=3.0     # minimum 1:3 R/R required for every trade
 
 | Setting | Value |
 |---|---|
-| Account | DUE090987 (paper) |
+| Account | &lt;account-id&gt; (paper) |
 | Host | 127.0.0.1 |
 | Port | 7497 (paper) / 7496 (live — config validator warns loudly) |
 | Client ID | 1 |

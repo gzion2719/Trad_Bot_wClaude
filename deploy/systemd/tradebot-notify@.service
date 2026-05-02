@@ -4,13 +4,13 @@ Description=Failure notification for %i
 
 [Service]
 Type=oneshot
-# Collect last 50 journal lines from the failed service, then push to ntfy.sh
+EnvironmentFile=/opt/tradebot/.env
+# Send a content-free failure alert — logs stay on the VPS (check with journalctl)
 ExecStart=/bin/bash -c '\
     SERVICE="%i"; \
-    LOGS=$(journalctl -u "$SERVICE" -n 50 --no-pager --output=short 2>/dev/null); \
-    BODY="$SERVICE failed at $(date -u +%%Y-%%m-%%d\ %%H:%%M\ UTC)\n\n--- last 50 log lines ---\n${LOGS}"; \
+    BODY="$SERVICE failed at $(date -u +%%Y-%%m-%%d\ %%H:%%M\ UTC). Check VPS: journalctl -u $SERVICE -n 50 --no-pager"; \
     curl -s --max-time 10 \
-        -X POST "https://ntfy.sh/tradebot-DUE090987" \
+        -X POST "https://ntfy.sh/${NTFY_TOPIC}" \
         -H "Title: TradeBot FAILURE: $SERVICE" \
         -H "Priority: urgent" \
         -H "Tags: warning,rotating_light" \

@@ -62,7 +62,7 @@ unknown IP/device). IBC cannot answer interactive 2FA challenges automatically.
 
 **What we know:**
 - The IBKR credentials in `/opt/ibc/config.ini` are for the **paper trading
-  account** (username: `ibkpaperacc`, account: DUE090987)
+  account** (username: `ibkpaperacc`, account stored in `IBKR_ACCOUNT_ID` in `.env`)
 - Paper accounts are a sub-account of the main IBKR account
 - TWS was open on the user's PC during earlier attempts — that may have caused
   session conflicts. TWS is now closed.
@@ -191,7 +191,7 @@ print('Connected:', c.is_alive())
 
 | Setting | Value |
 |---|---|
-| Paper account | DUE090987 |
+| Paper account | See `IBKR_ACCOUNT_ID` in `/opt/tradebot/.env` |
 | IBC username | ibkpaperacc (paper account login) |
 | IB Gateway port | 4001 (paper) |
 
@@ -199,9 +199,10 @@ print('Connected:', c.is_alive())
 
 ## Notification System (already configured)
 
-Failure alerts go to ntfy.sh topic: `tradebot-DUE090987`
-User should subscribe via the ntfy app or https://ntfy.sh/tradebot-DUE090987
-Test: `curl -d "test" https://ntfy.sh/tradebot-DUE090987`
+Failure alerts go to the ntfy.sh topic stored in `NTFY_TOPIC` in `/opt/tradebot/.env`.
+Read it with: `grep NTFY_TOPIC /opt/tradebot/.env`
+User should subscribe via the ntfy app or visit `https://ntfy.sh/<NTFY_TOPIC>`.
+Test: `source /opt/tradebot/.env && curl -d "test" https://ntfy.sh/${NTFY_TOPIC}`
 
 ---
 
