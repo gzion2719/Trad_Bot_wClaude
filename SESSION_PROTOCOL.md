@@ -146,7 +146,18 @@ It is a verbatim mirror of what `.github/workflows/ci.yml` runs.
 
 **Mechanical pre-send self-check.** Re-read your draft's first 3 lines before sending. If they don't contain `make pre-push`, the draft is wrong — prepend it. This applies to ANY "ready to commit" handoff, not just closing ones.
 
-**develop → main sync check.** After every PR that merges into `develop`, always prompt the user to open a follow-up PR: base `main`, compare `develop`. Do not skip this — `main` is what runs on the VPS.
+**Two-PR rule — enforced every time, no exceptions.** Every time you say "open a PR", you MUST provide BOTH links in the same message:
+1. Feature → develop: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/develop...<branch>`
+2. develop → main: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/main...develop`
+
+Then immediately provide the full VPS deploy command:
+```bash
+ssh chappy-vps
+sudo -i
+cd /opt/tradebot && git pull origin main && systemctl restart tradebot-dashboard
+```
+
+Never give one link without the other. Never omit the deploy command. `main` is what runs on the VPS — skipping this step leaves the VPS behind.
 
 ### Step 6 — Close warmly
 
