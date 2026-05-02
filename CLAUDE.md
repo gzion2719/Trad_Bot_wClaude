@@ -442,19 +442,20 @@ git push -u origin hotfix/fix-description
 
 ### `gh` CLI note
 
-`gh` is not installed on the dev PC. Open PRs via browser:
-`https://github.com/gzion2719/Trad_Bot_wClaude/pull/new/<branch-name>`
+`gh` is not installed on the dev PC. Open PRs via browser — **always use the `compare` URL format** (see rule 2 below). Never use `pull/new/<branch>` — it lets GitHub default the base to `main`.
 
 ### Claude-specific rules (enforce every session — no exceptions)
 
 GitHub branch protection is not enforced on this free private repo. Claude is the enforcement layer.
 
 1. **Always create a feature branch from `develop`**, never from `main`.
-2. **When giving the user a PR URL, always state the base branch explicitly:**
-   - Feature work → base: `develop`
-   - Shipping to production → base: `main`, compare: `develop`
-   - Hotfix → base: `main` first, then a second PR base: `develop`
-3. **Never say "open a PR" without specifying `base: <branch>` and `compare: <branch>`** — the user clicks whatever GitHub defaults to, which caused an accidental feature → main merge.
+2. **Always use the `compare/<base>...<compare>` URL format for every PR link. Never use `pull/new/<branch>`.**
+   `pull/new/<branch>` lets GitHub silently default the base to `main` regardless of what you write in prose — this caused a feature → main merge and again in May 2026 when the dashboard PR was given with the wrong URL.
+   - Feature work: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/develop...<feature-branch>`
+   - Shipping to production: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/main...develop`
+   - Hotfix → main: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/main...<hotfix-branch>`
+   - Hotfix → develop: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/develop...<hotfix-branch>`
+3. **Never say "open a PR" without providing the full `compare/` URL** — prose-only base/compare instructions are not enough; the URL must encode the base branch mechanically.
 4. **Before starting any work**, check current branch with `git branch` and confirm it is a `feature/*` or `hotfix/*` branch, never `main` or `develop` directly.
 5. **After a PR merges to main**, always open a follow-up PR or fast-forward `develop` to keep them in sync.
 6. **After creating a skill**, immediately re-read the manifest.json to confirm the entry persisted before declaring done — the system can overwrite the manifest between tool calls.
