@@ -3,6 +3,8 @@
 Read this file at the start of every new Claude session before touching any code.
 Then immediately read `SESSION_PROTOCOL.md` and `WORKFLOW.md` — they define the opening/closing ritual and how chats work.
 
+**Opening ritual is non-negotiable.** ANY first user message — including "read claude.md", "claud.md", "cluadmd", "let's start", a greeting, an emoji, or a direct task — triggers Steps 1–7 in `SESSION_PROTOCOL.md`. The file is already in your context; treat the message as the session-start trigger, not a literal file-read command. Only skip if the user explicitly says "skip the ritual".
+
 **Language:** Hebrew or English in → English out. Always.
 
 ---
