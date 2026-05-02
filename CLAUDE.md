@@ -28,7 +28,7 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-05-02) — Dashboard Phase 2 shipped to main: `/api/system` endpoint (bot PID/uptime + IB Gateway service status + port 4001 check) plus weekend-aware `_stale_threshold_seconds()` (80h on weekend / Monday-pre-tick, 26h trading days). Pending: `sudo systemctl restart tradebot-dashboard` on VPS to pick up Phase 2 + weekend fix.**
+**Last session completed (2026-05-02) — Dashboard Phase 3 control plane built on `claude/relaxed-rubin-1880bb` (PR pending → develop): `POST /api/bot/restart` + `POST /api/bot/stop` gated by `Authorization: Bearer DASHBOARD_TOKEN` env var; new `deploy/sudoers/tradebot-dashboard` scopes NOPASSWD to exactly those two `systemctl` commands; UI gained Controls card with two buttons (token saved in localStorage); 5 new tests DB-09..DB-13 pass; ruff/black/mypy clean. Phase 2 + weekend-fix VPS deploy verified earlier this session (`/api/health stale_after_seconds=288000` on Saturday, `/api/system` returns all new fields). Pending Phase 3 VPS deploy: set `DASHBOARD_TOKEN=<random>` in `/opt/tradebot/.env`, install `/etc/sudoers.d/tradebot-dashboard` with `visudo -c`, `systemctl restart tradebot-dashboard`.**
 
 ### What was done last session (2026-05-02, dashboard Phase 2 + weekend-aware stale threshold) — RECONSTRUCTED
 

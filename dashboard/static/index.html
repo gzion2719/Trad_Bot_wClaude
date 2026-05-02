@@ -50,6 +50,19 @@
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
   .pulse.warn { background: var(--warn); }
   .pulse.err { background: var(--err); }
+  .controls { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .btn {
+    padding: 0.5rem 0.9rem; border-radius: 4px; border: 1px solid var(--border);
+    background: #21262d; color: var(--text); font: inherit; font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .btn:hover { background: #30363d; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn.warn { border-color: var(--warn); color: var(--warn); }
+  .btn.err  { border-color: var(--err);  color: var(--err);  }
+  .ctrl-msg { margin-top: 0.6rem; font-size: 0.8rem; color: var(--muted); min-height: 1em; }
+  .ctrl-msg.ok  { color: var(--ok); }
+  .ctrl-msg.err { color: var(--err); }
 </style>
 </head>
 <body>
@@ -87,6 +100,16 @@
     <div class="row"><span class="k">Bot PID</span><span id="sys-bot-pid">—</span></div>
     <div class="row"><span class="k">Bot uptime</span><span id="sys-bot-uptime">—</span></div>
     <div class="row"><span class="k">Port 4001</span><span id="sys-port4001">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Controls</h2>
+    <div class="controls">
+      <button class="btn warn" id="btn-restart">Restart bot</button>
+      <button class="btn err"  id="btn-stop">Stop bot</button>
+      <button class="btn"      id="btn-token">Set token</button>
+    </div>
+    <div class="ctrl-msg" id="ctrl-msg">requires DASHBOARD_TOKEN</div>
   </div>
 </div>
 
@@ -189,6 +212,61 @@ async function refresh() {
 
 refresh();
 setInterval(refresh, 5000);
+
+// ---- Control plane (Phase 3) -------------------------------------------
+const TOKEN_KEY = "tradebot_dashboard_token";
+const msgEl = document.getElementById("ctrl-msg");
+
+function getToken() { return localStorage.getItem(TOKEN_KEY) || ""; }
+function setToken(t) {
+  if (t) { localStorage.setItem(TOKEN_KEY, t); }
+  else   { localStorage.removeItem(TOKEN_KEY); }
+}
+function setMsg(text, cls) {
+  msgEl.textContent = text;
+  msgEl.className = "ctrl-msg" + (cls ? " " + cls : "");
+}
+
+async function postAction(path, label) {
+  let token = getToken();
+  if (!token) {
+    token = prompt("Enter DASHBOARD_TOKEN:") || "";
+    if (!token) { setMsg("cancelled", "err"); return; }
+    setToken(token);
+  }
+  if (!confirm(`${label} the live bot?`)) { setMsg("cancelled", ""); return; }
+
+  setMsg(`${label}…`, "");
+  try {
+    const r = await fetch(path, {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + token },
+    });
+    const body = await r.json().catch(() => ({}));
+    if (r.status === 401) {
+      setToken("");
+      setMsg("invalid token — cleared, click again to re-enter", "err");
+      return;
+    }
+    if (!r.ok) {
+      setMsg(`${label} failed: ${body.detail || r.status}`, "err");
+      return;
+    }
+    setMsg(`${label} ok`, "ok");
+  } catch (e) {
+    setMsg(`${label} error: ${e.message}`, "err");
+  }
+}
+
+document.getElementById("btn-restart").addEventListener("click",
+  () => postAction("/api/bot/restart", "Restart"));
+document.getElementById("btn-stop").addEventListener("click",
+  () => postAction("/api/bot/stop", "Stop"));
+document.getElementById("btn-token").addEventListener("click", () => {
+  const t = prompt("Enter DASHBOARD_TOKEN (blank to clear):", "") ?? "";
+  setToken(t.trim());
+  setMsg(t.trim() ? "token saved in localStorage" : "token cleared", "");
+});
 </script>
 </body>
 </html>
