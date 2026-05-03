@@ -168,3 +168,9 @@ Do not push code changes during a live incident. Stabilise first, investigate af
 ## Web research rule
 
 If `WebFetch` returns 403 on the first attempt, go straight to `WebSearch` — do not retry the same domain. IBKR docs and most financial sites block direct fetches.
+
+---
+
+## Test assertion rule
+
+Before writing a test that asserts a response body field (e.g. `r.json().get("status") == "ok"`), read the endpoint's `return` statement first. Guessing field names costs a test failure that requires a re-run — reading the return takes 5 seconds.
