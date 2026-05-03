@@ -127,6 +127,14 @@ Example (2026-05-03): four CR fixes (CR-04/05/08/09) each updated `TODO.md`'s is
 
 ---
 
+## Secret-redaction rule
+
+When writing CHATLOG bullets, commit messages, or comments that describe the removal of a secret or sensitive literal, **never quote the actual literal** — write `<account-id>`, `<token>`, or `[redacted]` instead. Quoting the real value in the description re-introduces exactly the leak the redaction was meant to close, and the CI grep gate will catch it.
+
+Example (2026-05-03): CHATLOG entry for CR-11 described "redacted `DUE090987` account-ID literal" — the exact phrase caused the `DUE[0-9]{6,9}` grep gate to fail on the develop→main PR.
+
+---
+
 ## CI debugging — prefer CLI to actions
 
 When a third-party GitHub Action fails with a permissions / token error, switch to invoking the same tool via its CLI instead of fighting `permissions:` blocks. Most security/lint actions only add value (a PR comment, an annotation) on top of running their CLI — and that added value isn't worth a debugging round if the CLI alone catches the same issues that pre-push already runs.
