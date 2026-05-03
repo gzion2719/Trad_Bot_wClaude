@@ -245,7 +245,46 @@ def _record_auth_failure(ip: str) -> None:
 
 
 def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    """Return the real client IP for rate-limiting and logging.
+
+    Default (TRUSTED_PROXIES not set): uses request.client.host only — X-Forwarded-For
+    is ignored. Do NOT put this dashboard behind a reverse proxy without setting
+    TRUSTED_PROXIES, or every request will appear to come from 127.0.0.1, making the
+    per-IP lockout a global lockout (DoS) and allowing XFF rotation to bypass it.
+
+    When TRUSTED_PROXIES is set (comma-separated IPs): honors X-Forwarded-For only
+    when the direct peer is in the trusted list, then returns the leftmost non-trusted IP.
+    """
+    peer = request.client.host if request.client else "unknown"
+    trusted_env = os.getenv("TRUSTED_PROXIES", "").strip()
+    if not trusted_env:
+        return peer
+    trusted = {ip.strip() for ip in trusted_env.split(",") if ip.strip()}
+    if peer not in trusted:
+        return peer
+    xff = request.headers.get("X-Forwarded-For", "")
+    if not xff:
+        return peer
+    for candidate in (ip.strip() for ip in xff.split(",")):
+        if candidate and candidate not in trusted:
+            return candidate
+    return peer
+
+
+def _check_origin(request: Request) -> None:
+    """Reject POST requests with an Origin header that doesn't match the dashboard host.
+
+    This is CSRF defense-in-depth on top of SameSite=Strict cookies. API/script
+    callers that send no Origin are allowed through — they cannot be CSRF-triggered
+    from a browser. Browsers always include Origin on cross-origin POST requests.
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return
+    host = request.headers.get("host", "")
+    origin_host = origin.split("://", 1)[-1].rstrip("/")
+    if origin_host != host:
+        raise HTTPException(status_code=403, detail="CSRF check failed: Origin mismatch")
 
 
 def _check_token(
@@ -284,7 +323,12 @@ def _check_token(
 
 
 @app.post("/api/login")
-def api_login(request: Request, body: Dict[str, str], response: Response) -> Dict[str, Any]:
+def api_login(
+    request: Request,
+    body: Dict[str, str],
+    response: Response,
+    _o: None = Depends(_check_origin),
+) -> Dict[str, Any]:
     """Exchange DASHBOARD_TOKEN for an HttpOnly session cookie.
 
     Body: {"token": "<DASHBOARD_TOKEN>"}
@@ -365,12 +409,16 @@ def _systemctl_action(action: str) -> Dict[str, Any]:
 
 
 @app.post("/api/bot/restart")
-def api_bot_restart(_: None = Depends(_check_token)) -> Dict[str, Any]:
+def api_bot_restart(
+    _: None = Depends(_check_token), _o: None = Depends(_check_origin)
+) -> Dict[str, Any]:
     return _systemctl_action("restart")
 
 
 @app.post("/api/bot/stop")
-def api_bot_stop(_: None = Depends(_check_token)) -> Dict[str, Any]:
+def api_bot_stop(
+    _: None = Depends(_check_token), _o: None = Depends(_check_origin)
+) -> Dict[str, Any]:
     return _systemctl_action("stop")
 
 
