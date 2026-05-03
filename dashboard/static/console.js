@@ -95,7 +95,21 @@ async function acquireAndConnect() {
   rfb.addEventListener("connect", () => {
     setState("connected");
     setMsg("Use IB Gateway as if you were on a local screen. Idle for 5 min disconnects.");
+    // noVNC computes its scale once during construction. If the container
+    // hasn't completed flex layout by then, scaleViewport collapses the
+    // canvas to 0×0. Re-poke scaleViewport after layout settles.
+    requestAnimationFrame(() => {
+      if (rfb) rfb.scaleViewport = true;
+    });
   });
+
+  // Keep canvas scaled correctly when the browser viewport changes.
+  const wrap = document.getElementById("novnc-canvas");
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => {
+      if (rfb) rfb.scaleViewport = true;
+    }).observe(wrap);
+  }
   rfb.addEventListener("disconnect", (e) => {
     setState("disconnected");
     const reason = e.detail && e.detail.clean ? "clean" : "error";
