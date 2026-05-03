@@ -116,6 +116,25 @@ Example (2026-05-02): Section 11 header said "no connection needed for most" so 
 
 ---
 
+## Stacked PR rule (shared docs files)
+
+When opening **multiple feature branches in one session that all touch the same docs file** (most often `TODO.md`'s issue table or `CLAUDE.md`'s current-state header), expect a merge conflict on every PR after the first one lands on `develop`. Pick one of the two patterns up front:
+
+1. **Chain the branches** — base PR 2 on PR 1's branch, PR 3 on PR 2's, etc. Conflicts auto-resolve as you go.
+2. **Omit the docs edits from feature branches** — keep each feature PR scoped to code only, then open one trailing `chore/cr-cycle-tracker` PR that ticks every CR box at once, after the feature PRs merge.
+
+Example (2026-05-03): four CR fixes (CR-04/05/08/09) each updated `TODO.md`'s issue row independently from `main`. Each merge after the first re-introduced a `<<<<<<<` block that forced a manual web-editor resolution or a force-pushed rebase. Picking pattern 1 or 2 at branch-creation time would have avoided three rebase rounds.
+
+---
+
+## CI debugging — prefer CLI to actions
+
+When a third-party GitHub Action fails with a permissions / token error, switch to invoking the same tool via its CLI instead of fighting `permissions:` blocks. Most security/lint actions only add value (a PR comment, an annotation) on top of running their CLI — and that added value isn't worth a debugging round if the CLI alone catches the same issues that pre-push already runs.
+
+Example (2026-05-03): `gitleaks-action@v2` failed with HTTP 403 on `pulls/{n}/commits` because the default `GITHUB_TOKEN` lacked `pull_requests:read`. Adding the workflow-level `permissions:` block didn't unblock it. Replacing the action with a one-line `curl + tar + gitleaks detect --no-git` step matched the local pre-push gate exactly and went green on the next run.
+
+---
+
 ## Debugging discipline
 
 Before hypothesizing failure modes for a "stopped" or "stale" symptom, read the producer code to confirm the **expected** cadence. Most "X stopped firing" investigations are actually "X is firing on the cadence I forgot it had." Check expected behavior first, then look for failure modes.
