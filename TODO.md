@@ -284,8 +284,8 @@ See `codereview.md` for full issue table. Work top-to-bottom by execution priori
 | CR-08 | `/opt/ibc/config.ini` not chmod 600 in setup.sh | High | [x] | `feature/cr-08-chmod-ibc-config` |
 | CR-09 | Health timer stale threshold (93600s) doesn't match dashboard logic | Medium | [x] | `feature/cr-09-health-timer-weekend` |
 | CR-10 | Dashboard bearer token stored in localStorage | Medium | [x] | `feature/cr-remaining-quick-fixes` |
-| CR-11 | Account ID `DUE090987` literal in source files | Medium | [x] | `feature/ntfy-private-topic` |
-| CR-12 | ntfy notification body contains 50 lines of journalctl output | Medium | [x] | `feature/ntfy-private-topic` |
+| CR-11 | Account ID `<account-id>` literal in source files | Medium | [x] | `feature/ntfy-private-topic` |
+| CR-12 | ntfy notification body contains 50 lines of journalctl output | Medium | [x] | `feature/ntfy-private-topic` (impl: `deploy/systemd/tradebot-notify@.service` — body is summary-only) |
 | CR-13 | TradeLog reopened on every dashboard request (60 opens/min) | Medium | [x] | `feature/cr-remaining-quick-fixes` |
 | CR-14 | `params` exposes `initial_capital` in live mode (misleading log) | Medium | [x] | `feature/cr-remaining-quick-fixes` |
 | CR-15 | systemd units missing hardening directives (NoNewPrivileges etc.) | Medium | [x] | `feature/cr-remaining-quick-fixes` |
