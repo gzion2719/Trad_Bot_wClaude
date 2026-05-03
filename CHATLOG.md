@@ -3,6 +3,16 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-03 — Code review cycle 100% done: CR-03 runbook + CR-19 pytest migration shipped (20/20 CRs)
+
+- CR-03: wrote `docs/runbook-2fa-recovery.md` — cold-start guide for backup operator covering prerequisites (SSH key, Tailscale, TightVNC), 7-step Sunday recovery routine, success verification table, troubleshooting section. Branch `feature/cr-03-operator-runbook` → develop → main.
+- CR-19: full pytest migration from custom 2133-line `run_tests.py` to 15 `tests/test_*.py` files + `tests/conftest.py`. Non-broker (64 tests, always run); broker (49 tests, `pytestmark = skipif(IS_CI)`) using session-scoped `live_client` fixture; manual-only market tests double-guarded with `pytest.mark.market`. CI/Makefile/pyproject.toml all updated. Old `run_tests.py` replaced with deprecation shim. Branch `feature/cr-19-pytest-migration` → develop → main. VPS pulled successfully.
+- Key debug: `from config.settings import IB_PORT` in `config/validator.py` binds at import time — must patch `config.validator.IB_PORT`, not `config.settings.IB_PORT`. WORKFLOW.md updated with import-binding patch rule.
+- **Process improvement:** WORKFLOW.md "Test assertion rule" extended with "Import-binding patch rule" — read the consuming module's import chain before patching module-level variables in tests.
+- **Next session:** Sunday 2FA dry-run (2026-05-10 ~02:00 ET) — share `docs/runbook-2fa-recovery.md` with backup operator before then. After rehearsal, tick CR-03 Definition of Done sign-off. CR-07 (ib_insync migration) remains BACKLOG.
+
+---
+
 ## 2026-05-03 — Code review cycle complete: 7 CRs shipped (CR-10/13/14/15/16/18/20)
 
 - CR-20 (RiskManager silent exception → WARNING log), CR-14 (initial_capital omitted from live params), CR-16 (escapeHtml helper + esc() on all innerHTML injections), CR-13 (TradeLog module-level singleton, eliminates 60 SQLite opens/min), CR-15 (NoNewPrivileges/ProtectSystem/ProtectHome/PrivateTmp/ReadWritePaths on both systemd units), CR-18 (DB-16..DB-20 TestClient HTTP-layer bearer-token tests), CR-10 (localStorage → HttpOnly session cookie: /api/login + /api/logout + login overlay UI). CR-17 was already resolved by CR-04.
