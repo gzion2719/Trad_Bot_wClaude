@@ -11,7 +11,7 @@ Type=simple
 ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do [ -e /tmp/.X11-unix/X99 ] && exit 0; sleep 1; done; exit 1'
 ExecStart=/usr/bin/x11vnc \
     -display :99 \
-    -rfbauth /etc/x11vnc.pass \
+    -nopw \
     -rfbport 5900 \
     -listen 127.0.0.1 \
     -localhost \
@@ -32,8 +32,8 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=no
-# Needs read access to the Xvfb display socket and the password file.
-ReadOnlyPaths=/tmp/.X11-unix /etc/x11vnc.pass
+# Needs read access to the Xvfb display socket.
+ReadOnlyPaths=/tmp/.X11-unix
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 

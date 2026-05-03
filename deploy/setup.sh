@@ -89,22 +89,7 @@ else
     echo "$BOT_DIR/.env already exists — skipping. Ensure NTFY_TOPIC and IBKR_ACCOUNT_ID are set."
 fi
 
-echo "=== [8.5/9] Generate x11vnc password (defense-in-depth on localhost VNC) ==="
-# x11vnc is bound to 127.0.0.1 only, but a password is still required so that
-# any process that gains localhost access (compromised dep, sidecar bug) cannot
-# silently drive the IB Gateway. Password file is root-owned, mode 0400.
-if [ ! -f /etc/x11vnc.pass ]; then
-    X11VNC_PASS=$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 24)
-    /usr/bin/x11vnc -storepasswd "$X11VNC_PASS" /etc/x11vnc.pass
-    chown root:root /etc/x11vnc.pass
-    chmod 0400 /etc/x11vnc.pass
-    echo "Wrote /etc/x11vnc.pass (random 24-char password). Used by x11vnc.service and websockify."
-    unset X11VNC_PASS
-else
-    echo "/etc/x11vnc.pass already exists — leaving in place."
-fi
-
-echo "=== [8.6/9] Fetch and verify noVNC vendor bundle ==="
+echo "=== [8.5/9] Fetch and verify noVNC vendor bundle ==="
 # noVNC is fetched at deploy time rather than vendored in git — pinned by
 # version + SHA-256 to lock the blob. Bump deliberately; never weaken the
 # checksum check. See dashboard/static/vendor/novnc/README.md for rationale.
@@ -114,7 +99,7 @@ NOVNC_VERSION=1.5.0
 #   sha256sum /tmp/novnc.tgz
 # Then replace the line below and commit. Setup will refuse to proceed until
 # this placeholder is replaced.
-NOVNC_SHA256=PLACEHOLDER_REPLACE_BEFORE_DEPLOY
+NOVNC_SHA256=6a73e41f98388a5348b7902f54b02d177cb73b7e5eb0a7a0dcf688cc2c79b42a
 NOVNC_DIR="$BOT_DIR/dashboard/static/vendor/novnc"
 if [ "$NOVNC_SHA256" = "PLACEHOLDER_REPLACE_BEFORE_DEPLOY" ]; then
     echo "ERROR: NOVNC_SHA256 is a placeholder. Compute the real hash and update setup.sh before deploying." >&2
