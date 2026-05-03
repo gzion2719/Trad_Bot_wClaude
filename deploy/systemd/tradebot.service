@@ -24,5 +24,12 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=tradebot
 
+# Process isolation — limits blast radius if a dep is compromised
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/opt/tradebot/data /opt/tradebot/logs
+
 [Install]
 WantedBy=multi-user.target

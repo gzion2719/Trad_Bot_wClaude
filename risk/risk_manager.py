@@ -166,9 +166,9 @@ class RiskManager:
         # Rule 3: Open order count cap
         try:
             open_count = len(self._om.get_open_orders())
-        except Exception:
-            # If we can't read order state, assume the worst and block trading.
-            # Trading with unknown open-order count risks exceeding limits.
+        except Exception as exc:
+            # Fail-closed: unknown order state blocks trading.
+            logger.warning("Could not read open orders, blocking trade: %s", exc, exc_info=True)
             open_count = self.max_open_orders
         if open_count >= self.max_open_orders:
             raise RiskViolationError(

@@ -23,6 +23,7 @@ from __future__ import annotations
 import hmac
 import logging
 import os
+import secrets
 import socket
 import subprocess
 import threading
@@ -31,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -78,6 +79,7 @@ def _stale_threshold_seconds() -> float:
 
 
 _STARTED_AT = datetime.now(timezone.utc).isoformat()
+_trade_log = TradeLog()
 
 app = FastAPI(title="TradeBot Dashboard", version="0.1.0")
 
@@ -154,13 +156,13 @@ def api_health() -> Dict[str, Any]:
 
 @app.get("/api/today")
 def api_today() -> Dict[str, Any]:
-    return TradeLog().daily_summary()
+    return _trade_log.daily_summary()
 
 
 @app.get("/api/recent-fills")
 def api_recent_fills(limit: int = 20) -> List[Dict[str, Any]]:
     limit = max(1, min(limit, 200))
-    return TradeLog().get_history(limit=limit)
+    return _trade_log.get_history(limit=limit)
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +181,34 @@ _LOCKOUT_DURATION_SECONDS = 300  # 5 min lockout
 
 _rate_state: Dict[str, Dict[str, Any]] = {}
 _rate_lock = threading.Lock()
+
+# Session store — HttpOnly cookie replaces localStorage (CR-10).
+# Sessions expire after 24h; in-memory only (cleared on dashboard restart).
+_SESSION_COOKIE = "dashboard_session"
+_SESSION_DURATION_SECONDS = 24 * 3600
+_sessions: Dict[str, float] = {}  # session_id -> expiry (monotonic)
+_sessions_lock = threading.Lock()
+
+
+def _create_session() -> str:
+    sid = secrets.token_hex(32)
+    with _sessions_lock:
+        _sessions[sid] = time.monotonic() + _SESSION_DURATION_SECONDS
+    return sid
+
+
+def _is_valid_session(sid: str) -> bool:
+    with _sessions_lock:
+        expiry = _sessions.get(sid, 0.0)
+        if time.monotonic() > expiry:
+            _sessions.pop(sid, None)
+            return False
+        return True
+
+
+def _delete_session(sid: str) -> None:
+    with _sessions_lock:
+        _sessions.pop(sid, None)
 
 
 def _enforce_rate_limit(ip: str) -> None:
@@ -218,13 +248,19 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _check_token(request: Request, authorization: Optional[str] = Header(default=None)) -> None:
-    """Bearer-token auth + per-IP rate limit/lockout for control endpoints.
+def _check_token(
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    dashboard_session: Optional[str] = Cookie(default=None),
+) -> None:
+    """Auth + per-IP rate limit/lockout for control endpoints.
 
-    Reads DASHBOARD_TOKEN from the environment (set by systemd via
-    /opt/tradebot/.env). Returns 503 if the token is not configured (fail
-    closed), 429 on rate-limit / lockout, 401 if the caller's token is
-    missing or wrong.
+    Accepts either:
+      - A valid HttpOnly session cookie (set by POST /api/login) — preferred.
+      - An Authorization: Bearer <DASHBOARD_TOKEN> header — for API/script callers.
+
+    Returns 503 if DASHBOARD_TOKEN is not configured (fail-closed), 429 on
+    rate-limit/lockout, 401 if neither credential is valid.
     """
     ip = _client_ip(request)
     _enforce_rate_limit(ip)
@@ -232,13 +268,63 @@ def _check_token(request: Request, authorization: Optional[str] = Header(default
     expected = os.getenv("DASHBOARD_TOKEN", "").strip()
     if not expected:
         raise HTTPException(status_code=503, detail="DASHBOARD_TOKEN not configured")
-    if not authorization or not authorization.startswith("Bearer "):
-        _record_auth_failure(ip)
-        raise HTTPException(status_code=401, detail="missing bearer token")
-    provided = authorization[len("Bearer ") :].strip()
-    if not hmac.compare_digest(provided, expected):
+
+    # Session cookie path (UI)
+    if dashboard_session and _is_valid_session(dashboard_session):
+        return
+
+    # Bearer token path (scripts / API callers)
+    if authorization and authorization.startswith("Bearer "):
+        provided = authorization[len("Bearer ") :].strip()
+        if hmac.compare_digest(provided, expected):
+            return
+
+    _record_auth_failure(ip)
+    raise HTTPException(status_code=401, detail="authentication required")
+
+
+@app.post("/api/login")
+def api_login(request: Request, body: Dict[str, str], response: Response) -> Dict[str, Any]:
+    """Exchange DASHBOARD_TOKEN for an HttpOnly session cookie.
+
+    Body: {"token": "<DASHBOARD_TOKEN>"}
+    On success: sets dashboard_session cookie (HttpOnly, SameSite=Strict) and returns {"ok": true}.
+    On failure: 401.
+    """
+    ip = _client_ip(request)
+    _enforce_rate_limit(ip)
+
+    expected = os.getenv("DASHBOARD_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="DASHBOARD_TOKEN not configured")
+
+    provided = (body.get("token") or "").strip()
+    if not provided or not hmac.compare_digest(provided, expected):
         _record_auth_failure(ip)
         raise HTTPException(status_code=401, detail="invalid token")
+
+    sid = _create_session()
+    response.set_cookie(
+        key=_SESSION_COOKIE,
+        value=sid,
+        httponly=True,
+        samesite="strict",
+        max_age=_SESSION_DURATION_SECONDS,
+        path="/",
+    )
+    logger.info("Dashboard session created for IP %s", ip)
+    return {"ok": True}
+
+
+@app.post("/api/logout")
+def api_logout(
+    response: Response, dashboard_session: Optional[str] = Cookie(default=None)
+) -> Dict[str, Any]:
+    """Invalidate the current session cookie."""
+    if dashboard_session:
+        _delete_session(dashboard_session)
+    response.delete_cookie(key=_SESSION_COOKIE, path="/")
+    return {"ok": True}
 
 
 _ALLOWED_ACTIONS = ("restart", "stop")
