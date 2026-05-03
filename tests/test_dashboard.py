@@ -5,6 +5,7 @@ import subprocess as sp_module
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
@@ -289,6 +290,122 @@ def test_db20_http_valid_token_200(monkeypatch):
         client = TestClient(dashboard_app.app, raise_server_exceptions=False)
         r = client.post("/api/bot/restart", headers={"Authorization": "Bearer tc-secret"})
         assert r.status_code == 200
+        assert r.json().get("ok") is True
+    finally:
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+
+
+# ── stale threshold branch tests (DB-21..DB-25) ──────────────────────────────
+# Patch dashboard_app.datetime so _stale_threshold_seconds() sees a fixed time.
+
+
+def _fake_dt(fake_now_et):
+    """Return a datetime-shaped object whose .now(tz) returns fake_now_et.astimezone(tz)."""
+
+    class _FakeDatetime:
+        @staticmethod
+        def now(tz=None):
+            return fake_now_et.astimezone(tz) if tz else fake_now_et
+
+        fromisoformat = staticmethod(datetime.fromisoformat)
+
+    return _FakeDatetime
+
+
+def _et(year, month, day, hour, minute):
+    from zoneinfo import ZoneInfo
+
+    return datetime(year, month, day, hour, minute, 0, tzinfo=ZoneInfo("America/New_York"))
+
+
+def test_db21_stale_threshold_saturday():
+    # 2026-05-02 is a Saturday → weekend threshold
+    with patch("dashboard.app.datetime", _fake_dt(_et(2026, 5, 2, 12, 0))):
+        assert dashboard_app._stale_threshold_seconds() == dashboard_app._WEEKEND_STALE_SECONDS
+
+
+def test_db22_stale_threshold_sunday():
+    # 2026-05-03 is a Sunday → weekend threshold
+    with patch("dashboard.app.datetime", _fake_dt(_et(2026, 5, 3, 23, 59))):
+        assert dashboard_app._stale_threshold_seconds() == dashboard_app._WEEKEND_STALE_SECONDS
+
+
+def test_db23_stale_threshold_monday_before_tick():
+    # Monday 16:09 ET → still in weekend gap, bot hasn't ticked today yet
+    with patch("dashboard.app.datetime", _fake_dt(_et(2026, 5, 4, 16, 9))):
+        assert dashboard_app._stale_threshold_seconds() == dashboard_app._WEEKEND_STALE_SECONDS
+
+
+def test_db24_stale_threshold_monday_after_tick():
+    # Monday 16:11 ET → bot has ticked, back to normal trading-day threshold
+    with patch("dashboard.app.datetime", _fake_dt(_et(2026, 5, 4, 16, 11))):
+        assert dashboard_app._stale_threshold_seconds() == dashboard_app._WEEKDAY_STALE_SECONDS
+
+
+def test_db25_stale_threshold_midweek():
+    # Wednesday midday → normal trading-day threshold
+    with patch("dashboard.app.datetime", _fake_dt(_et(2026, 5, 6, 12, 0))):
+        assert dashboard_app._stale_threshold_seconds() == dashboard_app._WEEKDAY_STALE_SECONDS
+
+
+# ── security tests (DB-26..DB-28) ─────────────────────────────────────────────
+
+
+def test_db26_client_ip_ignores_xff_without_trusted_proxies():
+    # When TRUSTED_PROXIES is not set, X-Forwarded-For must not influence the key.
+    os.environ.pop("TRUSTED_PROXIES", None)
+
+    class _Headers(dict):
+        def get(self, key, default=None):
+            return super().get(key.lower(), default)
+
+    class _FakeClient:
+        host = "10.0.0.1"
+
+    class _FakeRequest:
+        client = _FakeClient()
+        headers = _Headers({"x-forwarded-for": "1.2.3.4"})
+
+    ip = dashboard_app._client_ip(_FakeRequest())
+    assert ip == "10.0.0.1", f"Expected peer IP 10.0.0.1, got {ip!r} — XFF must be ignored"
+
+
+def test_db27_lockout_persists_for_valid_token_on_attempt_11(monkeypatch):
+    # HTTP-layer lockout: 10 wrong tokens → attempt 11 with correct token returns 429.
+    # Raise _RATE_LIMIT_MAX_ATTEMPTS so rate-per-minute doesn't fire before the lockout.
+    monkeypatch.setattr(dashboard_app, "_RATE_LIMIT_MAX_ATTEMPTS", 100)
+    os.environ["DASHBOARD_TOKEN"] = "lock-secret"
+    _reset_rate_state()
+    try:
+        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
+        for _ in range(dashboard_app._LOCKOUT_FAILED_THRESHOLD):
+            client.post("/api/bot/restart", headers={"Authorization": "Bearer wrong"})
+        r = client.post("/api/bot/restart", headers={"Authorization": "Bearer lock-secret"})
+        assert r.status_code == 429, f"Expected 429 lockout, got {r.status_code}"
+        assert "locked out" in r.json().get("detail", "")
+    finally:
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+
+
+def test_db28_cookie_login_flow_authorises_control_endpoint(monkeypatch):
+    # Login with valid token → receive session cookie → call /api/bot/restart with cookie only.
+    class _FakeDone:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(sp_module, "run", lambda *a, **kw: _FakeDone())
+    os.environ["DASHBOARD_TOKEN"] = "cookie-secret"
+    _reset_rate_state()
+    try:
+        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
+        login = client.post("/api/login", json={"token": "cookie-secret"})
+        assert login.status_code == 200, f"Login failed: {login.status_code} {login.text}"
+        # TestClient carries cookies automatically; no Authorization header sent
+        r = client.post("/api/bot/restart")
+        assert r.status_code == 200, f"Expected 200 with cookie auth, got {r.status_code}"
         assert r.json().get("ok") is True
     finally:
         os.environ.pop("DASHBOARD_TOKEN", None)
