@@ -12,7 +12,9 @@ Control-plane endpoints (require Authorization: Bearer <DASHBOARD_TOKEN>):
     POST /api/bot/restart  — sudo systemctl restart tradebot.service
     POST /api/bot/stop     — sudo systemctl stop tradebot.service
 
-Bind: 0.0.0.0:8080 — reach via Tailscale (http://100.113.140.69:8080) or SSH tunnel.
+Bind: Tailscale IP only (e.g. 100.113.140.69:8080). Reach via Tailscale or
+SSH tunnel. UFW also blocks 8080 on the public NIC; the Tailscale-only bind
+is defense-in-depth so the socket cannot accept on 0.0.0.0 at all.
 Never expose publicly without TLS. Tailscale provides transport encryption.
 """
 
@@ -23,11 +25,13 @@ import logging
 import os
 import socket
 import subprocess
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -164,20 +168,76 @@ def api_recent_fills(limit: int = 20) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def _check_token(authorization: Optional[str] = Header(default=None)) -> None:
-    """Bearer-token auth dependency for control endpoints.
+# Per-IP rate limit + lockout state for /api/bot/* endpoints (CR-05).
+# In-memory only — restarting the dashboard clears state, which is fine since
+# legitimate operators have the token and unauthenticated callers benefit from
+# the bind being Tailscale-only (CR-04).
+_RATE_LIMIT_WINDOW_SECONDS = 60
+_RATE_LIMIT_MAX_ATTEMPTS = 3  # 3 control-plane requests per minute per IP
+_LOCKOUT_FAILED_THRESHOLD = 10  # after 10 invalid-token attempts in window
+_LOCKOUT_DURATION_SECONDS = 300  # 5 min lockout
+
+_rate_state: Dict[str, Dict[str, Any]] = {}
+_rate_lock = threading.Lock()
+
+
+def _enforce_rate_limit(ip: str) -> None:
+    """Sliding-window rate limit + sticky lockout. Raises 429 if exceeded."""
+    now = time.monotonic()
+    with _rate_lock:
+        s = _rate_state.setdefault(ip, {"attempts": [], "fails": [], "lockout_until": 0.0})
+        if s["lockout_until"] > now:
+            wait = int(s["lockout_until"] - now)
+            raise HTTPException(status_code=429, detail=f"locked out, retry in {wait}s")
+        cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
+        s["attempts"] = [t for t in s["attempts"] if t > cutoff]
+        if len(s["attempts"]) >= _RATE_LIMIT_MAX_ATTEMPTS:
+            raise HTTPException(status_code=429, detail="too many requests")
+        s["attempts"].append(now)
+
+
+def _record_auth_failure(ip: str) -> None:
+    """Track 401s; trip a 5-min lockout after _LOCKOUT_FAILED_THRESHOLD fails."""
+    now = time.monotonic()
+    with _rate_lock:
+        s = _rate_state.setdefault(ip, {"attempts": [], "fails": [], "lockout_until": 0.0})
+        cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
+        s["fails"] = [t for t in s["fails"] if t > cutoff]
+        s["fails"].append(now)
+        if len(s["fails"]) >= _LOCKOUT_FAILED_THRESHOLD:
+            s["lockout_until"] = now + _LOCKOUT_DURATION_SECONDS
+            logger.warning(
+                "Dashboard control-plane lockout for IP %s (%d invalid-token attempts in %ds)",
+                ip,
+                len(s["fails"]),
+                _RATE_LIMIT_WINDOW_SECONDS,
+            )
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _check_token(request: Request, authorization: Optional[str] = Header(default=None)) -> None:
+    """Bearer-token auth + per-IP rate limit/lockout for control endpoints.
 
     Reads DASHBOARD_TOKEN from the environment (set by systemd via
     /opt/tradebot/.env). Returns 503 if the token is not configured (fail
-    closed) and 401 if the caller's token is missing or wrong.
+    closed), 429 on rate-limit / lockout, 401 if the caller's token is
+    missing or wrong.
     """
+    ip = _client_ip(request)
+    _enforce_rate_limit(ip)
+
     expected = os.getenv("DASHBOARD_TOKEN", "").strip()
     if not expected:
         raise HTTPException(status_code=503, detail="DASHBOARD_TOKEN not configured")
     if not authorization or not authorization.startswith("Bearer "):
+        _record_auth_failure(ip)
         raise HTTPException(status_code=401, detail="missing bearer token")
     provided = authorization[len("Bearer ") :].strip()
     if not hmac.compare_digest(provided, expected):
+        _record_auth_failure(ip)
         raise HTTPException(status_code=401, detail="invalid token")
 
 

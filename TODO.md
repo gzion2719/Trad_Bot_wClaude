@@ -277,12 +277,12 @@ See `codereview.md` for full issue table. Work top-to-bottom by execution priori
 | CR-01 | Restore CI — `.github/workflows/` was gitignored, no CI in repo | Critical | [x] | `feature/restore-ci-workflow` |
 | CR-02 | ntfy topic hard-coded with account ID, journal logs shipped publicly | Critical | [x] | `feature/ntfy-private-topic` |
 | CR-03 | No backup operator for weekly 2FA — single point of failure | High | [ ] | — (runbook + rehearsal) |
-| CR-04 | Dashboard binds 0.0.0.0, no auth on GET endpoints | High | [ ] | — |
-| CR-05 | No rate limiting / lockout on `/api/bot/*` token endpoint | High | [ ] | — |
+| CR-04 | Dashboard binds 0.0.0.0, no auth on GET endpoints | High | [x] | `feature/cr-04-05-dashboard-bind-ratelimit` |
+| CR-05 | No rate limiting / lockout on `/api/bot/*` token endpoint | High | [x] | `feature/cr-04-05-dashboard-bind-ratelimit` |
 | CR-06 | No secret scanner in pre-push gate or CI | High | [x] | `feature/add-gitleaks-pregate` |
 | CR-07 | `ib_insync` archived/unmaintained; no lockfile for deps | High | [ ] | — (multi-week, track in BACKLOG) |
-| CR-08 | `/opt/ibc/config.ini` not chmod 600 in setup.sh | High | [ ] | — |
-| CR-09 | Health timer stale threshold (93600s) doesn't match dashboard logic | Medium | [ ] | — |
+| CR-08 | `/opt/ibc/config.ini` not chmod 600 in setup.sh | High | [x] | `feature/cr-08-chmod-ibc-config` |
+| CR-09 | Health timer stale threshold (93600s) doesn't match dashboard logic | Medium | [x] | `feature/cr-09-health-timer-weekend` |
 | CR-10 | Dashboard bearer token stored in localStorage | Medium | [ ] | — |
 | CR-11 | Account ID `DUE090987` literal in source files | Medium | [x] | `feature/ntfy-private-topic` |
 | CR-12 | ntfy notification body contains 50 lines of journalctl output | Medium | [x] | `feature/ntfy-private-topic` |
