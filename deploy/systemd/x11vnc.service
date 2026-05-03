@@ -1,0 +1,41 @@
+[Unit]
+Description=x11vnc bridging Xvfb :99 to localhost VNC for IB Gateway access
+# Xvfb is started inline by start_ibgateway.sh, not as its own unit, so we
+# require the gateway to be active and add a small post-start delay below.
+Requires=ibgateway.service
+After=ibgateway.service
+
+[Service]
+Type=simple
+# Wait for Xvfb to come up inside the ibgateway service before connecting.
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do [ -e /tmp/.X11-unix/X99 ] && exit 0; sleep 1; done; exit 1'
+ExecStart=/usr/bin/x11vnc \
+    -display :99 \
+    -rfbauth /etc/x11vnc.pass \
+    -rfbport 5900 \
+    -listen 127.0.0.1 \
+    -localhost \
+    -nosetclipboard \
+    -noxdamage \
+    -shared \
+    -forever \
+    -quiet \
+    -xkb
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=x11vnc
+
+# Process isolation
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=no
+# Needs read access to the Xvfb display socket and the password file.
+ReadOnlyPaths=/tmp/.X11-unix /etc/x11vnc.pass
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
