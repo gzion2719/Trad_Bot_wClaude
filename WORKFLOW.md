@@ -131,7 +131,7 @@ Example (2026-05-03): four CR fixes (CR-04/05/08/09) each updated `TODO.md`'s is
 
 When writing CHATLOG bullets, commit messages, or comments that describe the removal of a secret or sensitive literal, **never quote the actual literal** — write `<account-id>`, `<token>`, or `[redacted]` instead. Quoting the real value in the description re-introduces exactly the leak the redaction was meant to close, and the CI grep gate will catch it.
 
-Example (2026-05-03): CHATLOG entry for CR-11 described "redacted `DUE090987` account-ID literal" — the exact phrase caused the `DUE[0-9]{6,9}` grep gate to fail on the develop→main PR.
+Example (2026-05-03): a CHATLOG entry for CR-11 described "redacted `<the actual account ID>` account-ID literal" — the exact phrase (with the real ID inline) caused the `DUE[0-9]{6,9}` grep gate to fail on the develop→main PR. The fix was to use `<account-id>` in both the entry and this example.
 
 ---
 
