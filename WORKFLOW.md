@@ -174,3 +174,7 @@ If `WebFetch` returns 403 on the first attempt, go straight to `WebSearch` — d
 ## Test assertion rule
 
 Before writing a test that asserts a response body field (e.g. `r.json().get("status") == "ok"`), read the endpoint's `return` statement first. Guessing field names costs a test failure that requires a re-run — reading the return takes 5 seconds.
+
+**Import-binding patch rule:** When a test patches a module-level variable (e.g. `IB_PORT`, `IB_HOST`), read the import chain in the module under test first. `from config.settings import IB_PORT` in `config/validator.py` binds `IB_PORT` into `config.validator`'s namespace at import time. Patching `config.settings.IB_PORT` afterwards has no effect on `config.validator.IB_PORT`. Always patch the **consuming module's namespace** (`config.validator.IB_PORT = ...`), not the source module.
+
+Example (2026-05-03): `test_cfg02` set `config.settings.IB_PORT = 9999` then called `validate_config()` — the validator still saw the original value because it had already bound its own reference at import time. Patching `config.validator.IB_PORT` directly fixed it.
