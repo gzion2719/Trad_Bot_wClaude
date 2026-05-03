@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TradeBot — Gateway Console</title>
+<link rel="stylesheet" href="/static/dashboard.css">
+<link rel="stylesheet" href="/static/console.css">
+</head>
+<body>
+
+<div class="console-shell">
+  <header class="console-header">
+    <div>
+      <strong>Gateway Console</strong>
+      <span class="muted" id="console-state">disconnected</span>
+    </div>
+    <div class="console-actions">
+      <a class="btn" href="/">Back to dashboard</a>
+      <button class="btn err" id="btn-disconnect">Disconnect</button>
+    </div>
+  </header>
+
+  <div class="console-step-up" id="step-up-card">
+    <div class="login-box">
+      <h2>Console password</h2>
+      <p class="muted small">
+        The dashboard cookie alone does not authorize the console. Enter the
+        console password (separate from your dashboard token) to unlock a
+        5-minute session.
+      </p>
+      <input type="password" id="console-password" placeholder="DASHBOARD_CONSOLE_PASSWORD" autocomplete="current-password">
+      <div class="login-err" id="step-up-err"></div>
+      <button class="btn login-btn-wide" id="btn-step-up">Unlock console</button>
+    </div>
+  </div>
+
+  <div class="console-canvas-wrap" id="canvas-wrap">
+    <div id="novnc-canvas"></div>
+  </div>
+
+  <footer class="console-footer">
+    <span id="console-msg" class="muted small"></span>
+  </footer>
+</div>
+
+<script type="module" src="/static/console.js"></script>
+</body>
+</html>

@@ -104,6 +104,49 @@ else
     echo "/etc/x11vnc.pass already exists — leaving in place."
 fi
 
+echo "=== [8.6/9] Fetch and verify noVNC vendor bundle ==="
+# noVNC is fetched at deploy time rather than vendored in git — pinned by
+# version + SHA-256 to lock the blob. Bump deliberately; never weaken the
+# checksum check. See dashboard/static/vendor/novnc/README.md for rationale.
+NOVNC_VERSION=1.5.0
+# PLACEHOLDER — compute the real hash on a trusted machine before first deploy:
+#   curl -fsSL -o /tmp/novnc.tgz "https://github.com/novnc/noVNC/archive/refs/tags/v1.5.0.tar.gz"
+#   sha256sum /tmp/novnc.tgz
+# Then replace the line below and commit. Setup will refuse to proceed until
+# this placeholder is replaced.
+NOVNC_SHA256=PLACEHOLDER_REPLACE_BEFORE_DEPLOY
+NOVNC_DIR="$BOT_DIR/dashboard/static/vendor/novnc"
+if [ "$NOVNC_SHA256" = "PLACEHOLDER_REPLACE_BEFORE_DEPLOY" ]; then
+    echo "ERROR: NOVNC_SHA256 is a placeholder. Compute the real hash and update setup.sh before deploying." >&2
+    exit 1
+fi
+NOVNC_MARKER="$NOVNC_DIR/.installed-${NOVNC_VERSION}"
+if [ -f "$NOVNC_MARKER" ]; then
+    echo "noVNC v${NOVNC_VERSION} already installed — skipping fetch."
+else
+    echo "Fetching noVNC v${NOVNC_VERSION}..."
+    curl -fsSL -o /tmp/novnc.tgz \
+        "https://github.com/novnc/noVNC/archive/refs/tags/v${NOVNC_VERSION}.tar.gz"
+    # IMPORTANT: do not skip the checksum check. If sha256 mismatches, abort
+    # — never proceed with an unverified vendor bundle on a system that holds
+    # trading credentials.
+    echo "${NOVNC_SHA256}  /tmp/novnc.tgz" | sha256sum -c -
+    mkdir -p "$NOVNC_DIR"
+    # Extract only the runtime assets we serve. Skip tests/, docs/, README, etc.
+    tar -xzf /tmp/novnc.tgz \
+        --strip-components=1 \
+        -C "$NOVNC_DIR" \
+        "noVNC-${NOVNC_VERSION}/app" \
+        "noVNC-${NOVNC_VERSION}/core" \
+        "noVNC-${NOVNC_VERSION}/vendor" \
+        "noVNC-${NOVNC_VERSION}/vnc.html" \
+        "noVNC-${NOVNC_VERSION}/vnc_lite.html"
+    rm /tmp/novnc.tgz
+    touch "$NOVNC_MARKER"
+    chown -R $TRADEBOT_USER:$TRADEBOT_USER "$NOVNC_DIR"
+    echo "Installed noVNC v${NOVNC_VERSION} into $NOVNC_DIR"
+fi
+
 echo "=== [9/9] Install and enable systemd units ==="
 cp "$BOT_DIR/deploy/systemd/"*.service /etc/systemd/system/
 cp "$BOT_DIR/deploy/systemd/"*.timer  /etc/systemd/system/ 2>/dev/null || true

@@ -6,3 +6,8 @@ yfinance>=0.2.0
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 httpx>=0.27.0
+# Gateway console: WebSocket reverse proxy + websockify bridge to x11vnc.
+# websockify is a small, well-known WebSockets-to-TCP bridge maintained by the
+# noVNC project. Pinned for CVE auditability; bump deliberately.
+websockets>=12.0,<14.0
+websockify==0.12.0
