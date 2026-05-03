@@ -10,11 +10,13 @@ Group=tradebot
 WorkingDirectory=/opt/tradebot
 EnvironmentFile=/opt/tradebot/.env
 
-# Binds to 0.0.0.0 so Tailscale-connected devices (PC, phone) can reach it
-# directly at http://100.113.140.69:8080. UFW has no allow rule for 8080 so
-# the public internet cannot reach it. Never add a UFW allow for 8080 without
-# adding token auth first (Phase 3).
-Environment=DASHBOARD_HOST=0.0.0.0
+# Bind directly to the Tailscale interface — PC + iPhone reach it via
+# http://100.113.140.69:8080, and there is no public listener at all.
+# UFW already blocks 8080 on the public NIC, but binding only to the
+# Tailscale IP is defense-in-depth: even if UFW is misconfigured the
+# socket cannot accept on 0.0.0.0.
+# If the Tailscale IP ever changes, update this line and `daemon-reload`.
+Environment=DASHBOARD_HOST=100.113.140.69
 Environment=DASHBOARD_PORT=8080
 # DASHBOARD_TOKEN gates POST /api/bot/restart and POST /api/bot/stop.
 # Set it in /opt/tradebot/.env (loaded via EnvironmentFile above) — never

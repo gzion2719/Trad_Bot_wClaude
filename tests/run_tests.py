@@ -1826,6 +1826,23 @@ def db08():
     ), f"gateway_port_open should be bool, got {type(result['gateway_port_open'])}"
 
 
+def _fake_request(ip: str = "10.0.0.1"):
+    """Minimal stand-in for fastapi.Request — only .client.host is used."""
+
+    class _C:
+        host = ip
+
+    class _R:
+        client = _C()
+
+    return _R()
+
+
+def _reset_rate_state() -> None:
+    with dashboard_app._rate_lock:
+        dashboard_app._rate_state.clear()
+
+
 @test("DB-09", "control endpoints reject when DASHBOARD_TOKEN unset (503)")
 def db09():
     import os
@@ -1833,8 +1850,9 @@ def db09():
     from fastapi import HTTPException
 
     os.environ.pop("DASHBOARD_TOKEN", None)
+    _reset_rate_state()
     try:
-        dashboard_app._check_token(authorization="Bearer anything")
+        dashboard_app._check_token(_fake_request("10.0.0.9"), authorization="Bearer anything")
         raise AssertionError("expected HTTPException 503")
     except HTTPException as exc:
         assert exc.status_code == 503, f"expected 503, got {exc.status_code}"
@@ -1847,26 +1865,31 @@ def db10():
     from fastapi import HTTPException
 
     os.environ["DASHBOARD_TOKEN"] = "secret-xyz"
+    _reset_rate_state()
     try:
+        # Use distinct IPs so the per-IP rate limit (3/min) doesn't trip during this test.
         try:
-            dashboard_app._check_token(authorization=None)
+            dashboard_app._check_token(_fake_request("10.0.0.10"), authorization=None)
             raise AssertionError("expected HTTPException 401 for missing header")
         except HTTPException as exc:
             assert exc.status_code == 401, f"missing: expected 401, got {exc.status_code}"
         try:
-            dashboard_app._check_token(authorization="Bearer wrong")
+            dashboard_app._check_token(_fake_request("10.0.0.11"), authorization="Bearer wrong")
             raise AssertionError("expected HTTPException 401 for wrong token")
         except HTTPException as exc:
             assert exc.status_code == 401, f"wrong: expected 401, got {exc.status_code}"
         try:
-            dashboard_app._check_token(authorization="NotBearer secret-xyz")
+            dashboard_app._check_token(
+                _fake_request("10.0.0.12"), authorization="NotBearer secret-xyz"
+            )
             raise AssertionError("expected HTTPException 401 for non-bearer scheme")
         except HTTPException as exc:
             assert exc.status_code == 401, f"scheme: expected 401, got {exc.status_code}"
         # Correct token must NOT raise.
-        dashboard_app._check_token(authorization="Bearer secret-xyz")
+        dashboard_app._check_token(_fake_request("10.0.0.13"), authorization="Bearer secret-xyz")
     finally:
         os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
 
 
 @test("DB-11", "_systemctl_action returns ok on rc=0 (mocked subprocess)")
@@ -1922,6 +1945,60 @@ def db13():
         assert exc.status_code == 400, f"expected 400, got {exc.status_code}"
 
 
+@test("DB-14", "control endpoints rate-limit at 3 requests/min/IP (429)")
+def db14():
+    import os
+
+    from fastapi import HTTPException
+
+    os.environ["DASHBOARD_TOKEN"] = "secret-xyz"
+    _reset_rate_state()
+    ip = "10.0.0.14"
+    try:
+        # First 3 requests with valid token must succeed.
+        for i in range(dashboard_app._RATE_LIMIT_MAX_ATTEMPTS):
+            dashboard_app._check_token(_fake_request(ip), authorization="Bearer secret-xyz")
+        # 4th request from same IP must hit rate limit.
+        try:
+            dashboard_app._check_token(_fake_request(ip), authorization="Bearer secret-xyz")
+            raise AssertionError("expected HTTPException 429")
+        except HTTPException as exc:
+            assert exc.status_code == 429, f"expected 429, got {exc.status_code}"
+        # A different IP is unaffected.
+        dashboard_app._check_token(_fake_request("10.0.0.15"), authorization="Bearer secret-xyz")
+    finally:
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+
+
+@test("DB-15", "lockout after N invalid-token attempts (5min 429)")
+def db15():
+    import os
+
+    from fastapi import HTTPException
+
+    os.environ["DASHBOARD_TOKEN"] = "secret-xyz"
+    _reset_rate_state()
+    ip = "10.0.0.16"
+    try:
+        # Push enough invalid-token attempts to trip the lockout.
+        # We must spread them across distinct IPs to avoid the 3/min rate limit
+        # short-circuiting before fails reach _LOCKOUT_FAILED_THRESHOLD. Instead,
+        # call _record_auth_failure directly to simulate _LOCKOUT_FAILED_THRESHOLD
+        # 401s, then verify the next call gets 429 lockout (not 401).
+        for _ in range(dashboard_app._LOCKOUT_FAILED_THRESHOLD):
+            dashboard_app._record_auth_failure(ip)
+        try:
+            dashboard_app._check_token(_fake_request(ip), authorization="Bearer secret-xyz")
+            raise AssertionError("expected HTTPException 429 lockout")
+        except HTTPException as exc:
+            assert exc.status_code == 429, f"expected 429, got {exc.status_code}"
+            assert "locked out" in str(exc.detail), f"expected lockout msg, got {exc.detail}"
+    finally:
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+
+
 db01()
 db02()
 db03()
@@ -1935,6 +2012,8 @@ db10()
 db11()
 db12()
 db13()
+db14()
+db15()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
