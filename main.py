@@ -104,8 +104,10 @@ def main() -> None:
             import zoneinfo
 
             _ET = zoneinfo.ZoneInfo("America/New_York")
-        except Exception:
-            _ET = timezone(timedelta(hours=-5))  # type: ignore[assignment]  # fallback: EST fixed offset
+        except (ImportError, KeyError) as exc:
+            raise RuntimeError(
+                "tzdata package required for PnL poller timezone. Run: pip install tzdata"
+            ) from exc
 
         while not _stop_pnl_poller.is_set():
             try:
@@ -129,7 +131,7 @@ def main() -> None:
                         rm.update_daily_pnl(float(raw_pnl))
 
             except Exception as exc:
-                logger.warning("PnL poller error (non-fatal): %s", exc)
+                logger.warning("PnL poller error (non-fatal): %s", exc, exc_info=True)
 
             _stop_pnl_poller.wait(timeout=60)  # sleep 60s, wakes early on shutdown
 

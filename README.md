@@ -7,6 +7,12 @@ Algorithmic trading bot for Interactive Brokers (IBKR), built in Python.
 - Designed for multiple pluggable strategies
 - Includes a backtesting engine (in progress)
 
+> **Dependency note:** This project uses [`ib_insync==0.9.86`](https://github.com/erdewit/ib_insync),
+> which is **archived and no longer maintained** as of 2023. It works against current TWS API versions
+> but has no upstream patch path if IBKR makes a breaking API change. Migration to
+> [`ib_async`](https://github.com/ib-api-reloaded/ib_async) (the community fork) is tracked in the
+> backlog (CR-07). Re-evaluate quarterly.
+
 ---
 
 ## Prerequisites
