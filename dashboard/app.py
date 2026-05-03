@@ -64,10 +64,10 @@ def _stale_threshold_seconds() -> float:
         from zoneinfo import ZoneInfo
 
         et_tz = ZoneInfo("America/New_York")
-    except Exception:
-        from datetime import timedelta
-
-        et_tz = timezone(timedelta(hours=-5))  # type: ignore[assignment]
+    except (ImportError, KeyError) as exc:
+        raise RuntimeError(
+            "tzdata package required for _stale_threshold_seconds(). Run: pip install tzdata"
+        ) from exc
 
     now_et = datetime.now(et_tz)
     wd = now_et.weekday()  # 0=Mon … 4=Fri, 5=Sat, 6=Sun
@@ -263,17 +263,18 @@ def _check_token(
     rate-limit/lockout, 401 if neither credential is valid.
     """
     ip = _client_ip(request)
-    _enforce_rate_limit(ip)
 
     expected = os.getenv("DASHBOARD_TOKEN", "").strip()
     if not expected:
         raise HTTPException(status_code=503, detail="DASHBOARD_TOKEN not configured")
 
-    # Session cookie path (UI)
+    # Session cookie path (UI) — valid sessions bypass rate-limiting so rapid
+    # restart→stop clicks from a logged-in operator don't get 429d.
     if dashboard_session and _is_valid_session(dashboard_session):
         return
 
-    # Bearer token path (scripts / API callers)
+    # Bearer token path (scripts / API callers) — rate-limited per IP.
+    _enforce_rate_limit(ip)
     if authorization and authorization.startswith("Bearer "):
         provided = authorization[len("Bearer ") :].strip()
         if hmac.compare_digest(provided, expected):

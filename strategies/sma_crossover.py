@@ -345,7 +345,7 @@ class SMACrossover(BaseStrategy):
             if self._stop_order_id is not None:
                 try:
                     self.om.cancel_order(self._stop_order_id)
-                except Exception:
+                except (RuntimeError, ValueError, AttributeError):
                     pass
                 self._stop_order_id = None
 

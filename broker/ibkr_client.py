@@ -124,7 +124,7 @@ class IBKRClient:
                 # causing _on_disconnected to fire N times on the next drop.
                 try:
                     self.ib.disconnectedEvent -= self._on_disconnected
-                except Exception:
+                except (TypeError, AttributeError):
                     pass  # not yet registered — safe to ignore
                 self.ib.disconnectedEvent += self._on_disconnected
 
@@ -194,7 +194,7 @@ class IBKRClient:
         try:
             t = self.ib.reqCurrentTime()
             return t is not None
-        except Exception:
+        except (RuntimeError, OSError, AttributeError):
             return False
 
     # ------------------------------------------------------------------

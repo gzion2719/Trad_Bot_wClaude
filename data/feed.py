@@ -141,12 +141,12 @@ class IBKRFeed(DataFeed):
             handler = self._make_handler(symbol)
             try:
                 bars.updateEvent += handler
-            except Exception:
+            except (TypeError, AttributeError):
                 # updateEvent registration failed — cancel the now-orphaned
                 # IBKR stream immediately so it doesn't leak resources.
                 try:
                     self._ib.cancelRealTimeBars(bars)
-                except Exception:
+                except (RuntimeError, OSError, AttributeError):
                     pass
                 raise  # propagate original error to caller
 
@@ -170,7 +170,7 @@ class IBKRFeed(DataFeed):
             if handler is not None:
                 try:
                     bars.updateEvent -= handler  # type: ignore[attr-defined]
-                except Exception:
+                except (TypeError, AttributeError):
                     pass  # handler may already be detached
             self._ib.cancelRealTimeBars(bars)
             self._subscriptions.pop(symbol, None)
