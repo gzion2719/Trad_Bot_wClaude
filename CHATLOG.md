@@ -5,7 +5,16 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 
 ---
 
-## 2026-05-03 — Code review CI fix: Section 11 guarded, PR #53 open, CI still failing
+## 2026-05-03 — CI unblocked + 4 CRs shipped (CR-04/05/08/09) + VPS deployed
+
+- Diagnosed PR #53 CI failure from one log paste: gitleaks-action@v2 returned HTTP 403 on `pulls/{n}/commits` because the default `GITHUB_TOKEN` lacks `pull_requests:read`. Workflow-level `permissions:` grant didn't unblock it. Replaced the action with a 4-line `curl + tar + gitleaks detect --no-git` CLI invocation — green on next run, matches local pre-push exactly.
+- Shipped CR-08 (`chmod 600 /opt/ibc/config.ini` in setup.sh + applied on VPS), CR-09 (weekend-aware health timer threshold mirroring dashboard `_stale_threshold_seconds()`, all 8 boundary cases verified by local bash sim), CR-04 (dashboard binds Tailscale-only `100.113.140.69:8080`, no longer 0.0.0.0), CR-05 (per-IP sliding-window rate limit 3/min + sticky 5-min lockout after 10 invalid-token attempts, DB-14/DB-15 tests added). 59/59 tests pass in CI mode.
+- VPS pulled main, restarted `tradebot-dashboard` + `tradebot-health.timer`, verified socket binds to Tailscale IP only, `/api/health` returns `ok` with 288000s weekend threshold, `401` returned for bad tokens, valid-token UI restart succeeded end-to-end.
+- 9/20 CRs done overall (all critical + high code-side items, except CR-03 runbook and CR-07 multi-week migration). 11 open: CR-03/07/10/13/14/15/16/17/18/19/20.
+- **Process improvement:** `WORKFLOW.md` gains two new sections — "Stacked PR rule (shared docs files)" (chain branches or omit shared-docs edits when stacking ≥2 feature PRs that touch the same file, to avoid the conflict storm we hit on `TODO.md` today) and "CI debugging — prefer CLI to actions" (when a third-party action fails on permissions, switch to its CLI instead of fighting `permissions:`).
+- **Next session:** Sunday 2FA dry-run if owner is around (next is 2026-05-10 ~02:00 ET); then bundle CR-15 (systemd hardening) + CR-13 (TradeLog pooling) as one PR; then CR-03 (operator runbook + rehearsal) as a docs-only session.
+
+
 
 - Section 11 (Risk Manager, rm01–rm14) guarded with `if not IS_CI:` on `feature/fix-ci-test-runner` — all broker-dependent sections (1-2, 4-9, 11, 13) are now guarded. Tests pass locally in CI mode: 57/57.
 - PR #53 (feature/fix-ci-test-runner → develop) is open but CI is **failing after 39s** on `ubuntu-latest`. Root cause unknown — ruff, black, mypy, and tests all pass locally. 39s is consistent with ruff+black+mypy passing then an early test failure or pip install issue on Linux.

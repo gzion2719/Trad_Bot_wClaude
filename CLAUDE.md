@@ -30,23 +30,18 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-05-03) — CR-01, CR-02, CR-06, CR-11, CR-12 done. CI test-runner fully guarded locally. PR #53 open but CI failing on Linux.**
+**Last session completed (2026-05-03) — CI unblocked, 4 CRs shipped to production. 9/20 CRs done.**
 
-- `hotfix/session-docs-handoff` merged to main — this file is current.
-- All broker-dependent test sections (1-2, 4-9, 11, 13) guarded with `if not IS_CI:` on `feature/fix-ci-test-runner`. Tests pass locally in CI mode (57/57), ruff/black/mypy clean.
-- **PR #53** (feature/fix-ci-test-runner → develop) is open. CI failing after 39s on `ubuntu-latest` — root cause unknown (Windows tests pass). Click the failing check on GitHub, read the log, find the exact error.
+- **CI fixed:** `gitleaks-action@v2` was failing with HTTP 403 because the default `GITHUB_TOKEN` lacked `pull_requests:read`. Replaced the action with a CLI invocation (`curl + tar + gitleaks detect --no-git`) — no API token needed, matches local pre-push exactly. PR #53 went green and merged.
+- **CRs shipped to main + deployed to VPS (9/20 total):** CR-04 (dashboard binds Tailscale IP only), CR-05 (per-IP rate limit + lockout on `/api/bot/*`), CR-08 (`chmod 600 /opt/ibc/config.ini` in setup.sh + applied on VPS), CR-09 (weekend-aware health timer threshold). Plus CR-01/02/06/11/12 from earlier sessions.
+- VPS verified end-to-end: `curl http://100.113.140.69:8080/api/health` → `ok`, `ss -tlnp | grep 8080` → bound to `100.113.140.69` only (not 0.0.0.0), bad-token POST → `401`, valid-token UI restart → success.
+
+**Open CRs (11 remaining):** CR-03 (operator runbook), CR-07 (`ib_insync` lockfile, BACKLOG multi-week), CR-10 (token in localStorage), CR-13 (TradeLog pooling), CR-14 (params leak), CR-15 (systemd hardening), CR-16 (XSS), CR-17 (docs drift), CR-18 (HTTP-layer tests), CR-19 (pytest migration), CR-20 (RiskManager exception swallow).
 
 **Immediate next steps:**
-1. **Diagnose PR #53 CI failure** — open [PR #53](https://github.com/gzion2719/Trad_Bot_wClaude/pull/53), click "CI / quality" → "Details", read the failed step.
-2. Fix the failing step (likely small: Linux path, missing dep, or import error on ubuntu-latest).
-3. After PR #53 merges to develop, confirm PR #49 (develop→main) goes green and merge it.
-4. **VPS deploy** (after main is updated): `ssh chappy-vps && sudo -i && cd /opt/tradebot && git pull origin main && systemctl restart tradebot-dashboard tradebot-health.timer`. Add `NTFY_TOPIC=tradebot-<random>`, `IBKR_ACCOUNT_ID=<account>`, `DASHBOARD_TOKEN=<random>` to `/opt/tradebot/.env`; install `/etc/sudoers.d/tradebot-dashboard` with `visudo -c`.
-
-**Next code review items (after CI is fixed):**
-1. CR-08 — `chmod 600 /opt/ibc/config.ini` in setup.sh (one-liner)
-2. CR-09 — fix health timer stale threshold (93600s hardcoded) to match dashboard `_stale_threshold_seconds()` logic
-3. CR-04 + CR-05 — bind dashboard to Tailscale IP + rate-limit `/api/bot/*`
-4. CR-03 — document and rehearse backup-operator 2FA runbook
+1. **Sunday 2FA dry-run** — next opportunity 2026-05-10 ~02:00 ET. Today's window may have already closed; check `journalctl -fu tradebot` to see if the bot reconnected this morning without intervention.
+2. **Bundle CR-15 + CR-13** as one PR — systemd hardening directives (`NoNewPrivileges`, `ProtectSystem`, etc.) on all units, plus `TradeLog` connection pooling so the dashboard doesn't open SQLite 60×/min.
+3. **CR-03 docs/rehearsal session** — write the backup-operator 2FA runbook and walk a team member through it.
 
 ### What was done last session (2026-05-02, dashboard Phase 2 + weekend-aware stale threshold) — RECONSTRUCTED
 
