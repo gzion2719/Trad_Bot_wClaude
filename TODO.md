@@ -281,7 +281,7 @@ See `codereview.md` for full issue table. Work top-to-bottom by execution priori
 | CR-05 | No rate limiting / lockout on `/api/bot/*` token endpoint | High | [x] | `feature/cr-04-05-dashboard-bind-ratelimit` |
 | CR-06 | No secret scanner in pre-push gate or CI | High | [x] | `feature/add-gitleaks-pregate` |
 | CR-07 | `ib_insync` archived/unmaintained; no lockfile for deps | High | [ ] | — (multi-week, track in BACKLOG) |
-| CR-08 | `/opt/ibc/config.ini` not chmod 600 in setup.sh | High | [ ] | — |
+| CR-08 | `/opt/ibc/config.ini` not chmod 600 in setup.sh | High | [x] | `feature/cr-08-chmod-ibc-config` |
 | CR-09 | Health timer stale threshold (93600s) doesn't match dashboard logic | Medium | [ ] | — |
 | CR-10 | Dashboard bearer token stored in localStorage | Medium | [ ] | — |
 | CR-11 | Account ID `DUE090987` literal in source files | Medium | [x] | `feature/ntfy-private-topic` |

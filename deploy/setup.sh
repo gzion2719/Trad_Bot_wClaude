@@ -48,6 +48,9 @@ rm /tmp/ibc.zip
 
 echo "=== [5/9] Copy IBC config and start script ==="
 cp "$BOT_DIR/deploy/ibc/config.ini" "$IBC_DIR/config.ini"
+# Lock down IBC config — contains IBKR username/password in plaintext.
+# Owner is set later in step [7/9] (chown -R root:root "$IBC_DIR").
+chmod 600 "$IBC_DIR/config.ini"
 cp "$BOT_DIR/deploy/ibc/start_ibgateway.sh" /usr/local/bin/start_ibgateway.sh
 chmod +x /usr/local/bin/start_ibgateway.sh
 
