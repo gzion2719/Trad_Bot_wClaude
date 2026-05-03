@@ -1,0 +1,37 @@
+[Unit]
+Description=websockify bridge: WebSocket -> TCP for x11vnc (gateway console)
+Requires=x11vnc.service
+After=x11vnc.service
+
+[Service]
+Type=simple
+User=tradebot
+Group=tradebot
+WorkingDirectory=/opt/tradebot
+
+# Bind 127.0.0.1 only — the dashboard reverse-proxies WebSocket connections
+# from /ws/console to this port. websockify is never directly reachable from
+# the Tailnet, so all auth lives in one place (the dashboard).
+ExecStart=/opt/tradebot/venv/bin/websockify \
+    --verbose \
+    127.0.0.1:6080 \
+    127.0.0.1:5900
+
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=websockify
+
+# Process isolation
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Read-only: websockify needs nothing beyond network and the venv
+ReadWritePaths=
+
+[Install]
+WantedBy=multi-user.target

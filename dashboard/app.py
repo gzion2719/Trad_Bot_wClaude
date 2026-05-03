@@ -32,10 +32,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import (
+    Cookie,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+    WebSocket,
+)
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
+from dashboard.console_auth import (
+    ConsoleSessionLock,
+    StepUpStore,
+    audit_log,
+    fingerprint_session,
+)
 from data.trade_log import TradeLog
 
 logger = logging.getLogger(__name__)
@@ -81,9 +97,52 @@ def _stale_threshold_seconds() -> float:
 _STARTED_AT = datetime.now(timezone.utc).isoformat()
 _trade_log = TradeLog()
 
-app = FastAPI(title="TradeBot Dashboard", version="0.1.0")
 
-# Mount /static so the index.html can reference /static/<asset> if we add CSS/JS later.
+# Strict CSP: no inline scripts/styles, no remote origins, no framing.
+# When the noVNC console page lands, it gets its own per-route CSP that allows
+# the vendored noVNC bundle and a same-origin WebSocket connect-src.
+_DEFAULT_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self'; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "font-src 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": _DEFAULT_CSP,
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Attach a strict Content-Security-Policy and friends to every response.
+
+    Routes that need a relaxed CSP (e.g. the noVNC console page) can override
+    via response.headers after this middleware sets the defaults.
+    """
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
+        response = await call_next(request)
+        for key, value in _SECURITY_HEADERS.items():
+            # Don't clobber a per-route override that an endpoint already set.
+            response.headers.setdefault(key, value)
+        return response
+
+
+app = FastAPI(title="TradeBot Dashboard", version="0.1.0")
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Mount /static so the index.html can reference /static/<asset>.
 if _STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
@@ -96,6 +155,32 @@ if _STATIC_DIR.is_dir():
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
     return FileResponse(str(_STATIC_DIR / "index.html"))
+
+
+# Per-route CSP for the console page. Same strictness as the default but
+# explicitly names the WebSocket scheme so older browsers without CSP3 'self'
+# matching for ws:// still load. Still no 'unsafe-inline', no remote origins.
+_CONSOLE_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self'; "
+    "img-src 'self' data:; "
+    "connect-src 'self' ws: wss:; "
+    "font-src 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+@app.get("/console.html", include_in_schema=False)
+def console_page() -> FileResponse:
+    """Serve the noVNC console page with a CSP that explicitly allows the WS."""
+    return FileResponse(
+        str(_STATIC_DIR / "console.html"),
+        headers={"Content-Security-Policy": _CONSOLE_CSP},
+    )
 
 
 @app.get("/api/info")
@@ -188,6 +273,12 @@ _SESSION_COOKIE = "dashboard_session"
 _SESSION_DURATION_SECONDS = 24 * 3600
 _sessions: Dict[str, float] = {}  # session_id -> expiry (monotonic)
 _sessions_lock = threading.Lock()
+
+# Console step-up + single-session lock — gate the gateway VNC console.
+# Both are process-local; restarting the dashboard releases any held lock and
+# invalidates all step-up tokens (acceptable: forces a fresh re-auth).
+_step_up_store = StepUpStore()
+_console_lock = ConsoleSessionLock()
 
 
 def _create_session() -> str:
@@ -367,9 +458,211 @@ def api_logout(
 ) -> Dict[str, Any]:
     """Invalidate the current session cookie."""
     if dashboard_session:
+        _step_up_store.revoke_session(dashboard_session)
+        _console_lock.release(fingerprint_session(dashboard_session))
         _delete_session(dashboard_session)
     response.delete_cookie(key=_SESSION_COOKIE, path="/")
     return {"ok": True}
+
+
+@app.post("/api/console/login")
+def api_console_login(
+    request: Request,
+    body: Dict[str, str],
+    response: Response,
+    _o: None = Depends(_check_origin),
+    dashboard_session: Optional[str] = Cookie(default=None),
+) -> Dict[str, Any]:
+    """Step-up password challenge. Issues a 5-minute console token.
+
+    Requires:
+      - A valid dashboard session cookie (CR-10).
+      - A correct DASHBOARD_CONSOLE_PASSWORD in the request body.
+
+    DASHBOARD_CONSOLE_PASSWORD is intentionally separate from DASHBOARD_TOKEN
+    so that a leaked dashboard token does not grant trading authority via
+    the gateway console.
+
+    On success: sets short-lived `console_token` cookie (HttpOnly, SameSite=Strict).
+    """
+    ip = _client_ip(request)
+    _enforce_rate_limit(ip)
+
+    if not dashboard_session or not _is_valid_session(dashboard_session):
+        raise HTTPException(status_code=401, detail="dashboard session required")
+
+    expected = os.getenv("DASHBOARD_CONSOLE_PASSWORD", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="DASHBOARD_CONSOLE_PASSWORD not configured")
+
+    provided = (body.get("password") or "").strip()
+    fp = fingerprint_session(dashboard_session)
+    if not provided or not hmac.compare_digest(provided, expected):
+        _record_auth_failure(ip)
+        audit_log("console.step_up.failure", fp, ip)
+        raise HTTPException(status_code=401, detail="invalid console password")
+
+    token = _step_up_store.issue(dashboard_session)
+    response.set_cookie(
+        key="console_token",
+        value=token,
+        httponly=True,
+        samesite="strict",
+        max_age=300,
+        path="/",
+    )
+    audit_log("console.step_up.success", fp, ip)
+    return {"ok": True, "expires_in": 300}
+
+
+def _require_console_token(
+    request: Request,
+    dashboard_session: Optional[str],
+    console_token: Optional[str],
+) -> str:
+    """Validate the full console auth chain. Returns the session fingerprint.
+
+    Raises 401 (no session / bad step-up) or 403 (origin mismatch) on any
+    failure. Logs an audit-failure event before raising.
+    """
+    if not dashboard_session or not _is_valid_session(dashboard_session):
+        raise HTTPException(status_code=401, detail="dashboard session required")
+    if not console_token or not _step_up_store.validate(console_token, dashboard_session):
+        ip = _client_ip(request)
+        fp = fingerprint_session(dashboard_session)
+        audit_log("console.auth.no_step_up", fp, ip)
+        raise HTTPException(status_code=401, detail="console step-up required")
+    return fingerprint_session(dashboard_session)
+
+
+@app.post("/api/console/acquire")
+def api_console_acquire(
+    request: Request,
+    _o: None = Depends(_check_origin),
+    dashboard_session: Optional[str] = Cookie(default=None),
+    console_token: Optional[str] = Cookie(default=None),
+) -> Dict[str, Any]:
+    """Acquire the single-session console lock.
+
+    Returns 409 if another operator holds the lock (with their fingerprint
+    + acquired_at_iso so the UI can explain the wait). Idempotent — calling
+    while already holding returns the existing lock.
+    """
+    fp = _require_console_token(request, dashboard_session, console_token)
+    ip = _client_ip(request)
+    acquired_iso = datetime.now(timezone.utc).isoformat()
+
+    holder = _console_lock.acquire(fp, ip, acquired_iso)
+    if holder is None:
+        current = _console_lock.current_holder()
+        if current is not None and current.session_fingerprint == fp:
+            audit_log("console.lock.reacquire", fp, ip)
+            return {
+                "ok": True,
+                "held_by": current.session_fingerprint,
+                "held_since": current.acquired_at_iso,
+                "reacquired": True,
+            }
+        contender_fp = current.session_fingerprint if current else "unknown"
+        audit_log("console.lock.contended", fp, ip, detail=f"held_by={contender_fp}")
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "console held by another session",
+                "held_by": contender_fp,
+                "held_since": current.acquired_at_iso if current else None,
+            },
+        )
+
+    audit_log("console.lock.acquired", fp, ip)
+    return {"ok": True, "held_by": fp, "held_since": acquired_iso, "reacquired": False}
+
+
+@app.post("/api/console/release")
+def api_console_release(
+    request: Request,
+    _o: None = Depends(_check_origin),
+    dashboard_session: Optional[str] = Cookie(default=None),
+    console_token: Optional[str] = Cookie(default=None),
+) -> Dict[str, Any]:
+    """Release the lock if the caller currently holds it. 200 even if not held."""
+    fp = _require_console_token(request, dashboard_session, console_token)
+    ip = _client_ip(request)
+    released = _console_lock.release(fp)
+    if released:
+        audit_log("console.lock.released", fp, ip)
+    return {"ok": True, "released": released}
+
+
+@app.websocket("/ws/console")
+async def ws_console(
+    websocket: WebSocket,
+    dashboard_session: Optional[str] = Cookie(default=None),
+    console_token: Optional[str] = Cookie(default=None),
+) -> None:
+    """Reverse-proxy a browser WebSocket to websockify (127.0.0.1:6080).
+
+    Auth chain (all required, in order):
+      1. Same-origin check on the WebSocket upgrade
+      2. Valid dashboard session cookie
+      3. Valid console step-up token bound to that session
+      4. Caller currently holds the console lock
+
+    On any failure we close with a specific code rather than 1000 so the
+    UI can distinguish "log in again" from "wait, someone else is on" from
+    "upstream gone". 4001 = need step-up, 4003 = lock held by other,
+    1011 = upstream connect failure.
+    """
+    # We must accept() before sending custom close codes — pre-accept close
+    # is downgraded to HTTP 403 by ASGI servers and the browser sees only
+    # generic 1008. Accepting first costs ~one round-trip; the WS is open for
+    # a few ms before we may close, which is acceptable for our threat model.
+    # Subprotocol "binary" matches what noVNC's RFB client requests.
+    await websocket.accept(subprotocol="binary")
+
+    # 1. Same-origin check on upgrade — websockets bypass the HTTP _check_origin
+    #    dependency, so we re-implement the rule here.
+    origin = websocket.headers.get("origin")
+    host = websocket.headers.get("host", "")
+    if origin:
+        origin_host = origin.split("://", 1)[-1].rstrip("/")
+        if origin_host != host:
+            await websocket.close(code=4403, reason="origin mismatch")
+            return
+
+    # 2 + 3. Cookie + step-up.
+    if not dashboard_session or not _is_valid_session(dashboard_session):
+        await websocket.close(code=4401, reason="dashboard session required")
+        return
+    if not console_token or not _step_up_store.validate(console_token, dashboard_session):
+        await websocket.close(code=4001, reason="console step-up required")
+        return
+
+    fp = fingerprint_session(dashboard_session)
+    ip = websocket.client.host if websocket.client is not None else "unknown"
+
+    # 4. Lock holder check. Acquire-then-proxy is the documented flow; if a
+    #    caller didn't acquire first we refuse rather than auto-acquire (clearer
+    #    audit trail; UI always calls /api/console/acquire before connecting).
+    current = _console_lock.current_holder()
+    if current is None or current.session_fingerprint != fp:
+        await websocket.close(code=4003, reason="lock not held by caller")
+        return
+
+    audit_log("console.ws.connect", fp, ip)
+
+    def _on_activity(event: str) -> None:
+        # Touch the lock on each activity so idle-release uses the actual
+        # last-seen time, not the acquire time. Disconnect logs the event.
+        if event == "connect":
+            _console_lock.touch(fp)
+        elif event == "disconnect":
+            audit_log("console.ws.disconnect", fp, ip)
+
+    # Late import so the module is testable without importing websockets.
+    from dashboard.console_proxy import proxy_console_websocket
+
+    await proxy_console_websocket(websocket, on_activity=_on_activity)
 
 
 _ALLOWED_ACTIONS = ("restart", "stop")
@@ -437,11 +730,16 @@ def api_system() -> Dict[str, Any]:
       bot_service_status   — "active" | "inactive" | "failed" | "unavailable"
       gateway_service_status — same set for ibgateway.service
       gateway_port_open    — True if a TCP connection to 127.0.0.1:4001 succeeds
+      console_held_by      — session fingerprint (16 hex chars) of console lock holder, or None
+      console_held_since   — ISO timestamp the lock was acquired, or None
     """
+    holder = _console_lock.current_holder()
     return {
         **_systemctl_info("tradebot.service", prefix="bot"),
         **_systemctl_info("ibgateway.service", prefix="gateway"),
         "gateway_port_open": _probe_port("127.0.0.1", 4001),
+        "console_held_by": holder.session_fingerprint if holder else None,
+        "console_held_since": holder.acquired_at_iso if holder else None,
     }
 
 
