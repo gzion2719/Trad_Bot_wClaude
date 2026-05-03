@@ -5,6 +5,17 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 
 ---
 
+## 2026-05-02 — Code review cycle: CR-01, CR-06, CR-02+11+12, CI fix (partial)
+
+- Three security PRs merged to develop (#48, #50, #51): CI restored (`.gitignore` + `ci.yml`), gitleaks added to `make pre-push` + CI, ntfy topic moved to `${NTFY_TOPIC}` env var with random suffix on first deploy, all 20 account-ID literals removed from tracked files, journal logs stripped from notification bodies.
+- Fourth PR (`feature/fix-ci-test-runner`, #52 merged to develop) guarded broker-dependent test sections 1-2, 4-9, 13 with `if not IS_CI:`; missed that Section 11 (Risk Manager) also has `get_client()` calls — CI still failing after 4m on PR #49 (develop→main).
+- `TODO.md` gains CR-01..CR-20 issue tracking table; `CLAUDE.md` current state updated. `WORKFLOW.md` gains "CI test-runner guard rule". `codereview.md` issue statuses not yet updated in file.
+- **Next fix (start of next session):** open `feature/fix-ci-test-runner`, read Section 11 (lines ~849–1072), guard broker-call blocks. Run `grep -n "get_client()" tests/run_tests.py` after edits to confirm zero unguarded calls remain.
+- **Process improvement:** `WORKFLOW.md` gains "CI test-runner guard rule" — grep for remaining `get_client()` calls after adding IS_CI guards; section headers are not authoritative.
+- **Next session:** fix CI Section 11 guard → confirm PR #49 green → merge to main; then CR-08 (chmod config.ini one-liner), CR-09 (health timer stale threshold), CR-04+05 (dashboard binding + rate limiting).
+
+---
+
 ## 2026-05-02 — Dashboard Phase 3 control plane + bot/gateway status indicators
 
 - Verified Phase 2 + weekend-fix on VPS: `/api/health` returns `stale_after_seconds=288000` on Saturday ✅; `/api/system` returns all fields ✅. The pending deploy note in CLAUDE.md was stale — code was already live.
@@ -55,7 +66,7 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 
 - Diagnosed root cause of recurring "on_tick stale" alerts: `ib_insync` calls `asyncio.get_event_loop()` internally; Python 3.12 raises `RuntimeError` in non-main threads, so every `ReconnectManager` reconnect attempt failed before reaching IBKR.
 - Fixed `broker/ibkr_client.py`: save main event loop on first `connect()` (main thread); reconnects from daemon thread use `asyncio.run_coroutine_threadsafe(ib.connectAsync(), main_loop)`. Also replaced `ib.sleep()` with `time.sleep()` in post-connect poll.
-- Deployed via `feature/fix-reconnect-asyncio-thread` → PR #21 develop → PR #22 main → VPS `git pull + restart`. Bot confirmed healthy (PID 52545, connected DUE090987).
+- Deployed via `feature/fix-reconnect-asyncio-thread` → PR #21 develop → PR #22 main → VPS `git pull + restart`. Bot confirmed healthy (PID 52545, connected paper account).
 - Real test is the next IBKR server blip — watch for `Reconnected to TWS successfully` instead of the event loop error chain.
 - **Process improvement:** asyncio thread limitation added to CLAUDE.md known limitations — future sessions won't need to re-diagnose this pattern.
 - **Next session:** confirm first live reconnect worked; then begin mission control dashboard (ROADMAP 5.7).

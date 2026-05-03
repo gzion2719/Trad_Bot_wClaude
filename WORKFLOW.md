@@ -102,6 +102,20 @@ If any red flag fires: paste the relevant section of CLAUDE.md or CHATLOG.md int
 
 ---
 
+## CI test-runner guard rule
+
+When adding `if not IS_CI:` guards to a test file, always verify with a grep **after** all edits that no `get_client()` (or equivalent broker call) remains in any section assumed to be broker-free:
+
+```bash
+grep -n "get_client()" tests/run_tests.py
+```
+
+Cross-reference every line number against the section it falls in. A section header saying "no connection needed for most" is not sufficient — check the actual call sites.
+
+Example (2026-05-02): Section 11 header said "no connection needed for most" so its call blocks weren't guarded; 14 RM integration tests called `get_client()` inside function bodies and CI failed again.
+
+---
+
 ## Debugging discipline
 
 Before hypothesizing failure modes for a "stopped" or "stale" symptom, read the producer code to confirm the **expected** cadence. Most "X stopped firing" investigations are actually "X is firing on the cadence I forgot it had." Check expected behavior first, then look for failure modes.

@@ -177,7 +177,7 @@ backtester/
 | 5.5 | [x] | P0 | `systemd` units created — `ibgateway.service`, `tradebot.service`, `tradebot-notify@.service`, `tradebot-health.service/.timer`. All in `deploy/systemd/`. |
 | 5.6 | [x] | P1 | Health heartbeat — `on_tick()` writes UTC timestamp to `data/health.txt`; `tradebot-health.timer` checks every 2h, notifies via ntfy.sh if stale >26h |
 | 5.7 | [~] | P2 | Monitoring dashboard — **Phase 1** (read-only telemetry) done 2026-05-02: `/api/health`, `/api/today`, `/api/recent-fills`, `/api/info` + polling HTML UI. **Phase 2** done 2026-05-02 (`d3e286d`, PRs #30/#31): `/api/system` adds bot PID/uptime + IB Gateway service status + port 4001 check; UI gained System card. **Stale-threshold fix** (`b6515f4`, PRs #32/#33): `_stale_threshold_seconds()` returns 80h on weekend / Monday-pre-tick, 26h trading days — Liveness no longer false-alarms over weekends. `tradebot-dashboard.service` binds 0.0.0.0:8080 reachable via Tailscale. **Phase 2 + weekend fix deployed to VPS** 2026-05-02 (verified `/api/health` returns `stale_after_seconds=288000` on Saturday). **Phase 3** (control plane) shipped 2026-05-02: `POST /api/bot/restart` + `POST /api/bot/stop` gated by `Authorization: Bearer DASHBOARD_TOKEN`; new `deploy/sudoers/tradebot-dashboard` scopes NOPASSWD to exactly those two systemctl commands; UI Controls card with token in localStorage; tests DB-09..DB-13 pass. **Pending Phase 3 VPS deploy:** set `DASHBOARD_TOKEN=<random>` in `/opt/tradebot/.env`, install sudoers file with `visudo -c`, `systemctl restart tradebot-dashboard`. |
-| 5.8 | [x] | P2 | CI/CD pipeline (auto-run tests on push to GitHub) — `.github/workflows/ci.yml` + `Makefile` added 2026-05-01 |
+| 5.8 | [x] | P2 | CI/CD pipeline (auto-run tests on push to GitHub) — `.github/workflows/ci.yml` added 2026-05-01; file was gitignored until code-review fix 2026-05-02 (PR `feature/restore-ci-workflow`) |
 | 5.9 | [x] | P1 | IBKR Trusted IP whitelist — **CLOSED: won't do.** Account-level IP Restrictions allows only one IP per user; adding VPS would block home PC access. Takes a business day to change. Gateway API Trusted IPs (different feature) already set to 127.0.0.1 in IBC config — no action needed. |
 | 5.10 | [x] | P0 | VPS deployment debugged — IBC empty password fixed, Read-Only API unchecked + `ReadOnlyApi=no` in config, 2FA loop resolved via `ExistingSessionDetectedAction=manual`, `UseSSL=yes` added |
 | 5.11 | [x] | P0 | Risk caps updated for QQQ paper account — max_order=$120k, max_position=$100k, max_daily_loss=-$2,000. Merged via PR. |
@@ -265,6 +265,35 @@ These two questions are not blocking Sprint 2 or 3, but must be answered before 
 | B-06 | S1 | Double-lock race in `_handle_order_status()` Cancelled branch | Fixed |
 | B-07 | S2 | `PendingCancel` not in `OrderStatus` enum — logged false warnings | Fixed |
 | B-08 | S1 | `ReconnectManager` reconnect always failed — `ib_insync` calls `asyncio.get_event_loop()` internally; Python 3.12 raises RuntimeError in non-main threads. Fix: `run_coroutine_threadsafe(ib.connectAsync(), main_loop)` in `broker/ibkr_client.py` | Fixed 2026-05-02 |
+
+---
+
+## Code Review Cycle (2026-05-02) — codereview.md
+
+See `codereview.md` for full issue table. Work top-to-bottom by execution priority.
+
+| # | Issue | Severity | Status | PR |
+|---|-------|----------|--------|----|
+| CR-01 | Restore CI — `.github/workflows/` was gitignored, no CI in repo | Critical | [x] | `feature/restore-ci-workflow` |
+| CR-02 | ntfy topic hard-coded with account ID, journal logs shipped publicly | Critical | [x] | `feature/ntfy-private-topic` |
+| CR-03 | No backup operator for weekly 2FA — single point of failure | High | [ ] | — (runbook + rehearsal) |
+| CR-04 | Dashboard binds 0.0.0.0, no auth on GET endpoints | High | [ ] | — |
+| CR-05 | No rate limiting / lockout on `/api/bot/*` token endpoint | High | [ ] | — |
+| CR-06 | No secret scanner in pre-push gate or CI | High | [x] | `feature/add-gitleaks-pregate` |
+| CR-07 | `ib_insync` archived/unmaintained; no lockfile for deps | High | [ ] | — (multi-week, track in BACKLOG) |
+| CR-08 | `/opt/ibc/config.ini` not chmod 600 in setup.sh | High | [ ] | — |
+| CR-09 | Health timer stale threshold (93600s) doesn't match dashboard logic | Medium | [ ] | — |
+| CR-10 | Dashboard bearer token stored in localStorage | Medium | [ ] | — |
+| CR-11 | Account ID `DUE090987` literal in source files | Medium | [x] | `feature/ntfy-private-topic` |
+| CR-12 | ntfy notification body contains 50 lines of journalctl output | Medium | [x] | `feature/ntfy-private-topic` |
+| CR-13 | TradeLog reopened on every dashboard request (60 opens/min) | Medium | [ ] | — |
+| CR-14 | `params` exposes `initial_capital` in live mode (misleading log) | Medium | [ ] | — |
+| CR-15 | systemd units missing hardening directives (NoNewPrivileges etc.) | Medium | [ ] | — |
+| CR-16 | Dashboard renders API fields into HTML without escaping (XSS) | Low | [ ] | — |
+| CR-17 | 0.0.0.0 bind documented inconsistently across 3 files | Low | [ ] | — |
+| CR-18 | Bearer-token check not covered by HTTP-layer tests | Low | [ ] | — |
+| CR-19 | Custom test runner instead of pytest — onboarding cost | Low | [ ] | — |
+| CR-20 | `RiskManager.check()` swallows open-orders exception silently | Low | [ ] | — |
 
 ---
 
