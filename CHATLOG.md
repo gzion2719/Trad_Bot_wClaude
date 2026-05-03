@@ -5,6 +5,15 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 
 ---
 
+## 2026-05-03 — Code review CI fix: Section 11 guarded, PR #53 open, CI still failing
+
+- Section 11 (Risk Manager, rm01–rm14) guarded with `if not IS_CI:` on `feature/fix-ci-test-runner` — all broker-dependent sections (1-2, 4-9, 11, 13) are now guarded. Tests pass locally in CI mode: 57/57.
+- PR #53 (feature/fix-ci-test-runner → develop) is open but CI is **failing after 39s** on `ubuntu-latest`. Root cause unknown — ruff, black, mypy, and tests all pass locally. 39s is consistent with ruff+black+mypy passing then an early test failure or pip install issue on Linux.
+- `hotfix/session-docs-handoff` pushed and merged to main — new chats now have correct CLAUDE.md/CHATLOG.md context.
+- **Next session first task:** click the failing check on PR #53, read the GitHub Actions log, identify the exact failing step and error message, then fix it. The fix is likely small (Linux path issue, missing dep, or import error).
+- **Process improvement:** always simulate CI locally with `GITHUB_ACTIONS=true python -m tests.run_tests` AND confirm on Linux before declaring done — Windows passes don't guarantee Linux passes.
+- **Next session:** diagnose PR #53 CI failure from logs → fix → merge to develop → confirm develop→main PR #49 green → merge to main → VPS deploy. Then CR-08, CR-09, CR-04+05.
+
 ## 2026-05-02 — Code review cycle: CR-01, CR-06, CR-02+11+12, CI fix (partial)
 
 - Three security PRs merged to develop (#48, #50, #51): CI restored (`.gitignore` + `ci.yml`), gitleaks added to `make pre-push` + CI, ntfy topic moved to `${NTFY_TOPIC}` env var with random suffix on first deploy, all 20 account-ID literals removed from tracked files, journal logs stripped from notification bodies.

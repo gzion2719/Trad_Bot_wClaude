@@ -2,7 +2,7 @@
 ## IBKR Connection, Order Execution & Management
 
 **Scope:** `IBKRClient`, `OrderManager`, `OrderRequest` validation  
-**Account:** Paper trading (DUE090987)  
+**Account:** Paper trading (see `IBKR_ACCOUNT_ID` in `/opt/tradebot/.env`)  
 **Environment:** TWS running locally, port 7497  
 
 Legend: `[ ]` not run · `[P]` passed · `[F]` failed · `[S]` skipped

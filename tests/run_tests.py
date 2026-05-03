@@ -3,8 +3,12 @@ TradeBot Test Runner
 Executes all pre-market testable cases from TEST_PLAN.md
 """
 
+import os
 import sys
 from datetime import datetime, timezone
+
+# GitHub Actions sets GITHUB_ACTIONS=true; skip live-broker sections in that env.
+IS_CI = bool(os.getenv("GITHUB_ACTIONS"))
 
 sys.path.insert(0, "..")
 
@@ -89,16 +93,19 @@ def get_client():
     return client, om
 
 
-# Cancel all leftover orders from previous sessions before starting
-print("\nCleaning up any leftover open orders from previous sessions...")
-_c, _o = get_client()
-_leftovers = _o.cancel_all()
-if _leftovers:
-    print(f"  Cancelled {_leftovers} leftover order(s) — waiting for TWS confirmation...")
-    _c.ib.sleep(2)
+if IS_CI:
+    print("\n[CI] No IBKR connection available — skipping sections 1-2, 4-9, 13 (broker tests).\n")
 else:
-    _c.ib.sleep(0.5)
-print("Clean.\n")
+    # Cancel all leftover orders from previous sessions before starting
+    print("\nCleaning up any leftover open orders from previous sessions...")
+    _c, _o = get_client()
+    _leftovers = _o.cancel_all()
+    if _leftovers:
+        print(f"  Cancelled {_leftovers} leftover order(s) — waiting for TWS confirmation...")
+        _c.ib.sleep(2)
+    else:
+        _c.ib.sleep(0.5)
+    print("Clean.\n")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -161,15 +168,16 @@ def c08():
     assert c2.is_paper is False
 
 
-c01()
-c03()
-c05()
-c06()
-c08()
+if not IS_CI:
+    c01()
+    c03()
+    c05()
+    c06()
+    c08()
 
-# Allow TWS to settle after multiple connect/disconnect cycles before data tests
-_settle_client, _ = get_client()
-_settle_client.ib.sleep(3)
+    # Allow TWS to settle after multiple connect/disconnect cycles before data tests
+    _settle_client, _ = get_client()
+    _settle_client.ib.sleep(3)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -224,11 +232,12 @@ def d07():
     # passing without error means clean cancellation each time
 
 
-d01()
-d01b()
-d01c()
-d04()
-d07()
+if not IS_CI:
+    d01()
+    d01b()
+    d01c()
+    d04()
+    d07()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -427,11 +436,12 @@ def p05():
     c.ib.sleep(0.5)
 
 
-p03()
-p04()
-p07()
-p08()
-p05()
+if not IS_CI:
+    p03()
+    p04()
+    p07()
+    p08()
+    p05()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -535,10 +545,11 @@ def dup05():
     c.ib.sleep(0.5)
 
 
-dup01()
-dup02()
-dup03()
-dup05()
+if not IS_CI:
+    dup01()
+    dup02()
+    dup03()
+    dup05()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -639,11 +650,12 @@ def x06():
     c.ib.sleep(0.5)
 
 
-x01()
-x03()
-x04()
-x05()
-x06()
+if not IS_CI:
+    x01()
+    x03()
+    x04()
+    x05()
+    x06()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -682,8 +694,9 @@ def s05():
     c2.disconnect()
 
 
-s03()
-s05()
+if not IS_CI:
+    s03()
+    s05()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -700,7 +713,8 @@ def pos01():
     assert isinstance(positions, list)
 
 
-pos01()
+if not IS_CI:
+    pos01()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -784,10 +798,11 @@ def e08():
         assert log_dir.exists(), "logs/ not created"
 
 
-e01()
-e04()
-e05()
-e08()
+if not IS_CI:
+    e01()
+    e04()
+    e05()
+    e08()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1054,20 +1069,21 @@ def rm14():
         pass
 
 
-rm01()
-rm02()
-rm03()
-rm04()
-rm05()
-rm06()
-rm07()
-rm08()
-rm09()
-rm10()
-rm11()
-rm12()
-rm13()
-rm14()
+if not IS_CI:
+    rm01()
+    rm02()
+    rm03()
+    rm04()
+    rm05()
+    rm06()
+    rm07()
+    rm08()
+    rm09()
+    rm10()
+    rm11()
+    rm12()
+    rm13()
+    rm14()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1279,10 +1295,11 @@ def rcn04():
     assert unblocked, "stop() did not unblock waiting thread"
 
 
-rcn01()
-rcn02()
-rcn03()
-rcn04()
+if not IS_CI:
+    rcn01()
+    rcn02()
+    rcn03()
+    rcn04()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
