@@ -97,9 +97,11 @@ async function acquireAndConnect() {
     setMsg("Use IB Gateway as if you were on a local screen. Idle for 5 min disconnects.");
     // noVNC computes its scale once during construction. If the container
     // hasn't completed flex layout by then, scaleViewport collapses the
-    // canvas to 0×0. Re-poke scaleViewport after layout settles.
+    // canvas to 0x0. Toggle scaleViewport so noVNC recomputes after layout.
     requestAnimationFrame(() => {
-      if (rfb) rfb.scaleViewport = true;
+      if (!rfb) return;
+      rfb.scaleViewport = false;
+      rfb.scaleViewport = true;
     });
   });
 
@@ -107,7 +109,9 @@ async function acquireAndConnect() {
   const wrap = document.getElementById("novnc-canvas");
   if (window.ResizeObserver) {
     new ResizeObserver(() => {
-      if (rfb) rfb.scaleViewport = true;
+      if (!rfb) return;
+      rfb.scaleViewport = false;
+      rfb.scaleViewport = true;
     }).observe(wrap);
   }
   rfb.addEventListener("disconnect", (e) => {
