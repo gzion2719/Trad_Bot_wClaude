@@ -37,10 +37,11 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 - Polish: DST fallback → `raise RuntimeError`; `exc_info=True` on PnL warnings; 6 bare excepts narrowed; rate-limit moved after session-cookie check; duplicate root test files deleted; README `ib_insync` archive notice added.
 - **1 remaining open CR:** CR-07 (`ib_insync` migration — BACKLOG multi-week). 1 open finding: finding #6 (reconnect fill-reconciliation — needs own feature branch + simulated-disconnect integration test). DoD item: Sunday 2FA rehearsal by non-owner (2026-05-10 ~02:00 ET).
 
+**VPS deploy of all merged work confirmed live (2026-05-03):** dashboard Controls card visible with Restart/Stop/Logout, "Restart ok" confirmed by operator, bot PID 68204, ~1.8h uptime, gateway logged in.
+
 **Immediate next steps:**
-1. **VPS deploy** — `ssh chappy-vps && sudo -i && cd /opt/tradebot && git pull origin main && systemctl restart tradebot-dashboard`
-2. **Sunday 2FA rehearsal** — 2026-05-10 ~02:00 ET. Share `docs/runbook-2fa-recovery.md` with backup operator in advance.
-3. **`feature/cr-reconnect-fill-reconciliation`** — finding #6: after reconnect, iterate `ib.fills()` for any fills missed during disconnect window and synthesize `on_fill` callbacks. Needs simulated-disconnect integration test.
+1. **Sunday 2FA rehearsal** — 2026-05-10 ~02:00 ET. Share `docs/runbook-2fa-recovery.md` with backup operator in advance.
+2. **`feature/cr-reconnect-fill-reconciliation`** — finding #6: after reconnect, iterate `ib.fills()` for any fills missed during disconnect window and synthesize `on_fill` callbacks. Needs simulated-disconnect integration test.
 
 ### What was done last session (2026-05-02, dashboard Phase 2 + weekend-aware stale threshold) — RECONSTRUCTED
 
