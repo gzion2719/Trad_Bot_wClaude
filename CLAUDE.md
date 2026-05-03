@@ -30,14 +30,15 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot deployed and running on VPS (paper account, SMA crossover on QQQ). Last session shipped finding #6 reconcile-fills feature; full session detail in CHATLOG.
+**Phase 6 — paper trading.** Bot deployed and running on VPS (paper account, SMA crossover on QQQ). Last session shipped the noVNC gateway console MVP — dashboard `/console.html` lets the operator drive IB Gateway in the browser instead of a VNC tunnel. Full session detail in CHATLOG.
 
-**1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week). Definition-of-Done item: Sunday 2FA rehearsal by non-owner (2026-05-10 ~02:00 ET).
+**1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 **Immediate next steps:**
-1. **Sunday 2FA rehearsal** — 2026-05-10 ~02:00 ET. Share `docs/runbook-2fa-recovery.md` with backup operator in advance.
-2. **Paper trading monitoring** — `TradeLog.daily_summary()` daily; verify fill prices vs backtest expectations (ROADMAP 6.1, 6.2).
-3. **Strategy parameter tuning** (4.5) — after 1+ week paper results.
+1. **GC-2 — full 2FA login rehearsal in the browser console.** Type a real IBKR code into the noVNC canvas, confirm gateway logs in and bot reconnects. New replacement for the old VNC-tunnel rehearsal.
+2. **Sync develop with main** — hotfix PRs landed on main during the console deploy; open `compare/develop...main` if commits are ahead.
+3. **GC-4 — TLS for the dashboard** so noVNC works without the `ssh -L 8080:...` tunnel (Caddy/nginx + tailscale-cert).
+4. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
 
 ### What was done last session (2026-05-02, dashboard Phase 2 + weekend-aware stale threshold) — RECONSTRUCTED
 
