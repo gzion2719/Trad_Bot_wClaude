@@ -5,7 +5,8 @@ Description=Failure notification for %i
 [Service]
 Type=oneshot
 EnvironmentFile=/opt/tradebot/.env
-# Send a content-free failure alert — logs stay on the VPS (check with journalctl)
+# CR-12: Send a content-free failure alert — logs stay on the VPS (check with journalctl).
+# Body is a plain summary message; journalctl output is NOT included in the push notification.
 ExecStart=/bin/bash -c '\
     SERVICE="%i"; \
     BODY="$SERVICE failed at $(date -u +%%Y-%%m-%%d\ %%H:%%M\ UTC). Check VPS: journalctl -u $SERVICE -n 50 --no-pager"; \
