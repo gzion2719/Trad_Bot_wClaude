@@ -30,19 +30,19 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-05-02) — Code review cycle: CR-01, CR-06, CR-02+11+12 done; CI test-runner fix complete.**
+**Last session completed (2026-05-03) — CR-01, CR-02, CR-06, CR-11, CR-12 done. CI test-runner fully guarded locally. PR #53 open but CI failing on Linux.**
 
-- PRs #48, #50, #51 merged to develop: CI restored, gitleaks added, ntfy topic randomized, all account-ID literals removed.
-- CI test-runner fully fixed on `feature/fix-ci-test-runner` (commit `1008808`): all broker-dependent sections (1-2, 4-9, 11, 13) guarded with `if not IS_CI:`. Section 11 (rm01–rm14) was the final gap — guarded the call block at lines 1072–1085.
-- `hotfix/session-docs-handoff` pushed to origin — merge this to main to give new chats correct context until PR #49 (develop→main) lands.
+- `hotfix/session-docs-handoff` merged to main — this file is current.
+- All broker-dependent test sections (1-2, 4-9, 11, 13) guarded with `if not IS_CI:` on `feature/fix-ci-test-runner`. Tests pass locally in CI mode (57/57), ruff/black/mypy clean.
+- **PR #53** (feature/fix-ci-test-runner → develop) is open. CI failing after 39s on `ubuntu-latest` — root cause unknown (Windows tests pass). Click the failing check on GitHub, read the log, find the exact error.
 
 **Immediate next steps:**
-1. Merge `hotfix/session-docs-handoff` → main: [compare link](https://github.com/gzion2719/Trad_Bot_wClaude/compare/main...hotfix/session-docs-handoff)
-2. Open new PR `feature/fix-ci-test-runner` → develop (commit `1008808` adds Section 11 guard): [compare link](https://github.com/gzion2719/Trad_Bot_wClaude/compare/develop...feature/fix-ci-test-runner)
-3. After CI goes green on that PR, merge it; then PR #49 (develop→main) should go green too.
+1. **Diagnose PR #53 CI failure** — open [PR #53](https://github.com/gzion2719/Trad_Bot_wClaude/pull/53), click "CI / quality" → "Details", read the failed step.
+2. Fix the failing step (likely small: Linux path, missing dep, or import error on ubuntu-latest).
+3. After PR #53 merges to develop, confirm PR #49 (develop→main) goes green and merge it.
 4. **VPS deploy** (after main is updated): `ssh chappy-vps && sudo -i && cd /opt/tradebot && git pull origin main && systemctl restart tradebot-dashboard tradebot-health.timer`. Add `NTFY_TOPIC=tradebot-<random>`, `IBKR_ACCOUNT_ID=<account>`, `DASHBOARD_TOKEN=<random>` to `/opt/tradebot/.env`; install `/etc/sudoers.d/tradebot-dashboard` with `visudo -c`.
 
-**Next code review items (in execution priority order):**
+**Next code review items (after CI is fixed):**
 1. CR-08 — `chmod 600 /opt/ibc/config.ini` in setup.sh (one-liner)
 2. CR-09 — fix health timer stale threshold (93600s hardcoded) to match dashboard `_stale_threshold_seconds()` logic
 3. CR-04 + CR-05 — bind dashboard to Tailscale IP + rate-limit `/api/bot/*`
