@@ -20,7 +20,13 @@ ExecStart=/bin/bash -c '\
     NOW=$(date -u +%%s); \
     LAST_TS=$(date -u -d "$LAST" +%%s 2>/dev/null || echo 0); \
     AGE=$(( NOW - LAST_TS )); \
-    if [ "$AGE" -gt 93600 ]; then \
+    WD=$(TZ=America/New_York date +%%u); \
+    HM=$(TZ=America/New_York date +%%H%%M); \
+    THRESHOLD=93600; \
+    if [ "$WD" -ge 6 ] || ( [ "$WD" -eq 1 ] && [ "$HM" -lt 1610 ] ); then \
+        THRESHOLD=288000; \
+    fi; \
+    if [ "$AGE" -gt "$THRESHOLD" ]; then \
         curl -s --max-time 10 \
             -X POST "https://ntfy.sh/${NTFY_TOPIC}" \
             -H "Title: TradeBot health: on_tick stale" \
