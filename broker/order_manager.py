@@ -6,7 +6,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional
 
-from ib_insync import LimitOrder, MarketOrder, Order, Stock, StopOrder, Trade
+from ib_insync import Fill, LimitOrder, MarketOrder, Order, Stock, StopOrder, Trade
 
 from broker.ibkr_client import IBKRClient
 from models.order import (
@@ -19,6 +19,9 @@ from models.order import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Mapping from IBKR execution side ("BOT"/"SLD") to our action string ("BUY"/"SELL")
+_EXEC_SIDE_TO_ACTION: dict[str, str] = {"BOT": "BUY", "SLD": "SELL"}
 
 # IBKR codes that are pure noise — suppress to DEBUG
 _DEBUG_CODES = {
@@ -86,6 +89,11 @@ class OrderManager:
         self._orders: Dict[int, Trade] = {}
         self._lock = threading.Lock()
 
+        # Tracks execIds of fills that have been processed (live or replayed).
+        # Guarded by self._lock. Used by reconcile_fills() to avoid double-firing
+        # on_fill callbacks if a fill arrives both via live event and replay.
+        self._seen_exec_ids: set[str] = set()
+
         # User-registered callbacks
         self._on_fill_callbacks: List[Callable[[OrderResult], None]] = []
         self._on_cancel_callbacks: List[Callable[[OrderResult], None]] = []
@@ -97,6 +105,7 @@ class OrderManager:
         self._ib.newOrderEvent += self._handle_new_order
         self._ib.cancelOrderEvent += self._handle_cancel_order
         self._ib.errorEvent += self._handle_error
+        self._ib.execDetailsEvent += self._handle_exec_details
 
         # Pull all currently open orders on startup (only if connected)
         if client.is_connected:
@@ -126,6 +135,61 @@ class OrderManager:
             count = len(self._orders)
         logger.debug("Sync complete — %d open order(s) in cache.", count)
         return count
+
+    def reconcile_fills(self) -> int:
+        """
+        Replay any fills that arrived while we were disconnected.
+
+        Calls ib.fills() (today's fills only) and fires on_fill callbacks for
+        any execution whose execId has not been seen by _handle_exec_details.
+        Idempotent: safe to call multiple times — already-seen execIds are skipped.
+
+        Returns:
+            Number of missed fills replayed (0 if none).
+
+        Note: ib.fills() returns today's fills only. Fills missed across a
+        midnight boundary will not be recovered by this method.
+        """
+        try:
+            fills = self._ib.fills()
+        except Exception as exc:
+            logger.warning("reconcile_fills: ib.fills() failed: %s", exc, exc_info=True)
+            return 0
+
+        replayed = 0
+        for fill in fills:
+            exec_id = fill.execution.execId
+            with self._lock:
+                if exec_id in self._seen_exec_ids:
+                    continue
+                self._seen_exec_ids.add(exec_id)
+                self._orders.pop(fill.execution.orderId, None)
+                result = self._fill_to_result(fill)
+
+            logger.info(
+                "Reconciled missed fill | %s %s x%s @ %.4f | execId=%s",
+                result.action,
+                result.symbol,
+                result.filled,
+                result.avg_fill_price or 0.0,
+                exec_id,
+            )
+            for cb in self._on_fill_callbacks:
+                try:
+                    cb(result)
+                except Exception as exc:
+                    logger.warning(
+                        "on_fill callback raised during fill reconciliation: %s",
+                        exc,
+                        exc_info=True,
+                    )
+            replayed += 1
+
+        if replayed:
+            logger.info("Fill reconciliation complete — %d missed fill(s) replayed.", replayed)
+        else:
+            logger.debug("Fill reconciliation: no missed fills.")
+        return replayed
 
     # ------------------------------------------------------------------
     # Public: event subscription
@@ -384,6 +448,26 @@ class OrderManager:
             submitted_at=submitted_at or datetime.now(timezone.utc),
         )
 
+    @staticmethod
+    def _fill_to_result(fill: Fill) -> OrderResult:
+        """Build an OrderResult from an ib_insync Fill (used during reconciliation)."""
+        ex = fill.execution
+        return OrderResult(
+            order_id=ex.orderId,
+            symbol=fill.contract.symbol,
+            action=_EXEC_SIDE_TO_ACTION.get(ex.side, ex.side),
+            quantity=float(ex.shares),
+            order_type="MKT",  # original order type is not recoverable from a fill
+            tif="GTC",
+            status=OrderStatus.FILLED,
+            filled=float(ex.shares),
+            remaining=0.0,
+            avg_fill_price=float(ex.avgPrice) if ex.avgPrice else None,
+            limit_price=None,
+            stop_price=None,
+            submitted_at=datetime.now(timezone.utc),
+        )
+
     # ------------------------------------------------------------------
     # Private: TWS push event handlers
     # ------------------------------------------------------------------
@@ -459,6 +543,11 @@ class OrderManager:
 
         # "Cancelled" status here is a duplicate signal — _handle_cancel_order
         # already fires on_cancel callbacks. No second callback needed.
+
+    def _handle_exec_details(self, trade: Trade, fill: Fill) -> None:
+        """Record the execId of a live fill so reconcile_fills() can skip it."""
+        with self._lock:
+            self._seen_exec_ids.add(fill.execution.execId)
 
     def _handle_error(self, req_id: int, error_code: int, error_string: str, contract) -> None:
         if error_code in _DEBUG_CODES:
