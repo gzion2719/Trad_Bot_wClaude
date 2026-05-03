@@ -292,7 +292,7 @@ See `codereview.md` for full issue table. Work top-to-bottom by execution priori
 | CR-16 | Dashboard renders API fields into HTML without escaping (XSS) | Low | [x] | `feature/cr-remaining-quick-fixes` |
 | CR-17 | 0.0.0.0 bind documented inconsistently across 3 files | Low | [x] | resolved by CR-04 |
 | CR-18 | Bearer-token check not covered by HTTP-layer tests | Low | [x] | `feature/cr-remaining-quick-fixes` |
-| CR-19 | Custom test runner instead of pytest — onboarding cost | Low | [ ] | — |
+| CR-19 | Custom test runner instead of pytest — onboarding cost | Low | [x] | `feature/cr-19-pytest-migration` |
 | CR-20 | `RiskManager.check()` swallows open-orders exception silently | Low | [x] | `feature/cr-remaining-quick-fixes` |
 
 ---
