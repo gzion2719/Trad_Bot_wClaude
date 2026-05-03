@@ -5,14 +5,14 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 
 ---
 
-## 2026-05-02 — Code review cycle: CR-01, CR-06, CR-02+11+12, CI fix (partial)
+## 2026-05-02 — Code review cycle: CR-01, CR-06, CR-02+11+12, CI fix (complete)
 
 - Three security PRs merged to develop (#48, #50, #51): CI restored (`.gitignore` + `ci.yml`), gitleaks added to `make pre-push` + CI, ntfy topic moved to `${NTFY_TOPIC}` env var with random suffix on first deploy, all 20 account-ID literals removed from tracked files, journal logs stripped from notification bodies.
-- Fourth PR (`feature/fix-ci-test-runner`, #52 merged to develop) guarded broker-dependent test sections 1-2, 4-9, 13 with `if not IS_CI:`; missed that Section 11 (Risk Manager) also has `get_client()` calls — CI still failing after 4m on PR #49 (develop→main).
-- `TODO.md` gains CR-01..CR-20 issue tracking table; `CLAUDE.md` current state updated. `WORKFLOW.md` gains "CI test-runner guard rule". `codereview.md` issue statuses not yet updated in file.
-- **Next fix (start of next session):** open `feature/fix-ci-test-runner`, read Section 11 (lines ~849–1072), guard broker-call blocks. Run `grep -n "get_client()" tests/run_tests.py` after edits to confirm zero unguarded calls remain.
-- **Process improvement:** `WORKFLOW.md` gains "CI test-runner guard rule" — grep for remaining `get_client()` calls after adding IS_CI guards; section headers are not authoritative.
-- **Next session:** fix CI Section 11 guard → confirm PR #49 green → merge to main; then CR-08 (chmod config.ini one-liner), CR-09 (health timer stale threshold), CR-04+05 (dashboard binding + rate limiting).
+- CI test-runner fix complete: `feature/fix-ci-test-runner` now guards sections 1-2, 4-9, 11, 13 with `if not IS_CI:`. Section 11 (Risk Manager, rm01–rm14) was the final unguarded block — all 14 calls wrap `get_client()` inside function bodies, so wrapping the call block at lines 1072–1085 was sufficient. `grep -n "get_client()" tests/run_tests.py` confirmed no remaining top-level unguarded calls.
+- `TODO.md` gains CR-01..CR-20 issue tracking table; `CLAUDE.md` current state updated. `WORKFLOW.md` gains "CI test-runner guard rule".
+- `hotfix/session-docs-handoff` pushed to provide new-chat context until develop→main PR #49 merges.
+- **Process improvement:** `WORKFLOW.md` "CI test-runner guard rule" — grep for remaining `get_client()` calls after adding IS_CI guards; section headers are not authoritative. Cost: two CI failures before root cause found.
+- **Next session:** open feature/fix-ci-test-runner → develop PR (new commit `1008808`); confirm CI green; merge to develop; then PR #49 (develop→main) should go green; then CR-08 (chmod config.ini), CR-09 (health timer threshold), CR-04+05 (dashboard bind + rate limiting).
 
 ---
 

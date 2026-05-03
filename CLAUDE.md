@@ -30,19 +30,21 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-05-02) — Code review cycle started from `codereview.md`. Three PRs pushed, all pending merge to develop:**
-- **PR `feature/restore-ci-workflow`** (CR-01): removed `.github/workflows/` from `.gitignore`, committed `ci.yml` (ruff → black → mypy → pytest on every push/PR to main and develop).
-- **PR `feature/add-gitleaks-pregate`** (CR-06, stacked on PR above): added `gitleaks detect` to `make pre-push` and CI via `gitleaks/gitleaks-action@v2`; added `.gitleaks.toml` allowlisting placeholder strings.
-- **PR `feature/ntfy-private-topic`** (CR-02 + CR-11 + CR-12): ntfy topic now reads `${NTFY_TOPIC}` from `EnvironmentFile=/opt/tradebot/.env`; `setup.sh` generates a random 24-char suffix on first deploy; notification bodies stripped of journal logs; all 20 occurrences of the literal account ID removed from tracked files (CLAUDE.md, CHATLOG.md, SESSION_PROTOCOL.md, TEST_PLAN.md, deploy docs, broker comment).
-- `TODO.md` gained a `Code Review Cycle` section tracking all 20 CR issues.
+**Last session completed (2026-05-02) — Code review cycle: CR-01, CR-06, CR-02+11+12 done; CI test-runner fix complete.**
 
-**Merge order:** PR 1 → develop first (unblocks CI gate), then PR 2 (gitleaks, stacked), then PR 3 (independent). After all three land on develop, open develop → main PR.
+- PRs #48, #50, #51 merged to develop: CI restored, gitleaks added, ntfy topic randomized, all account-ID literals removed.
+- CI test-runner fully fixed on `feature/fix-ci-test-runner` (commit `1008808`): all broker-dependent sections (1-2, 4-9, 11, 13) guarded with `if not IS_CI:`. Section 11 (rm01–rm14) was the final gap — guarded the call block at lines 1072–1085.
+- `hotfix/session-docs-handoff` pushed to origin — merge this to main to give new chats correct context until PR #49 (develop→main) lands.
 
-**VPS deploy still pending from previous session:** set `DASHBOARD_TOKEN=<random>` in `/opt/tradebot/.env`, install `/etc/sudoers.d/tradebot-dashboard` with `visudo -c`, `systemctl restart tradebot-dashboard`. Also: after PR 3 deploys, update `.env` to add `NTFY_TOPIC=tradebot-<random>` and `IBKR_ACCOUNT_ID=<account>`, then `systemctl restart tradebot-health.timer tradebot-notify@tradebot.service`.
+**Immediate next steps:**
+1. Merge `hotfix/session-docs-handoff` → main: [compare link](https://github.com/gzion2719/Trad_Bot_wClaude/compare/main...hotfix/session-docs-handoff)
+2. Open new PR `feature/fix-ci-test-runner` → develop (commit `1008808` adds Section 11 guard): [compare link](https://github.com/gzion2719/Trad_Bot_wClaude/compare/develop...feature/fix-ci-test-runner)
+3. After CI goes green on that PR, merge it; then PR #49 (develop→main) should go green too.
+4. **VPS deploy** (after main is updated): `ssh chappy-vps && sudo -i && cd /opt/tradebot && git pull origin main && systemctl restart tradebot-dashboard tradebot-health.timer`. Add `NTFY_TOPIC=tradebot-<random>`, `IBKR_ACCOUNT_ID=<account>`, `DASHBOARD_TOKEN=<random>` to `/opt/tradebot/.env`; install `/etc/sudoers.d/tradebot-dashboard` with `visudo -c`.
 
 **Next code review items (in execution priority order):**
 1. CR-08 — `chmod 600 /opt/ibc/config.ini` in setup.sh (one-liner)
-2. CR-09 — fix health timer stale threshold to match dashboard weekend logic
+2. CR-09 — fix health timer stale threshold (93600s hardcoded) to match dashboard `_stale_threshold_seconds()` logic
 3. CR-04 + CR-05 — bind dashboard to Tailscale IP + rate-limit `/api/bot/*`
 4. CR-03 — document and rehearse backup-operator 2FA runbook
 
