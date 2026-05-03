@@ -239,7 +239,21 @@ class ReconnectManager:
                 self._halted.set()
                 os._exit(1)  # os._exit needed — sys.exit only kills this thread
 
-            # ── Step 3: Notify waiters ─────────────────────────────────────
+            # ── Step 3: Reconcile fills missed during the disconnect window ───
+            # Must run before strategies resume (event not set yet) so position
+            # state is consistent the moment on_tick() is unblocked.
+            try:
+                replayed = self._om.reconcile_fills()
+                if replayed:
+                    logger.info("Reconnect fill reconciliation replayed %d fill(s).", replayed)
+            except Exception as exc:
+                logger.warning(
+                    "reconcile_fills() raised during reconnect: %s — continuing.",
+                    exc,
+                    exc_info=True,
+                )
+
+            # ── Step 4: Notify waiters ─────────────────────────────────────
             self._connected_event.set()
             if self._on_reconnected_cb:
                 self._on_reconnected_cb()
