@@ -35,7 +35,14 @@ from typing import Any, Dict, List, Optional
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
+from dashboard.console_auth import (
+    ConsoleSessionLock,
+    StepUpStore,
+    audit_log,
+    fingerprint_session,
+)
 from data.trade_log import TradeLog
 
 logger = logging.getLogger(__name__)
@@ -81,9 +88,52 @@ def _stale_threshold_seconds() -> float:
 _STARTED_AT = datetime.now(timezone.utc).isoformat()
 _trade_log = TradeLog()
 
-app = FastAPI(title="TradeBot Dashboard", version="0.1.0")
 
-# Mount /static so the index.html can reference /static/<asset> if we add CSS/JS later.
+# Strict CSP: no inline scripts/styles, no remote origins, no framing.
+# When the noVNC console page lands, it gets its own per-route CSP that allows
+# the vendored noVNC bundle and a same-origin WebSocket connect-src.
+_DEFAULT_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self'; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "font-src 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": _DEFAULT_CSP,
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Attach a strict Content-Security-Policy and friends to every response.
+
+    Routes that need a relaxed CSP (e.g. the noVNC console page) can override
+    via response.headers after this middleware sets the defaults.
+    """
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
+        response = await call_next(request)
+        for key, value in _SECURITY_HEADERS.items():
+            # Don't clobber a per-route override that an endpoint already set.
+            response.headers.setdefault(key, value)
+        return response
+
+
+app = FastAPI(title="TradeBot Dashboard", version="0.1.0")
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Mount /static so the index.html can reference /static/<asset>.
 if _STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
@@ -188,6 +238,12 @@ _SESSION_COOKIE = "dashboard_session"
 _SESSION_DURATION_SECONDS = 24 * 3600
 _sessions: Dict[str, float] = {}  # session_id -> expiry (monotonic)
 _sessions_lock = threading.Lock()
+
+# Console step-up + single-session lock — gate the gateway VNC console.
+# Both are process-local; restarting the dashboard releases any held lock and
+# invalidates all step-up tokens (acceptable: forces a fresh re-auth).
+_step_up_store = StepUpStore()
+_console_lock = ConsoleSessionLock()
 
 
 def _create_session() -> str:
@@ -367,9 +423,61 @@ def api_logout(
 ) -> Dict[str, Any]:
     """Invalidate the current session cookie."""
     if dashboard_session:
+        _step_up_store.revoke_session(dashboard_session)
+        _console_lock.release(fingerprint_session(dashboard_session))
         _delete_session(dashboard_session)
     response.delete_cookie(key=_SESSION_COOKIE, path="/")
     return {"ok": True}
+
+
+@app.post("/api/console/login")
+def api_console_login(
+    request: Request,
+    body: Dict[str, str],
+    response: Response,
+    _o: None = Depends(_check_origin),
+    dashboard_session: Optional[str] = Cookie(default=None),
+) -> Dict[str, Any]:
+    """Step-up password challenge. Issues a 5-minute console token.
+
+    Requires:
+      - A valid dashboard session cookie (CR-10).
+      - A correct DASHBOARD_CONSOLE_PASSWORD in the request body.
+
+    DASHBOARD_CONSOLE_PASSWORD is intentionally separate from DASHBOARD_TOKEN
+    so that a leaked dashboard token does not grant trading authority via
+    the gateway console.
+
+    On success: sets short-lived `console_token` cookie (HttpOnly, SameSite=Strict).
+    """
+    ip = _client_ip(request)
+    _enforce_rate_limit(ip)
+
+    if not dashboard_session or not _is_valid_session(dashboard_session):
+        raise HTTPException(status_code=401, detail="dashboard session required")
+
+    expected = os.getenv("DASHBOARD_CONSOLE_PASSWORD", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="DASHBOARD_CONSOLE_PASSWORD not configured")
+
+    provided = (body.get("password") or "").strip()
+    fp = fingerprint_session(dashboard_session)
+    if not provided or not hmac.compare_digest(provided, expected):
+        _record_auth_failure(ip)
+        audit_log("console.step_up.failure", fp, ip)
+        raise HTTPException(status_code=401, detail="invalid console password")
+
+    token = _step_up_store.issue(dashboard_session)
+    response.set_cookie(
+        key="console_token",
+        value=token,
+        httponly=True,
+        samesite="strict",
+        max_age=300,
+        path="/",
+    )
+    audit_log("console.step_up.success", fp, ip)
+    return {"ok": True, "expires_in": 300}
 
 
 _ALLOWED_ACTIONS = ("restart", "stop")
@@ -437,11 +545,16 @@ def api_system() -> Dict[str, Any]:
       bot_service_status   — "active" | "inactive" | "failed" | "unavailable"
       gateway_service_status — same set for ibgateway.service
       gateway_port_open    — True if a TCP connection to 127.0.0.1:4001 succeeds
+      console_held_by      — session fingerprint (16 hex chars) of console lock holder, or None
+      console_held_since   — ISO timestamp the lock was acquired, or None
     """
+    holder = _console_lock.current_holder()
     return {
         **_systemctl_info("tradebot.service", prefix="bot"),
         **_systemctl_info("ibgateway.service", prefix="gateway"),
         "gateway_port_open": _probe_port("127.0.0.1", 4001),
+        "console_held_by": holder.session_fingerprint if holder else None,
+        "console_held_since": holder.acquired_at_iso if holder else None,
     }
 
 

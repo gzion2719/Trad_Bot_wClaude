@@ -4,87 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TradeBot — Mission Control</title>
-<style>
-  :root {
-    --bg: #0e1116;
-    --card: #161b22;
-    --border: #30363d;
-    --text: #c9d1d9;
-    --muted: #8b949e;
-    --ok: #3fb950;
-    --warn: #d29922;
-    --err: #f85149;
-    --accent: #58a6ff;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 1.5rem;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg); color: var(--text);
-  }
-  h1 { margin: 0 0 0.25rem 0; font-size: 1.4rem; font-weight: 600; }
-  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
-  .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-  .card {
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 6px; padding: 1rem;
-  }
-  .card h2 { margin: 0 0 0.75rem 0; font-size: 0.9rem; color: var(--muted);
-             text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
-  .big { font-size: 1.6rem; font-weight: 600; }
-  .ok { color: var(--ok); }
-  .warn { color: var(--warn); }
-  .err { color: var(--err); }
-  .row { display: flex; justify-content: space-between; padding: 0.25rem 0; font-size: 0.9rem; }
-  .row .k { color: var(--muted); }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
-  th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.05em; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .footer { margin-top: 2rem; color: var(--muted); font-size: 0.75rem; }
-  .pulse {
-    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-    background: var(--ok); margin-right: 0.4rem;
-    animation: pulse 2s infinite ease-in-out;
-  }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-  .pulse.warn { background: var(--warn); }
-  .pulse.err { background: var(--err); }
-  .controls { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-  .btn {
-    padding: 0.5rem 0.9rem; border-radius: 4px; border: 1px solid var(--border);
-    background: #21262d; color: var(--text); font: inherit; font-size: 0.85rem;
-    cursor: pointer;
-  }
-  .btn:hover { background: #30363d; }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn.warn { border-color: var(--warn); color: var(--warn); }
-  .btn.err  { border-color: var(--err);  color: var(--err);  }
-  .ctrl-msg { margin-top: 0.6rem; font-size: 0.8rem; color: var(--muted); min-height: 1em; }
-  .ctrl-msg.ok  { color: var(--ok); }
-  .ctrl-msg.err { color: var(--err); }
-  .login-overlay {
-    display: none; position: fixed; inset: 0;
-    background: rgba(14,17,22,0.92); z-index: 100;
-    align-items: center; justify-content: center;
-  }
-  .login-overlay.visible { display: flex; }
-  .login-box {
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 8px; padding: 1.5rem; width: 320px;
-  }
-  .login-box h2 { margin: 0 0 0.75rem; font-size: 1rem; }
-  .login-box input {
-    width: 100%; padding: 0.45rem 0.6rem; margin-bottom: 0.75rem;
-    background: #0e1116; border: 1px solid var(--border); border-radius: 4px;
-    color: var(--text); font: inherit; font-size: 0.9rem;
-  }
-  .login-box .login-err { font-size: 0.8rem; color: var(--err); min-height: 1em; margin-bottom: 0.5rem; }
-  .sys-status-row { display: flex; align-items: center; gap: 1rem; }
-  .sys-status-row > div { flex: 1; }
-  .sys-divider { flex: 0 0 1px !important; width: 1px; background: var(--border); align-self: stretch; }
-  .sys-label { font-size: 0.65rem; color: var(--muted); letter-spacing: 0.1em; font-weight: 600; margin-bottom: 0.25rem; }
-</style>
+<link rel="stylesheet" href="/static/dashboard.css">
 </head>
 <body>
 
@@ -128,9 +48,10 @@
         <div class="big" id="sys-gateway-status">…</div>
       </div>
     </div>
-    <div class="row" style="margin-top:0.75rem"><span class="k">Bot PID</span><span id="sys-bot-pid">—</span></div>
+    <div class="row sys-margin-top"><span class="k">Bot PID</span><span id="sys-bot-pid">—</span></div>
     <div class="row"><span class="k">Bot uptime</span><span id="sys-bot-uptime">—</span></div>
     <div class="row"><span class="k">Port 4001</span><span id="sys-port4001">—</span></div>
+    <div class="console-banner" id="console-banner"></div>
   </div>
 
   <div class="card">
@@ -138,6 +59,7 @@
     <div class="controls">
       <button class="btn warn" id="btn-restart">Restart bot</button>
       <button class="btn err"  id="btn-stop">Stop bot</button>
+      <button class="btn accent" id="btn-console">Open Gateway Console</button>
       <button class="btn"      id="btn-logout">Logout</button>
     </div>
     <div class="ctrl-msg" id="ctrl-msg"></div>
@@ -149,11 +71,11 @@
     <h2>Dashboard login</h2>
     <input type="password" id="login-input" placeholder="DASHBOARD_TOKEN" autocomplete="current-password">
     <div class="login-err" id="login-err"></div>
-    <button class="btn" id="login-btn" style="width:100%">Login</button>
+    <button class="btn login-btn-wide" id="login-btn">Login</button>
   </div>
 </div>
 
-<div class="card" style="margin-top: 1rem;">
+<div class="card fills-card">
   <h2>Recent fills</h2>
   <table id="fills-table">
     <thead>
@@ -163,165 +85,13 @@
       </tr>
     </thead>
     <tbody id="fills-body">
-      <tr><td colspan="7" style="color: var(--muted); text-align: center;">no fills yet</td></tr>
+      <tr><td colspan="7" class="muted-center">no fills yet</td></tr>
     </tbody>
   </table>
 </div>
 
 <div class="footer" id="footer">last refresh: —</div>
 
-<script>
-const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-const fmtMoney = (n) => n == null ? "—" : (n < 0 ? "-$" : "$") + Math.abs(n).toFixed(2);
-const fmtAge = (s) => {
-  if (s == null) return "—";
-  if (s < 60) return s.toFixed(0) + "s";
-  if (s < 3600) return (s / 60).toFixed(1) + "m";
-  return (s / 3600).toFixed(1) + "h";
-};
-
-async function refresh() {
-  try {
-    const [health, today, fills, info, sys] = await Promise.all([
-      fetch("/api/health").then(r => r.json()),
-      fetch("/api/today").then(r => r.json()),
-      fetch("/api/recent-fills?limit=20").then(r => r.json()),
-      fetch("/api/info").then(r => r.json()),
-      fetch("/api/system").then(r => r.json()),
-    ]);
-
-    // Health
-    const cls = health.status === "ok" ? "ok"
-              : health.status === "stale" ? "warn" : "err";
-    document.getElementById("health-status").innerHTML =
-      `<span class="pulse ${cls === 'ok' ? '' : cls}"></span><span class="${cls}">${health.status}</span>`;
-    document.getElementById("health-last").textContent = health.last_tick || "—";
-    document.getElementById("health-age").textContent = fmtAge(health.age_seconds);
-
-    // Today
-    const pnl = today.realized_pnl;
-    const pnlEl = document.getElementById("today-pnl");
-    pnlEl.textContent = fmtMoney(pnl);
-    pnlEl.className = "big " + (pnl == null ? "" : pnl >= 0 ? "ok" : "err");
-    document.getElementById("today-trades").textContent = today.total_trades;
-    document.getElementById("today-bs").textContent = `${today.buys} / ${today.sells}`;
-    document.getElementById("today-net").textContent = fmtMoney(today.net_flow);
-
-    // Info
-    document.getElementById("info-account").textContent = info.account;
-    document.getElementById("info-host").textContent = info.host;
-    document.getElementById("info-port").textContent = info.port;
-    document.getElementById("info-started").textContent = info.dashboard_started_at;
-
-    // Fills
-    const body = document.getElementById("fills-body");
-    if (!fills.length) {
-      body.innerHTML = '<tr><td colspan="7" style="color: var(--muted); text-align: center;">no fills yet</td></tr>';
-    } else {
-      body.innerHTML = fills.map(f => `
-        <tr>
-          <td>${esc((f.filled_at || "").replace("T", " ").slice(0, 19))}</td>
-          <td>${esc(f.symbol)}</td>
-          <td class="${f.action === 'BUY' ? 'ok' : 'warn'}">${esc(f.action)}</td>
-          <td class="num">${f.quantity}</td>
-          <td class="num">${f.fill_price?.toFixed(4) ?? "—"}</td>
-          <td class="num">${fmtMoney(f.fill_value)}</td>
-          <td class="num ${f.realized_pnl == null ? '' : f.realized_pnl >= 0 ? 'ok' : 'err'}">${fmtMoney(f.realized_pnl)}</td>
-        </tr>
-      `).join("");
-    }
-
-    // System — bot status
-    const botStatus = sys.bot_service_status;
-    const botOk = botStatus === "active";
-    const botStopped = botStatus === "inactive" || botStatus === "failed";
-    const botCls = botOk ? "ok" : (botStopped ? "err" : "");
-    const botLabel = botOk ? "Active" : (botStatus === "failed" ? "Failed" : botStopped ? "Stopped" : botStatus);
-    document.getElementById("sys-bot-status").innerHTML =
-      `<span class="pulse ${botOk ? '' : 'err'}"></span><span class="${botCls}">${esc(botLabel)}</span>`;
-
-    // System — gateway status (active + port open = logged in; active + port closed = awaiting 2FA)
-    const gwStatus = sys.gateway_service_status;
-    const gwPortOpen = sys.gateway_port_open;
-    const gwLoggedIn = gwStatus === "active" && gwPortOpen;
-    const gwAwaiting = gwStatus === "active" && !gwPortOpen;
-    const gwDown = gwStatus === "inactive" || gwStatus === "failed";
-    const gwPulseCls = gwLoggedIn ? "" : (gwAwaiting ? "warn" : "err");
-    const gwTextCls  = gwLoggedIn ? "ok" : (gwAwaiting ? "warn" : (gwDown ? "err" : ""));
-    const gwLabel    = gwLoggedIn ? "Logged in" : (gwAwaiting ? "Awaiting login" : gwDown ? "Down" : gwStatus);
-    document.getElementById("sys-gateway-status").innerHTML =
-      `<span class="pulse ${gwPulseCls}"></span><span class="${gwTextCls}">${esc(gwLabel)}</span>`;
-    document.getElementById("sys-bot-pid").textContent =
-      sys.bot_pid != null ? sys.bot_pid : (botStatus === "unavailable" ? "n/a" : "—");
-    document.getElementById("sys-bot-uptime").textContent = fmtAge(sys.bot_uptime_seconds);
-    const p4 = sys.gateway_port_open;
-    document.getElementById("sys-port4001").innerHTML =
-      `<span class="${p4 ? 'ok' : 'err'}">${p4 ? "open" : "closed"}</span>`;
-
-    document.getElementById("footer").textContent =
-      "last refresh: " + new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
-  } catch (e) {
-    document.getElementById("footer").textContent = "refresh error: " + e.message;
-  }
-}
-
-refresh();
-setInterval(refresh, 5000);
-
-// ---- Control plane (Phase 3) — session-cookie auth (CR-10) -------------
-const msgEl  = document.getElementById("ctrl-msg");
-const overlay = document.getElementById("login-overlay");
-const loginInput = document.getElementById("login-input");
-const loginErr   = document.getElementById("login-err");
-
-function setMsg(text, cls) {
-  msgEl.textContent = text;
-  msgEl.className = "ctrl-msg" + (cls ? " " + cls : "");
-}
-function showLogin(hint) {
-  loginErr.textContent = hint || "";
-  loginInput.value = "";
-  overlay.classList.add("visible");
-  loginInput.focus();
-}
-function hideLogin() { overlay.classList.remove("visible"); }
-
-async function postAction(path, label) {
-  if (!confirm(`${label} the live bot?`)) { setMsg("cancelled", ""); return; }
-  setMsg(`${label}…`, "");
-  try {
-    const r = await fetch(path, { method: "POST", credentials: "same-origin" });
-    const body = await r.json().catch(() => ({}));
-    if (r.status === 401 || r.status === 403) { showLogin("Session expired — please log in again."); return; }
-    if (!r.ok) { setMsg(`${esc(label)} failed: ${esc(body.detail || String(r.status))}`, "err"); return; }
-    setMsg(`${label} ok`, "ok");
-  } catch (e) {
-    setMsg(`${label} error: ${esc(e.message)}`, "err");
-  }
-}
-
-document.getElementById("btn-restart").addEventListener("click",
-  () => postAction("/api/bot/restart", "Restart"));
-document.getElementById("btn-stop").addEventListener("click",
-  () => postAction("/api/bot/stop", "Stop"));
-document.getElementById("btn-logout").addEventListener("click", async () => {
-  await fetch("/api/logout", { method: "POST", credentials: "same-origin" });
-  showLogin("Logged out.");
-});
-
-document.getElementById("login-btn").addEventListener("click", async () => {
-  const token = loginInput.value.trim();
-  if (!token) { loginErr.textContent = "enter token"; return; }
-  const r = await fetch("/api/login", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token }),
-  });
-  if (r.ok) { hideLogin(); setMsg("logged in", "ok"); }
-  else { loginErr.textContent = "invalid token"; loginInput.select(); }
-});
-loginInput.addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("login-btn").click(); });
-</script>
+<script src="/static/dashboard.js"></script>
 </body>
 </html>

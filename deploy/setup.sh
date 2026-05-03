@@ -13,6 +13,7 @@ apt-get update -qq
 apt-get install -y --no-install-recommends \
     openjdk-17-jre-headless \
     xvfb \
+    x11vnc \
     unzip \
     wget \
     curl \
@@ -88,11 +89,27 @@ else
     echo "$BOT_DIR/.env already exists — skipping. Ensure NTFY_TOPIC and IBKR_ACCOUNT_ID are set."
 fi
 
+echo "=== [8.5/9] Generate x11vnc password (defense-in-depth on localhost VNC) ==="
+# x11vnc is bound to 127.0.0.1 only, but a password is still required so that
+# any process that gains localhost access (compromised dep, sidecar bug) cannot
+# silently drive the IB Gateway. Password file is root-owned, mode 0400.
+if [ ! -f /etc/x11vnc.pass ]; then
+    X11VNC_PASS=$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 24)
+    /usr/bin/x11vnc -storepasswd "$X11VNC_PASS" /etc/x11vnc.pass
+    chown root:root /etc/x11vnc.pass
+    chmod 0400 /etc/x11vnc.pass
+    echo "Wrote /etc/x11vnc.pass (random 24-char password). Used by x11vnc.service and websockify."
+    unset X11VNC_PASS
+else
+    echo "/etc/x11vnc.pass already exists — leaving in place."
+fi
+
 echo "=== [9/9] Install and enable systemd units ==="
 cp "$BOT_DIR/deploy/systemd/"*.service /etc/systemd/system/
 cp "$BOT_DIR/deploy/systemd/"*.timer  /etc/systemd/system/ 2>/dev/null || true
 systemctl daemon-reload
 systemctl enable ibgateway.service
+systemctl enable x11vnc.service
 systemctl enable tradebot.service
 systemctl enable tradebot-health.timer
 
