@@ -283,17 +283,17 @@ See `codereview.md` for full issue table. Work top-to-bottom by execution priori
 | CR-07 | `ib_insync` archived/unmaintained; no lockfile for deps | High | [ ] | — (multi-week, track in BACKLOG) |
 | CR-08 | `/opt/ibc/config.ini` not chmod 600 in setup.sh | High | [x] | `feature/cr-08-chmod-ibc-config` |
 | CR-09 | Health timer stale threshold (93600s) doesn't match dashboard logic | Medium | [x] | `feature/cr-09-health-timer-weekend` |
-| CR-10 | Dashboard bearer token stored in localStorage | Medium | [ ] | — |
+| CR-10 | Dashboard bearer token stored in localStorage | Medium | [x] | `feature/cr-remaining-quick-fixes` |
 | CR-11 | Account ID `DUE090987` literal in source files | Medium | [x] | `feature/ntfy-private-topic` |
 | CR-12 | ntfy notification body contains 50 lines of journalctl output | Medium | [x] | `feature/ntfy-private-topic` |
-| CR-13 | TradeLog reopened on every dashboard request (60 opens/min) | Medium | [ ] | — |
-| CR-14 | `params` exposes `initial_capital` in live mode (misleading log) | Medium | [ ] | — |
-| CR-15 | systemd units missing hardening directives (NoNewPrivileges etc.) | Medium | [ ] | — |
-| CR-16 | Dashboard renders API fields into HTML without escaping (XSS) | Low | [ ] | — |
-| CR-17 | 0.0.0.0 bind documented inconsistently across 3 files | Low | [ ] | — |
-| CR-18 | Bearer-token check not covered by HTTP-layer tests | Low | [ ] | — |
+| CR-13 | TradeLog reopened on every dashboard request (60 opens/min) | Medium | [x] | `feature/cr-remaining-quick-fixes` |
+| CR-14 | `params` exposes `initial_capital` in live mode (misleading log) | Medium | [x] | `feature/cr-remaining-quick-fixes` |
+| CR-15 | systemd units missing hardening directives (NoNewPrivileges etc.) | Medium | [x] | `feature/cr-remaining-quick-fixes` |
+| CR-16 | Dashboard renders API fields into HTML without escaping (XSS) | Low | [x] | `feature/cr-remaining-quick-fixes` |
+| CR-17 | 0.0.0.0 bind documented inconsistently across 3 files | Low | [x] | resolved by CR-04 |
+| CR-18 | Bearer-token check not covered by HTTP-layer tests | Low | [x] | `feature/cr-remaining-quick-fixes` |
 | CR-19 | Custom test runner instead of pytest — onboarding cost | Low | [ ] | — |
-| CR-20 | `RiskManager.check()` swallows open-orders exception silently | Low | [ ] | — |
+| CR-20 | `RiskManager.check()` swallows open-orders exception silently | Low | [x] | `feature/cr-remaining-quick-fixes` |
 
 ---
 

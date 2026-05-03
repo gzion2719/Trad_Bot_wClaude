@@ -32,5 +32,14 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=tradebot-dashboard
 
+# Process isolation — a compromised dashboard dep cannot reach bot secrets
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/opt/tradebot/data /opt/tradebot/logs
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
 [Install]
 WantedBy=multi-user.target
