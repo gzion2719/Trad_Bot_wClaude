@@ -14,12 +14,8 @@ ExecStart=/usr/bin/x11vnc \
     -nopw \
     -rfbport 5900 \
     -listen 127.0.0.1 \
-    -localhost \
-    -nosetclipboard \
-    -noxdamage \
     -shared \
     -forever \
-    -quiet \
     -xkb
 Restart=on-failure
 RestartSec=10
