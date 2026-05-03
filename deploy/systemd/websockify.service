@@ -12,7 +12,7 @@ WorkingDirectory=/opt/tradebot
 # Bind 127.0.0.1 only — the dashboard reverse-proxies WebSocket connections
 # from /ws/console to this port. websockify is never directly reachable from
 # the Tailnet, so all auth lives in one place (the dashboard).
-ExecStart=/opt/tradebot/venv/bin/websockify \
+ExecStart=/usr/bin/websockify \
     --verbose \
     127.0.0.1:6080 \
     127.0.0.1:5900
