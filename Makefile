@@ -30,7 +30,7 @@ type-check:
 	mypy . --ignore-missing-imports --exclude 'tests/'
 
 test:
-	$(PYTHON) -m tests.run_tests
+	pytest tests/ -m "not market"
 
 secret-scan:
 	gitleaks detect --redact --no-git -s .
@@ -38,5 +38,5 @@ secret-scan:
 pre-push: lint
 	black --check .
 	mypy . --ignore-missing-imports --exclude 'tests/'
-	$(PYTHON) -m tests.run_tests
+	pytest tests/ -m "not market"
 	gitleaks detect --redact --no-git -s .
