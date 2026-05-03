@@ -3,6 +3,14 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-03 — Code review cycle complete: 7 CRs shipped (CR-10/13/14/15/16/18/20)
+
+- CR-20 (RiskManager silent exception → WARNING log), CR-14 (initial_capital omitted from live params), CR-16 (escapeHtml helper + esc() on all innerHTML injections), CR-13 (TradeLog module-level singleton, eliminates 60 SQLite opens/min), CR-15 (NoNewPrivileges/ProtectSystem/ProtectHome/PrivateTmp/ReadWritePaths on both systemd units), CR-18 (DB-16..DB-20 TestClient HTTP-layer bearer-token tests), CR-10 (localStorage → HttpOnly session cookie: /api/login + /api/logout + login overlay UI). CR-17 was already resolved by CR-04.
+- 64/64 tests pass, ruff + black + mypy clean. Deployed to VPS: both units active, dashboard shows "logged in" with new cookie auth, liveness ok, gateway logged in.
+- 16/20 CRs done. 4 remaining: CR-03 (runbook/rehearsal), CR-07 (ib_insync migration, BACKLOG), CR-19 (pytest migration), plus 2FA rehearsal by non-owner operator to complete the Definition of Done.
+- **Process improvement:** WORKFLOW.md gains "Test assertion rule — read the endpoint's return statement before asserting response body shape; don't guess field names."
+- **Next session:** Sunday 2FA dry-run (2026-05-10 ~02:00 ET); then CR-03 operator runbook session.
+
 ---
 
 ## 2026-05-03 — CI unblocked + 4 CRs shipped (CR-04/05/08/09) + VPS deployed
