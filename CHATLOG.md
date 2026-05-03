@@ -3,6 +3,18 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-04 — noVNC gateway console MVP live on VPS (replaces VNC tunnel)
+
+- Shipped `feature/dashboard-novnc-console` (4 commits) → develop → main: dashboard `/console.html` with step-up password + single-session lock + WebSocket reverse proxy through to websockify+x11vnc on the VPS. ADR-0001 covers threat model. 38 new tests (CA01-70 + CE01-31) all green.
+- Discovered 4 deploy mismatches the local-only test suite couldn't catch — each fixed via the **proper** hotfix branch flow (no direct main pushes), branch `hotfix/websockify-deploy-fixes`: (a) `websockify` apt-package path `/usr/bin/websockify` vs the venv path the unit assumed, (b) x11vnc `-localhost`/`-noxdamage`/`-quiet`/`-nosetclipboard` flags rejected all connections under `ProtectSystem=strict`, (c) noVNC scaleViewport collapsed canvas to 0×0 because the flex container hadn't laid out at RFB-construction time, (d) `scaleViewport=true` setter is a no-op when already true → toggle false→true to force `_updateScale`.
+- Browser secure-context requirement (noVNC refuses TLS-less origins except localhost) is currently worked around with `ssh -L 8080:100.113.140.69:8080 chappy-vps`. Long-term fix tracked as GC-4 (Caddy/nginx + tailscale-cert).
+- VPS now has 3-tier supervised stack: `x11vnc.service` (port 5900) ← `websockify.service` (port 6080) ← `tradebot-dashboard.service` (port 8080) ← browser through SSH tunnel. All localhost-bound; auth (session cookie + step-up token + lock holder) enforced at the dashboard layer only.
+- IB Gateway screen renders correctly in the browser canvas; full 2FA login rehearsal not yet performed (tracked as GC-2). Old VNC tunnel runbook still works as a fallback.
+- **Process improvement:** when a feature lands on develop and follow-up fix commits are pushed to the *same* feature branch *after* its PR was merged, those fixes never reach develop or main — they live only on the feature branch. Always cut a fresh `hotfix/*` from main for fixes discovered post-merge, even if the original feature branch is still local.
+- **Next session:** GC-2 (full 2FA login rehearsal in the browser console); then sync develop with main (open `compare/develop...main` PR if behind); then GC-4 (TLS so the SSH tunnel goes away).
+
+---
+
 ## 2026-05-03 — Reconcile-fills feature shipped (finding #6); memory hygiene + Makefile gate hardened
 
 - Shipped `feature/cr-reconnect-fill-reconciliation` (finding #6 closed): `OrderManager.reconcile_fills()` + `_seen_exec_ids` dedup + `ReconnectManager` wire-up + 8 unit tests. PR #79 merged to main, deployed to VPS (`Connected | account=...` confirmed).
