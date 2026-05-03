@@ -1999,6 +1999,96 @@ def db15():
         _reset_rate_state()
 
 
+@test("DB-16", "HTTP: missing Authorization header → 401")
+def db16():
+    import os
+    from starlette.testclient import TestClient
+
+    os.environ["DASHBOARD_TOKEN"] = "tc-secret"
+    _reset_rate_state()
+    try:
+        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
+        r = client.post("/api/bot/restart")
+        assert r.status_code == 401, f"expected 401, got {r.status_code}"
+    finally:
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+
+
+@test("DB-17", "HTTP: wrong scheme 'Token x' → 401")
+def db17():
+    import os
+    from starlette.testclient import TestClient
+
+    os.environ["DASHBOARD_TOKEN"] = "tc-secret"
+    _reset_rate_state()
+    try:
+        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
+        r = client.post("/api/bot/restart", headers={"Authorization": "Token tc-secret"})
+        assert r.status_code == 401, f"expected 401, got {r.status_code}"
+    finally:
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+
+
+@test("DB-18", "HTTP: wrong token 'Bearer bad' → 401")
+def db18():
+    import os
+    from starlette.testclient import TestClient
+
+    os.environ["DASHBOARD_TOKEN"] = "tc-secret"
+    _reset_rate_state()
+    try:
+        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
+        r = client.post("/api/bot/restart", headers={"Authorization": "Bearer bad"})
+        assert r.status_code == 401, f"expected 401, got {r.status_code}"
+    finally:
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+
+
+@test("DB-19", "HTTP: lowercase 'bearer valid' → 401 (scheme check is case-sensitive)")
+def db19():
+    import os
+    from starlette.testclient import TestClient
+
+    os.environ["DASHBOARD_TOKEN"] = "tc-secret"
+    _reset_rate_state()
+    try:
+        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
+        r = client.post("/api/bot/restart", headers={"Authorization": "bearer tc-secret"})
+        assert r.status_code == 401, f"expected 401, got {r.status_code}"
+    finally:
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+
+
+@test("DB-20", "HTTP: valid Bearer token → 200 (subprocess mocked)")
+def db20():
+    import os
+    import subprocess as sp_module
+    from starlette.testclient import TestClient
+
+    class _FakeDone:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    original_run = sp_module.run
+    sp_module.run = lambda *a, **kw: _FakeDone()  # type: ignore[assignment]
+    os.environ["DASHBOARD_TOKEN"] = "tc-secret"
+    _reset_rate_state()
+    try:
+        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
+        r = client.post("/api/bot/restart", headers={"Authorization": "Bearer tc-secret"})
+        assert r.status_code == 200, f"expected 200, got {r.status_code}: {r.text}"
+        assert r.json().get("ok") is True, f"unexpected body: {r.json()}"
+    finally:
+        sp_module.run = original_run
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+
+
 db01()
 db02()
 db03()
@@ -2014,6 +2104,11 @@ db12()
 db13()
 db14()
 db15()
+db16()
+db17()
+db18()
+db19()
+db20()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

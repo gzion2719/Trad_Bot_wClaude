@@ -682,9 +682,12 @@ class SMACrossover(BaseStrategy):
 
     @property
     def params(self) -> dict:
-        return {
+        p: dict = {
             "symbol": self.symbol,
             "sma_fast": self._sma_fast,
             "sma_slow": self._sma_slow,
-            "initial_capital": self._initial_capital,
         }
+        if self.client is None:
+            # Backtest only — live equity comes from the broker, not this field.
+            p["initial_capital_backtest"] = self._initial_capital
+        return p
