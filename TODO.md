@@ -276,7 +276,7 @@ See `codereview.md` for full issue table. Work top-to-bottom by execution priori
 |---|-------|----------|--------|----|
 | CR-01 | Restore CI — `.github/workflows/` was gitignored, no CI in repo | Critical | [x] | `feature/restore-ci-workflow` |
 | CR-02 | ntfy topic hard-coded with account ID, journal logs shipped publicly | Critical | [x] | `feature/ntfy-private-topic` |
-| CR-03 | No backup operator for weekly 2FA — single point of failure | High | [ ] | — (runbook + rehearsal) |
+| CR-03 | No backup operator for weekly 2FA — single point of failure | High | [x] | `feature/cr-03-operator-runbook` |
 | CR-04 | Dashboard binds 0.0.0.0, no auth on GET endpoints | High | [x] | `feature/cr-04-05-dashboard-bind-ratelimit` |
 | CR-05 | No rate limiting / lockout on `/api/bot/*` token endpoint | High | [x] | `feature/cr-04-05-dashboard-bind-ratelimit` |
 | CR-06 | No secret scanner in pre-push gate or CI | High | [x] | `feature/add-gitleaks-pregate` |

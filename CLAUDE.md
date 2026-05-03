@@ -30,24 +30,23 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-05-03) — 7 more CRs shipped. 16/20 CRs done. Branch `feature/cr-remaining-quick-fixes` ready to PR → develop.**
+**Last session completed (2026-05-03+) — CR-03 shipped. 17/20 CRs done. Branch `feature/cr-03-operator-runbook` ready to PR → develop.**
 
-- CR-20 (RiskManager silent exception swallow), CR-14 (initial_capital in live params), CR-16 (XSS escaping via `esc()` helper in dashboard HTML), CR-17 (docs drift — already resolved by CR-04), CR-13 (TradeLog module-level singleton, -60 SQLite opens/min), CR-15 (systemd hardening: `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `ReadWritePaths` on both units), CR-18 (DB-16..DB-20: HTTP-layer TestClient bearer-token tests), CR-10 (localStorage → HttpOnly session cookie: `/api/login` + `/api/logout` + `_SESSION_COOKIE`, login overlay in UI). 64/64 tests pass. ruff ✅ black ✅ mypy ✅ (2 pre-existing errors in cleanup block only).
-- **4 remaining open CRs:** CR-03 (operator runbook — docs/rehearsal session), CR-07 (ib_insync migration — BACKLOG multi-week), CR-19 (pytest migration — multi-session), and nothing else critical.
-- **Branch to PR:** `feature/cr-remaining-quick-fixes` → develop, then develop → main, then VPS deploy.
+- CR-03: `docs/runbook-2fa-recovery.md` written — full backup-operator guide covering prerequisites (SSH key, Tailscale, TightVNC), the 60-second Sunday recovery routine, success verification table, troubleshooting section, and IBKR 2FA background. TODO.md updated [x].
+- **3 remaining open CRs:** CR-07 (ib_insync migration — BACKLOG multi-week), CR-19 (pytest migration — multi-session). Code-review cycle DoD item: Sunday 2FA rehearsal by non-owner operator (doc is ready; rehearsal scheduled for 2026-05-10 ~02:00 ET).
+- **Branch to PR:** `feature/cr-03-operator-runbook` → develop, then develop → main.
 
-**Previous session (2026-05-03) — CI unblocked, 4 CRs shipped to production. 9/20 CRs done.**
+**Previous session completed (2026-05-03) — 7 more CRs shipped. 16/20 CRs done.**
 
-- **CI fixed:** `gitleaks-action@v2` was failing with HTTP 403 because the default `GITHUB_TOKEN` lacked `pull_requests:read`. Replaced the action with a CLI invocation (`curl + tar + gitleaks detect --no-git`) — no API token needed, matches local pre-push exactly. PR #53 went green and merged.
-- **CRs shipped to main + deployed to VPS (9/20 total):** CR-04 (dashboard binds Tailscale IP only), CR-05 (per-IP rate limit + lockout on `/api/bot/*`), CR-08 (`chmod 600 /opt/ibc/config.ini` in setup.sh + applied on VPS), CR-09 (weekend-aware health timer threshold). Plus CR-01/02/06/11/12 from earlier sessions.
-- VPS verified end-to-end: `curl http://100.113.140.69:8080/api/health` → `ok`, `ss -tlnp | grep 8080` → bound to `100.113.140.69` only (not 0.0.0.0), bad-token POST → `401`, valid-token UI restart → success.
+- CR-20 (RiskManager silent exception swallow), CR-14 (initial_capital in live params), CR-16 (XSS escaping via `esc()` helper in dashboard HTML), CR-13 (TradeLog module-level singleton, -60 SQLite opens/min), CR-15 (systemd hardening: `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `ReadWritePaths` on both units), CR-18 (DB-16..DB-20: HTTP-layer TestClient bearer-token tests), CR-10 (localStorage → HttpOnly session cookie). 64/64 tests pass. ruff ✅ black ✅ mypy ✅.
+- All code-side CRs done. VPS fully deployed with cookie auth, hardened systemd units, TradeLog singleton.
 
-**Open CRs (4 remaining):** CR-03 (operator runbook — docs/rehearsal), CR-07 (`ib_insync` migration — BACKLOG multi-week), CR-19 (pytest migration — multi-session), and the code-review cycle Definition of Done checklist items (gitleaks full-history scan, Sunday 2FA rehearsal by non-owner).
+**Open CRs (3 remaining):** CR-07 (`ib_insync` migration — BACKLOG multi-week), CR-19 (pytest migration — multi-session). DoD item: Sunday 2FA rehearsal by non-owner (doc live in `docs/runbook-2fa-recovery.md`).
 
 **Immediate next steps:**
-1. **Merge `feature/cr-remaining-quick-fixes` → develop → main → VPS deploy.** PR links below. VPS deploy: `ssh chappy-vps && sudo -i && cd /opt/tradebot && git pull origin main && systemctl daemon-reload && systemctl restart tradebot tradebot-dashboard`.
-2. **Sunday 2FA dry-run** — next opportunity 2026-05-10 ~02:00 ET.
-3. **CR-03 docs/rehearsal session** — write the backup-operator 2FA runbook and walk a team member through it.
+1. **PR `feature/cr-03-operator-runbook` → develop → main → VPS deploy.** See PR links below.
+2. **Sunday 2FA rehearsal** — 2026-05-10 ~02:00 ET. Share `docs/runbook-2fa-recovery.md` with backup operator in advance.
+3. **CR-19 pytest migration** or paper trading monitoring — next multi-session work item.
 
 ### What was done last session (2026-05-02, dashboard Phase 2 + weekend-aware stale threshold) — RECONSTRUCTED
 
