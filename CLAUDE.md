@@ -30,23 +30,17 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Last session completed (2026-05-03+) — CR-03 shipped. 17/20 CRs done. Branch `feature/cr-03-operator-runbook` ready to PR → develop.**
+**Last session completed (2026-05-03) — Second independent code review addressed. 3 PRs merged to main.**
 
-- CR-03: `docs/runbook-2fa-recovery.md` written — full backup-operator guide covering prerequisites (SSH key, Tailscale, TightVNC), the 60-second Sunday recovery routine, success verification table, troubleshooting section, and IBKR 2FA background. TODO.md updated [x].
-- **3 remaining open CRs:** CR-07 (ib_insync migration — BACKLOG multi-week), CR-19 (pytest migration — multi-session). Code-review cycle DoD item: Sunday 2FA rehearsal by non-owner operator (doc is ready; rehearsal scheduled for 2026-05-10 ~02:00 ET).
-- **Branch to PR:** `feature/cr-03-operator-runbook` → develop, then develop → main.
-
-**Previous session completed (2026-05-03) — 7 more CRs shipped. 16/20 CRs done.**
-
-- CR-20 (RiskManager silent exception swallow), CR-14 (initial_capital in live params), CR-16 (XSS escaping via `esc()` helper in dashboard HTML), CR-13 (TradeLog module-level singleton, -60 SQLite opens/min), CR-15 (systemd hardening: `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `ReadWritePaths` on both units), CR-18 (DB-16..DB-20: HTTP-layer TestClient bearer-token tests), CR-10 (localStorage → HttpOnly session cookie). 64/64 tests pass. ruff ✅ black ✅ mypy ✅.
-- All code-side CRs done. VPS fully deployed with cookie auth, hardened systemd units, TradeLog singleton.
-
-**Open CRs (3 remaining):** CR-07 (`ib_insync` migration — BACKLOG multi-week), CR-19 (pytest migration — multi-session). DoD item: Sunday 2FA rehearsal by non-owner (doc live in `docs/runbook-2fa-recovery.md`).
+- Second review (13 findings) processed. CR-11 residual account-ID literal redacted from `TODO.md`; CI grep gate added. CR-12 confirmed implemented in `deploy/systemd/tradebot-notify@.service` (body is summary-only, not journal output).
+- Security hardening: `_client_ip()` gains `TRUSTED_PROXIES` env-var support (proxy-spoofing posture); `_check_origin()` dependency added to all state-changing POSTs (CSRF defense-in-depth). 8 new tests DB-21..DB-28 (stale threshold branches, XFF non-honor, lockout state machine, cookie login flow). 28/28 dashboard tests pass.
+- Polish: DST fallback → `raise RuntimeError`; `exc_info=True` on PnL warnings; 6 bare excepts narrowed; rate-limit moved after session-cookie check; duplicate root test files deleted; README `ib_insync` archive notice added.
+- **1 remaining open CR:** CR-07 (`ib_insync` migration — BACKLOG multi-week). 1 open finding: finding #6 (reconnect fill-reconciliation — needs own feature branch + simulated-disconnect integration test). DoD item: Sunday 2FA rehearsal by non-owner (2026-05-10 ~02:00 ET).
 
 **Immediate next steps:**
-1. **PR `feature/cr-03-operator-runbook` → develop → main → VPS deploy.** See PR links below.
+1. **VPS deploy** — `ssh chappy-vps && sudo -i && cd /opt/tradebot && git pull origin main && systemctl restart tradebot-dashboard`
 2. **Sunday 2FA rehearsal** — 2026-05-10 ~02:00 ET. Share `docs/runbook-2fa-recovery.md` with backup operator in advance.
-3. **CR-19 pytest migration** or paper trading monitoring — next multi-session work item.
+3. **`feature/cr-reconnect-fill-reconciliation`** — finding #6: after reconnect, iterate `ib.fills()` for any fills missed during disconnect window and synthesize `on_fill` callbacks. Needs simulated-disconnect integration test.
 
 ### What was done last session (2026-05-02, dashboard Phase 2 + weekend-aware stale threshold) — RECONSTRUCTED
 

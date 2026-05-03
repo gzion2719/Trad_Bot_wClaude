@@ -3,6 +3,19 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-03 — Second independent code review processed: 3 PRs merged (integrity + security + polish) — RECONSTRUCTED
+
+*Reconstructed from git log + session summary. Session ended without closing ritual (context window exhausted).*
+
+- **CR-11/CR-12 integrity fixes** (PR #72 → #73 → main, `237fc2e`): redacted `DUE090987` account-ID literal from `TODO.md`; CI grep gate added to `.github/workflows/ci.yml` blocking any `DUE[0-9]{6,9}` in tracked files; CR-12 confirmed implemented in `deploy/systemd/tradebot-notify@.service` (body is summary-only, not journalctl output) — comment added as evidence.
+- **Security hardening** (PR #74 → #75 → main, `6b071de`): `_client_ip()` gains `TRUSTED_PROXIES` env-var support (proxy-spoofing defense); `_check_origin()` added to all state-changing POSTs (`api_login`, `api_bot_restart`, `api_bot_stop`) as CSRF defense-in-depth; rate-limit call moved after session-cookie validity check so valid operators are not throttled; 8 new tests DB-21..DB-28 (stale threshold branches, XFF non-honor, lockout state machine, cookie login flow) — 28/28 dashboard tests pass.
+- **Polish** (PR #76 → #77 → main, `3eaa291`+`26b7079`): DST fallback `except Exception` → `raise RuntimeError` with source exc; `exc_info=True` on PnL warnings in `main.py`; 6 bare `except Exception` clauses narrowed in `ibkr_client.py`, `data/feed.py`, `strategies/sma_crossover.py`; duplicate root scaffolding files `test_connection.py`/`test_order_manager.py` deleted via `git rm`; README gains `ib_insync` archive notice pointing to `ib_async` fork. ruff ✅ black ✅ mypy ✅.
+- 1 remaining open CR: CR-07 (`ib_insync` migration — BACKLOG, multi-week). 1 open finding: finding #6 (reconnect fill-reconciliation — needs simulated-disconnect integration test, own feature branch).
+- **Process improvement:** WORKFLOW.md "Debugging discipline" — before writing a test for a state-changing POST, confirm the function has `_check_origin` in its signature or the test will pass vacuously.
+- **Next session:** VPS deploy (`git pull origin main && systemctl restart tradebot-dashboard`); Sunday 2FA rehearsal 2026-05-10 ~02:00 ET; then `feature/cr-reconnect-fill-reconciliation`.
+
+---
+
 ## 2026-05-03 — Code review cycle 100% done: CR-03 runbook + CR-19 pytest migration shipped (20/20 CRs)
 
 - CR-03: wrote `docs/runbook-2fa-recovery.md` — cold-start guide for backup operator covering prerequisites (SSH key, Tailscale, TightVNC), 7-step Sunday recovery routine, success verification table, troubleshooting section. Branch `feature/cr-03-operator-runbook` → develop → main.
