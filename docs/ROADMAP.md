@@ -58,7 +58,7 @@ Key deliverables: SMA 10/30 crossover on QQQ daily bars, 4-round architect revie
 Key deliverables: systemd chain (xvfb → x11vnc → ibgateway → tradebot), IBC config, PnLPoller, Tailscale/UFW hardening, ntfy.sh health heartbeat.
 
 **Remaining:**
-- 5.7 [~] Monitoring dashboard — Phase 1 (read-only) ✅ + Phase 2 (System card: gateway/PID/uptime/port) ✅ + weekend-aware stale threshold ✅ + Phase 3 control plane (POST /api/bot/restart, /api/bot/stop with Bearer-token auth + scoped sudoers rule) ✅ code; awaiting VPS deploy (set DASHBOARD_TOKEN in /opt/tradebot/.env, install /etc/sudoers.d/tradebot-dashboard, restart tradebot-dashboard)
+- 5.7 [x] Monitoring dashboard — Phase 1 (read-only) ✅ + Phase 2 (System card: gateway/PID/uptime/port) ✅ + weekend-aware stale threshold ✅ + Phase 3 control plane (POST /api/bot/restart, /api/bot/stop with Bearer-token auth + scoped sudoers rule) ✅ deployed and operator-verified on VPS 2026-05-03 (Controls card live, "Restart ok" confirmed). Phase 4+ (account balance, per-strategy analytics, UI redesign) tracked in BACKLOG.
 - 5.8 [x] CI/CD pipeline — **now done (2026-05-01)**
 - 5.9 [x] IBKR Trusted IP — **won't do**: one IP per user, would block home PC. Gateway API Trusted IPs already set to 127.0.0.1 in IBC config.
 - 5.16 [ ] IBKR support inquiry — ask about push 2FA for Israeli accounts

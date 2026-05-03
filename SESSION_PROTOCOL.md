@@ -62,6 +62,8 @@ Ask via a short question with 2–3 grounded options derived from the ROADMAP an
 
 **Scope-sprawl audit sub-rule:** if the previous CHATLOG entry's "Next session:" line bundles ≥ 3 distinct deliverables, present the smallest clean first increment as the Recommended option.
 
+**Verify-before-recommending sub-rule:** before presenting a previous CHATLOG's "Next session:" item as the Recommended option, verify it is still pending. Cheap checks first: `git log origin/main` for code/merge claims; for visibly-deployable artifacts (running services, dashboards, merged PRs, pushed branches) ask the user one sentence ("is the Controls card live yet?") rather than trusting the doc. **Especially required when the previous CHATLOG entry is marked `RECONSTRUCTED`** — the reconstruction is built from git + chat transcript, but anything completed after the originating session's API error / context exhaustion appears in neither source, so the "Next session:" line is unverified by definition.
+
 Example:
 > What's today's focus?
 > A) (Recommended) Sunday 2FA recovery test prep — verify VNC tunnel and write recovery checklist
