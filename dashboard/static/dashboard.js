@@ -19,6 +19,11 @@ const fmtUSD = new Intl.NumberFormat("en-US", {
 // Cached /api/info account for mismatch detection
 let _infoAccount = null;
 
+// True when the IBKR Account tab is the active view.
+// Prevents fetchAccount / fetchEquity from consuming the rate limit in the
+// background while the user is on the Mission Control tab.
+let _onAcctTab = false;
+
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 
 async function _fetchJSON(path) {
@@ -425,6 +430,7 @@ function _selectTab(tabId) {
   acct.setAttribute("tabindex", isAcct ? "0" : "-1");
 
   if (isAcct) {
+    _onAcctTab = true;
     panelMc.setAttribute("hidden", "");
     panelAcct.removeAttribute("hidden");
     acct.focus();
@@ -432,6 +438,7 @@ function _selectTab(tabId) {
     fetchAccount();
     fetchEquity(daysFor(_currentRange));
   } else {
+    _onAcctTab = false;
     panelAcct.setAttribute("hidden", "");
     panelMc.removeAttribute("hidden");
     mc.focus();
@@ -471,11 +478,14 @@ async function refresh() {
       fetchToday(),
       fetchFills(),
       fetchSystem(),
-      fetchAccount(),
+      // Account data only fetched while the IBKR Account tab is active —
+      // prevents silently exhausting the per-session equity rate limit while
+      // the user is looking at Mission Control.
+      ...(_onAcctTab ? [fetchAccount()] : []),
     ]);
 
-    // Equity: refetch if range changed OR 30s elapsed since last fetch
-    if (Date.now() - _lastEquityFetch >= 30000) {
+    // Equity: only when tab is active AND 30s have elapsed since last fetch
+    if (_onAcctTab && Date.now() - _lastEquityFetch >= 30000) {
       fetchEquity(daysFor(_currentRange));
     }
 

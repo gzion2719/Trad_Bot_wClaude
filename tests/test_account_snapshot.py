@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -71,7 +72,7 @@ class _StubClient:
         account_values: Optional[list] = None,
         positions: Optional[list] = None,
         raise_on_summary: bool = False,
-        account: str = "DUE000000",
+        account: str = "STUB-ACCT",
     ) -> None:
         self.account = account
         self._account_values = (
@@ -151,7 +152,7 @@ def test_as03_run_loop_survives_ib_exception(tmp_path, caplog):
     call_count = 0
 
     class _AlwaysRaisingClient:
-        account = "DUE000000"
+        account = "STUB-ACCT"
 
         def get_account_summary_threadsafe(self) -> list:
             nonlocal call_count
@@ -167,9 +168,9 @@ def test_as03_run_loop_survives_ib_exception(tmp_path, caplog):
     with caplog.at_level(logging.WARNING, logger="data.account_snapshot"):
         p.start()
         # Wait until at least 2 capture attempts have been made, then stop.
-        deadline = __import__("time").monotonic() + 3.0
-        while call_count < 2 and __import__("time").monotonic() < deadline:
-            __import__("time").sleep(0.02)
+        deadline = time.monotonic() + 3.0
+        while call_count < 2 and time.monotonic() < deadline:
+            time.sleep(0.02)
         p.stop()
         p.join(timeout=2)
 
