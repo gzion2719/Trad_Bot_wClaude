@@ -142,17 +142,35 @@ async function releaseLock() {
 
 document.getElementById("btn-step-up").addEventListener("click", stepUp);
 passwordInput.addEventListener("keydown", e => { if (e.key === "Enter") stepUp(); });
+function closeOrNavigate() {
+  // Popup case (most common — opened by dashboard.js): close ourselves so the
+  // user isn't left with two dashboard windows. Direct-load case: fall back
+  // to navigation so /console.html still has a way back to the dashboard.
+  if (window.opener && !window.opener.closed) {
+    window.close();
+  } else {
+    window.location.href = "/";
+  }
+}
 document.getElementById("btn-disconnect").addEventListener("click", () => {
   if (rfb) rfb.disconnect();
   releaseLock();
-  window.location.href = "/";
+  closeOrNavigate();
 });
+const backLink = document.querySelector('.console-actions a[href="/"]');
+if (backLink) {
+  backLink.addEventListener("click", e => { e.preventDefault(); closeOrNavigate(); });
+}
 
-window.addEventListener("beforeunload", () => {
-  // Best-effort lock release on tab close — keep payload small (sendBeacon)
+function releaseBeacon() {
+  // Best-effort lock release on tab/window close — sendBeacon survives unload.
+  // Listening on both beforeunload and pagehide because beforeunload is
+  // skipped on bfcache restores and on some mobile-Safari close paths.
   if (lockHeld) {
     navigator.sendBeacon("/api/console/release");
   }
-});
+}
+window.addEventListener("beforeunload", releaseBeacon);
+window.addEventListener("pagehide", releaseBeacon);
 
 setState("awaiting step-up");
