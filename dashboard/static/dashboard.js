@@ -164,11 +164,11 @@ const consoleFrame = document.getElementById("console-frame");
 function openConsoleModal() {
   if (!consoleModal || !consoleFrame) return;
   consoleFrame.src = "/console.html";
-  consoleModal.style.display = "flex";
+  consoleModal.classList.add("visible");
 }
 async function closeConsoleModal() {
   if (!consoleModal || !consoleFrame) return;
-  consoleModal.style.display = "none";
+  consoleModal.classList.remove("visible");
   consoleFrame.src = "";
   await fetch("/api/console/lock/release", { method: "POST", credentials: "same-origin" }).catch(() => {});
 }
@@ -182,7 +182,7 @@ if (consoleCloseBtn) consoleCloseBtn.addEventListener("click", closeConsoleModal
 if (consoleModal) {
   consoleModal.addEventListener("click", e => { if (e.target === consoleModal) closeConsoleModal(); });
 }
-document.addEventListener("keydown", e => { if (e.key === "Escape" && consoleModal && consoleModal.style.display === "flex") closeConsoleModal(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && consoleModal && consoleModal.classList.contains("visible")) closeConsoleModal(); });
 
 const btnLogin = document.getElementById("btn-login");
 if (btnLogin) btnLogin.addEventListener("click", () => showLogin());

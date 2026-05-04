@@ -5,6 +5,9 @@
   margin: -1.5rem;
   padding: 0;
 }
+html.embedded .console-header { display: none; }
+html.embedded body { padding: 0; }
+html.embedded .console-shell { margin: 0; }
 .console-header {
   display: flex;
   align-items: center;
