@@ -165,9 +165,23 @@ if (consoleBtn) {
     // The console page handles step-up auth, lock acquire, and unload-time
     // release on its own — closing the window fires beforeunload/pagehide
     // which sendBeacon's the lock release back to the server.
-    const features = "popup=yes,width=960,height=680,resizable=yes,scrollbars=no,noopener,noreferrer";
-    const w = window.open("/console.html", "tradebot-console", features);
-    if (!w) setMsg("popup blocked — allow popups for this site", "err");
+    // Note: noopener/noreferrer would force window.open() to return null,
+    // breaking the popup-blocked detection below. The console page is
+    // same-origin trusted code, so dropping noopener is acceptable here.
+    // Using "_blank" (not a fixed name) means each click opens a fresh
+    // window instead of focusing a stale one with possibly-wrong URL.
+    const features = "popup=yes,width=960,height=680,resizable=yes,scrollbars=no";
+    const w = window.open("/console.html", "_blank", features);
+    if (!w) {
+      setMsg("popup blocked — allow popups for this site", "err");
+    } else {
+      // Best-effort: detach the popup's reference back to us so console code
+      // can't reach into the dashboard via window.opener. Same-origin still
+      // permits cookie+fetch access, but window.opener-based DOM access goes
+      // away. We retain `w` locally for the popup-blocked check above.
+      try { w.opener = null; } catch (_) { /* cross-origin or already null */ }
+      setMsg("", "");
+    }
   });
 }
 
@@ -176,7 +190,18 @@ if (btnLogin) {
   btnLogin.addEventListener("click", async () => {
     // Logout first so the prior session cookie + step-up tokens are revoked
     // server-side before the new login overlay shows. Mirrors btn-logout flow.
-    await fetch("/api/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+    // If logout fails we MUST NOT show the overlay — the user could submit
+    // a new token while the old session is still valid server-side.
+    try {
+      const r = await fetch("/api/logout", { method: "POST", credentials: "same-origin" });
+      if (!r.ok) {
+        setMsg(`logout failed (${r.status}) — reload before re-logging in`, "err");
+        return;
+      }
+    } catch (e) {
+      setMsg(`logout error: ${esc(e.message)} — reload before re-logging in`, "err");
+      return;
+    }
     showLogin("");
   });
 }

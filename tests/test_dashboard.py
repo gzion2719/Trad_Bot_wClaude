@@ -410,3 +410,41 @@ def test_db28_cookie_login_flow_authorises_control_endpoint(monkeypatch):
     finally:
         os.environ.pop("DASHBOARD_TOKEN", None)
         _reset_rate_state()
+
+
+# ── Static guards: catch regressions from a churning popup-features story ────
+
+_STATIC_DIR = Path(__file__).resolve().parents[1] / "dashboard" / "static"
+
+
+def test_db29_console_button_uses_window_open_no_noopener() -> None:
+    """Guard against the recurring popup-features regression.
+
+    History: noopener was added for security, then removed because Chrome
+    returns null from window.open() when noopener is set, breaking the
+    popup-blocked detection. A future cleanup that re-adds noopener would
+    silently re-introduce the false 'popup blocked' message on every click.
+    """
+    src = (_STATIC_DIR / "dashboard.js").read_text(encoding="utf-8")
+    assert 'window.open("/console.html"' in src, (
+        "Console button must call window.open('/console.html', ...). "
+        "If you reverted to navigation, update or remove this guard."
+    )
+    # Allow noopener inside comments, but not in any features string the code
+    # actually passes to window.open. Check the contiguous features const.
+    features_lines = [
+        line
+        for line in src.splitlines()
+        if "popup=yes" in line and "width=" in line and not line.lstrip().startswith("//")
+    ]
+    assert features_lines, "Could not locate popup features string."
+    for line in features_lines:
+        assert "noopener" not in line, (
+            f"noopener in popup features breaks window.open's return value in "
+            f"Chrome (returns null on success), defeating popup-blocked "
+            f"detection. Offending line: {line.strip()}"
+        )
+        assert "noreferrer" not in line, (
+            f"noreferrer has the same null-return effect as noopener in "
+            f"Chrome popups. Offending line: {line.strip()}"
+        )
