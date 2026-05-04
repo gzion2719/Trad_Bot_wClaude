@@ -71,7 +71,7 @@ class _StubClient:
         account_values: Optional[list] = None,
         positions: Optional[list] = None,
         raise_on_summary: bool = False,
-        account: str = "DUE000000",
+        account: str = "STUB-ACCT",
     ) -> None:
         self.account = account
         self._account_values = (
@@ -151,7 +151,7 @@ def test_as03_run_loop_survives_ib_exception(tmp_path, caplog):
     call_count = 0
 
     class _AlwaysRaisingClient:
-        account = "DUE000000"
+        account = "STUB-ACCT"
 
         def get_account_summary_threadsafe(self) -> list:
             nonlocal call_count
