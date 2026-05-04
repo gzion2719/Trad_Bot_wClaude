@@ -94,21 +94,31 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .fills-card { margin-top: 1rem; }
 .login-btn-wide { width: 100%; }
 .console-modal {
+  display: none;
   position: fixed; inset: 0;
   background: rgba(14,17,22,0.88); z-index: 200;
   align-items: center; justify-content: center;
 }
+.console-modal.visible { display: flex; }
 .console-modal-box {
-  width: 92vw; height: 90vh;
+  width: min(960px, 88vw);
+  height: min(680px, 86vh);
   background: var(--card); border: 1px solid var(--border);
   border-radius: 8px; display: flex; flex-direction: column;
-  overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,0.7);
 }
 .console-modal-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 0.6rem 1rem; border-bottom: 1px solid var(--border);
+  padding: 0.55rem 1rem; border-bottom: 1px solid var(--border);
   font-size: 0.85rem; font-weight: 600; color: var(--text);
   background: #1c2128; flex-shrink: 0;
 }
 .console-modal-close { font-size: 0.8rem; padding: 0.3rem 0.7rem; }
-#console-frame { flex: 1; border: none; width: 100%; }
+#console-frame {
+  flex: 1 1 auto;
+  border: 0;
+  width: 100%;
+  min-height: 0;
+  display: block;
+  background: var(--bg);
+}
