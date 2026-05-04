@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 class _IBClient(Protocol):
     """Structural protocol for the IB client used by AccountSnapshotPoller."""
 
-    account: str
+    @property
+    def account(self) -> str: ...
 
     def get_account_summary_threadsafe(self) -> list: ...
 
