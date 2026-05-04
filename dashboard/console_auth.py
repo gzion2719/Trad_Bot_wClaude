@@ -36,8 +36,7 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 # Step-up token TTL — long enough to enter a code, short enough to limit
-# exposure if the browser tab is left open. 5 minutes matches the lockout
-# window from CR-05 for consistency.
+# exposure if the browser tab is left open.
 STEP_UP_TTL_SECONDS = 300
 
 # Idle timeout for an active console session — VNC bytes from the operator

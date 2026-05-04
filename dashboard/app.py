@@ -260,9 +260,9 @@ def api_recent_fills(limit: int = 20) -> List[Dict[str, Any]]:
 # legitimate operators have the token and unauthenticated callers benefit from
 # the bind being Tailscale-only (CR-04).
 _RATE_LIMIT_WINDOW_SECONDS = 60
-_RATE_LIMIT_MAX_ATTEMPTS = 3  # 3 control-plane requests per minute per IP
-_LOCKOUT_FAILED_THRESHOLD = 10  # after 10 invalid-token attempts in window
-_LOCKOUT_DURATION_SECONDS = 300  # 5 min lockout
+_RATE_LIMIT_MAX_ATTEMPTS = 30  # generous per-minute cap; lockout is the real gate
+_LOCKOUT_FAILED_THRESHOLD = 3  # after 3 invalid-credential attempts in window
+_LOCKOUT_DURATION_SECONDS = 180  # 3 min lockout
 
 _rate_state: Dict[str, Dict[str, Any]] = {}
 _rate_lock = threading.Lock()
@@ -318,7 +318,7 @@ def _enforce_rate_limit(ip: str) -> None:
 
 
 def _record_auth_failure(ip: str) -> None:
-    """Track 401s; trip a 5-min lockout after _LOCKOUT_FAILED_THRESHOLD fails."""
+    """Track 401s; trip a lockout after _LOCKOUT_FAILED_THRESHOLD fails in the window."""
     now = time.monotonic()
     with _rate_lock:
         s = _rate_state.setdefault(ip, {"attempts": [], "fails": [], "lockout_until": 0.0})
