@@ -353,3 +353,33 @@ class IBKRClient:
         ib.positions() only has contract, position, and avgCost.
         """
         return self.ib.portfolio()
+
+    def get_account_summary_threadsafe(self) -> list:
+        """Thread-safe variant of get_account_summary() for daemon-thread callers.
+
+        Mirrors the B-08 fix in connect(): uses run_coroutine_threadsafe against
+        the main event loop saved on first connect(). Required because ib_insync
+        calls asyncio.get_event_loop() internally; Python 3.12 raises RuntimeError
+        in non-main threads.
+        """
+        if self._main_loop is None or threading.current_thread() is threading.main_thread():
+            return self.ib.accountSummary()
+        fut = asyncio.run_coroutine_threadsafe(self.ib.accountSummaryAsync(), self._main_loop)
+        return fut.result(timeout=10)
+
+    def get_positions_threadsafe(self) -> list:
+        """Thread-safe variant of get_positions() — same pattern as above.
+
+        portfolio() has no Async variant. We wrap it in a coroutine so it
+        executes on the event-loop thread, which is the sole writer of the
+        internal portfolio cache (ib_insync Wrapper). Running on any other
+        thread would race with IBKR callback updates.
+        """
+        if self._main_loop is None or threading.current_thread() is threading.main_thread():
+            return self.ib.portfolio()
+
+        async def _fetch() -> list:
+            return self.ib.portfolio()
+
+        fut = asyncio.run_coroutine_threadsafe(_fetch(), self._main_loop)
+        return fut.result(timeout=10)

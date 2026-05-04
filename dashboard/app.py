@@ -52,6 +52,7 @@ from dashboard.console_auth import (
     audit_log,
     fingerprint_session,
 )
+from data.account_snapshot import downsample, read_equity_history, read_snapshot
 from data.trade_log import TradeLog
 
 logger = logging.getLogger(__name__)
@@ -239,15 +240,110 @@ def api_health() -> Dict[str, Any]:
     }
 
 
+def _require_session(dashboard_session: Optional[str] = Cookie(default=None)) -> None:
+    """Dependency: raises 401 if no valid session cookie present."""
+    if not dashboard_session or not _is_valid_session(dashboard_session):
+        raise HTTPException(status_code=401, detail="login required")
+
+
+# Per-session sliding-window rate limit for /api/equity-history (10 req/min).
+_SESSION_RATE_STATE: Dict[str, Dict[str, Any]] = {}
+_session_rate_lock = threading.Lock()
+_SESSION_EQUITY_MAX = 10
+_SESSION_EQUITY_WINDOW = 60
+
+
+def _enforce_session_rate_limit(sid: str) -> None:
+    """Sliding-window rate limit keyed by session id. Raises 429 if exceeded."""
+    now = time.monotonic()
+    with _session_rate_lock:
+        s = _SESSION_RATE_STATE.setdefault(sid, {"attempts": []})
+        cutoff = now - _SESSION_EQUITY_WINDOW
+        s["attempts"] = [t for t in s["attempts"] if t > cutoff]
+        if len(s["attempts"]) >= _SESSION_EQUITY_MAX:
+            raise HTTPException(status_code=429, detail="equity-history rate limit exceeded")
+        s["attempts"].append(now)
+
+
 @app.get("/api/today")
-def api_today() -> Dict[str, Any]:
+def api_today(_: None = Depends(_require_session)) -> Dict[str, Any]:
     return _trade_log.daily_summary()
 
 
 @app.get("/api/recent-fills")
-def api_recent_fills(limit: int = 20) -> List[Dict[str, Any]]:
+def api_recent_fills(limit: int = 20, _: None = Depends(_require_session)) -> List[Dict[str, Any]]:
     limit = max(1, min(limit, 200))
     return _trade_log.get_history(limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# IBKR Account tab endpoints — session-cookie gated, file-IPC only
+# ---------------------------------------------------------------------------
+
+_ACCOUNT_STALE_AFTER = 120  # seconds before a snapshot is considered stale
+
+
+@app.get("/api/account")
+def api_account(_: None = Depends(_require_session)) -> Dict[str, Any]:
+    """Read account_snapshot.json and classify freshness.
+
+    status values:
+      "ok"          — file parsed, schema valid, age <= 120s
+      "stale"       — file parsed, schema valid, age > 120s
+      "unreadable"  — file exists but parse or schema-version failed
+      "missing"     — file absent (poller not started or data dir missing)
+    """
+    snap = read_snapshot(_ROOT / "data")
+    file_status = snap.get("status", "missing")
+    age = snap.get("age_seconds")
+
+    if file_status == "ok":
+        status = "ok" if (age is not None and age <= _ACCOUNT_STALE_AFTER) else "stale"
+    else:
+        status = file_status
+
+    snap["status"] = status
+    snap["stale_after_seconds"] = _ACCOUNT_STALE_AFTER
+    return snap
+
+
+@app.get("/api/positions")
+def api_positions(_: None = Depends(_require_session)) -> Dict[str, Any]:
+    """Return current positions from the latest snapshot.
+
+    Returns an empty list when the snapshot is missing or unreadable.
+    """
+    snap = read_snapshot(_ROOT / "data")
+    file_status = snap.get("status", "missing")
+    age = snap.get("age_seconds")
+
+    if file_status == "ok":
+        status = "ok" if (age is not None and age <= _ACCOUNT_STALE_AFTER) else "stale"
+    else:
+        status = file_status
+
+    positions = snap.get("positions", []) if status in ("ok", "stale") else []
+    return {"status": status, "positions": positions}
+
+
+@app.get("/api/equity-history")
+def api_equity_history(
+    days: int = 30,
+    dashboard_session: Optional[str] = Cookie(default=None),
+    _: None = Depends(_require_session),
+) -> Dict[str, Any]:
+    """Return downsampled equity history for the requested day window.
+
+    days is clamped to [1, 365]. Rate-limited to 10 req/min per session.
+    """
+    # _require_session guarantees dashboard_session is non-None here; assert for safety.
+    assert dashboard_session is not None
+    _enforce_session_rate_limit(dashboard_session)
+    days = max(1, min(days, 365))
+    points = read_equity_history(_ROOT / "data", days)
+    orig_count = len(points)
+    downsampled = downsample(points, max_points=2000)
+    return {"points": downsampled, "days": days, "downsampled_from": orig_count}
 
 
 # ---------------------------------------------------------------------------
