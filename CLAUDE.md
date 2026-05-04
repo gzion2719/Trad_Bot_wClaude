@@ -30,15 +30,15 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot deployed and running on VPS (paper account, SMA crossover on QQQ). Console is now opened as an OS popup (`window.open`) from the dashboard's Controls card; iframe modal approach was tried and reverted after independent review found 2 BLOCKERs. Full session detail in CHATLOG.
+**Phase 6 — paper trading.** Bot deployed and running on VPS (paper account, SMA crossover on QQQ). Dashboard Phase 4 shipped: IBKR Account tab (KPI strip, equity chart, positions table, balances), file-IPC via `account_snapshot.json` written every 30s by the bot. PRs pending (not yet deployed). Full session detail in CHATLOG.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 **Immediate next steps:**
-1. **GC-3 — security review pass on the console** (rate limiter, step-up TTL, audit log completeness, CSP scope on /console.html). Tightens the surface before TLS lands.
-2. **GC-4 — TLS for the dashboard** so the popup works without the `ssh -L 8080:...` tunnel (Caddy/nginx + tailscale-cert).
-3. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
-4. **GC-5 — console UI redesign** to match the Mission Control look (BACKLOG, lower priority).
+1. **Deploy dashboard Phase 4** — `git pull origin main && systemctl restart tradebot tradebot-dashboard` on VPS. Verify KPI strip shows live balance + equity chart renders within 60s.
+2. **GC-3 — security review pass on the console** (rate limiter, step-up TTL, audit log completeness, CSP scope on /console.html).
+3. **GC-4 — TLS for the dashboard** so the popup works without the `ssh -L 8080:...` tunnel (Caddy/nginx + tailscale-cert).
+4. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
 
 ### What was done last session (2026-05-02, dashboard Phase 2 + weekend-aware stale threshold) — RECONSTRUCTED
 

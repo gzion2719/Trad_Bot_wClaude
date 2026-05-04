@@ -3,6 +3,18 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-04 — Dashboard Phase 4: IBKR Account tab (KPI strip, equity chart, positions, balances)
+
+- Shipped `feature/dashboard-ibkr-account-tab` (4 commits, branch pushed): `AccountSnapshotPoller` daemon writes `data/account_snapshot.json` every 30s via file-IPC + per-day `equity_history_YYYY-MM-DD.jsonl` (365-day retention, server-side bucketed-mean downsampling to ≤2000 pts). New `data/account_snapshot.py` with `_IBClient` structural Protocol, `read_snapshot()`, `read_equity_history()`, `downsample()`.
+- Two new thread-safe IB methods: `get_account_summary_threadsafe()` uses `accountSummaryAsync()` via `run_coroutine_threadsafe`; `get_positions_threadsafe()` wraps sync `portfolio()` in an async closure on the event-loop thread — mirrors B-08 pattern.
+- Dashboard gains: KPI strip (Settled Cash / Unrealized P&L / Realized P&L) always visible; "IBKR Account" tab with equity SVG chart (CSP-safe, no external deps), positions table, balances list; `/api/today` + `/api/recent-fills` now require session cookie; `/api/account` + `/api/positions` + `/api/equity-history` added with session gate + 10/min rate limit keyed by `fingerprint_session()`.
+- `_onAcctTab` flag in `dashboard.js` prevents background 5s polling from consuming equity rate limit while user is on Mission Control tab; `_clear_session_rate_limit()` called on logout to avoid memory leak in `_SESSION_RATE_STATE`.
+- 47 new tests: AS-01..10 (`tests/test_account_snapshot.py`) + DB-30..38 (`tests/test_dashboard.py`). Two rounds of unbiased code review applied; gate: ruff ✅ black ✅ mypy ✅ 48/48 tests ✅. PRs pending — not yet deployed to VPS.
+- **Process improvement:** Added `_onAcctTab` pattern to WORKFLOW.md "Rate limit discipline" — background polling loops must gate expensive endpoints behind a tab-visibility flag; never let polling exhaust per-session limits silently.
+- **Next session:** Merge PRs (feature → develop, develop → main) and deploy (`git pull origin main && systemctl restart tradebot tradebot-dashboard`); verify KPI strip + equity chart render live data within 60s. Then GC-3 (security review on console) or GC-4 (TLS via Caddy).
+
+---
+
 ## 2026-05-04 — Console UX overhaul: GC-1 always-visible button + window.open popup + rate-limit tuning
 
 - Synced develop ↔ main (PR #95) and shipped GC-1 always-visible "Open Gateway Console" button (PRs #96/#97). User confirmed GC-2 (full 2FA login rehearsal) completed earlier the same morning.

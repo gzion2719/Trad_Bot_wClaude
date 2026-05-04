@@ -1,5 +1,6 @@
 """Section 18: Dashboard route tests — no IBKR connection needed."""
 
+import json
 import os
 import subprocess as sp_module
 import tempfile
@@ -448,3 +449,238 @@ def test_db29_console_button_uses_window_open_no_noopener() -> None:
             f"noreferrer has the same null-return effect as noopener in "
             f"Chrome popups. Offending line: {line.strip()}"
         )
+
+
+# ── IBKR Account tab tests (DB-30..DB-37) ─────────────────────────────────────
+
+_VALID_SNAPSHOT = {
+    "v": 1,
+    "captured_at": datetime.now(timezone.utc).isoformat(),
+    "account": "DU12345",
+    "summary": {
+        "net_liquidation": 100000.0,
+        "settled_cash": 50000.0,
+        "unrealized_pnl": 1234.56,
+        "realized_pnl": 789.0,
+        "maintenance_margin": 10000.0,
+        "excess_liquidity": 40000.0,
+        "buying_power": 80000.0,
+        "available_funds": 45000.0,
+        "cash": 55000.0,
+        "equity_with_loan": 100000.0,
+        "initial_margin": 15000.0,
+        "previous_day_ewl": None,
+        "regulation_t_ewl": None,
+        "sma": None,
+        "leverage": None,
+        "gross_position_value": None,
+    },
+    "positions": [
+        {
+            "symbol": "QQQ",
+            "name": "QQQ",
+            "position": 100,
+            "market_value": 50000.0,
+            "avg_cost": 450.0,
+            "market_price": 500.0,
+            "unrealized_pnl": 5000.0,
+            "realized_pnl": 0.0,
+        }
+    ],
+}
+
+
+def _make_tc_with_session(monkeypatch=None) -> TestClient:
+    """Return (TestClient, session_cookie_dict) for an authenticated session."""
+    os.environ.setdefault("DASHBOARD_TOKEN", "acct-test-secret")
+    _reset_rate_state()
+    tc = TestClient(dashboard_app.app, raise_server_exceptions=False)
+    login = tc.post("/api/login", json={"token": os.environ["DASHBOARD_TOKEN"]})
+    assert login.status_code == 200, f"Login failed: {login.status_code} {login.text}"
+    return tc
+
+
+def _write_snapshot(data_dir: Path, snap: dict) -> None:
+    snap_file = data_dir / "account_snapshot.json"
+    snap_file.write_text(json.dumps(snap), encoding="utf-8")
+
+
+def test_db30_api_account_missing_returns_status_missing(tmp_path):
+    """Empty data dir → GET /api/account returns status='missing'."""
+    orig = dashboard_app._ROOT
+    dashboard_app._ROOT = tmp_path
+    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
+    _reset_rate_state()
+    try:
+        (tmp_path / "data").mkdir(parents=True, exist_ok=True)
+        tc = _make_tc_with_session()
+        r = tc.get("/api/account")
+        assert r.status_code == 200
+        assert r.json()["status"] == "missing"
+    finally:
+        dashboard_app._ROOT = orig
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+
+
+def test_db31_api_account_ok_returns_snapshot_fields(tmp_path):
+    """Valid snapshot in data dir → GET /api/account returns all summary keys."""
+    orig = dashboard_app._ROOT
+    dashboard_app._ROOT = tmp_path
+    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
+    _reset_rate_state()
+    try:
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        _write_snapshot(data_dir, _VALID_SNAPSHOT)
+        tc = _make_tc_with_session()
+        r = tc.get("/api/account")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] in ("ok", "stale")
+        assert "summary" in body
+        for key in ("net_liquidation", "settled_cash", "unrealized_pnl", "realized_pnl"):
+            assert key in body["summary"]
+    finally:
+        dashboard_app._ROOT = orig
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+
+
+def test_db32_api_account_unauthenticated_returns_401():
+    """GET /api/account without a session cookie returns 401."""
+    tc = TestClient(dashboard_app.app, raise_server_exceptions=False)
+    r = tc.get("/api/account")
+    assert r.status_code == 401
+
+
+def test_db33_api_positions_returns_list(tmp_path):
+    """Valid snapshot with 1 position → /api/positions returns list of length 1."""
+    orig = dashboard_app._ROOT
+    dashboard_app._ROOT = tmp_path
+    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
+    _reset_rate_state()
+    try:
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        _write_snapshot(data_dir, _VALID_SNAPSHOT)
+        tc = _make_tc_with_session()
+        r = tc.get("/api/positions")
+        assert r.status_code == 200
+        body = r.json()
+        assert "positions" in body
+        assert len(body["positions"]) == 1
+    finally:
+        dashboard_app._ROOT = orig
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+
+
+def test_db34_api_equity_history_clamps_days_lower(tmp_path):
+    """days=-1 is clamped to 1."""
+    orig = dashboard_app._ROOT
+    dashboard_app._ROOT = tmp_path
+    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
+    _reset_rate_state()
+    # Clear per-session rate state so this test starts fresh
+    with dashboard_app._session_rate_lock:
+        dashboard_app._SESSION_RATE_STATE.clear()
+    try:
+        (tmp_path / "data").mkdir(parents=True, exist_ok=True)
+        tc = _make_tc_with_session()
+        r = tc.get("/api/equity-history?days=-1")
+        assert r.status_code == 200
+        assert r.json()["days"] == 1
+    finally:
+        dashboard_app._ROOT = orig
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+        with dashboard_app._session_rate_lock:
+            dashboard_app._SESSION_RATE_STATE.clear()
+
+
+def test_db35_api_equity_history_clamps_days_upper(tmp_path):
+    """days=999 is clamped to 365."""
+    orig = dashboard_app._ROOT
+    dashboard_app._ROOT = tmp_path
+    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
+    _reset_rate_state()
+    with dashboard_app._session_rate_lock:
+        dashboard_app._SESSION_RATE_STATE.clear()
+    try:
+        (tmp_path / "data").mkdir(parents=True, exist_ok=True)
+        tc = _make_tc_with_session()
+        r = tc.get("/api/equity-history?days=999")
+        assert r.status_code == 200
+        assert r.json()["days"] == 365
+    finally:
+        dashboard_app._ROOT = orig
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+        with dashboard_app._session_rate_lock:
+            dashboard_app._SESSION_RATE_STATE.clear()
+
+
+def test_db36_api_equity_history_downsamples(tmp_path):
+    """Today's equity file with 3000 lines → response points <= 2000."""
+    orig = dashboard_app._ROOT
+    dashboard_app._ROOT = tmp_path
+    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
+    _reset_rate_state()
+    with dashboard_app._session_rate_lock:
+        dashboard_app._SESSION_RATE_STATE.clear()
+    try:
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        today = datetime.now(timezone.utc).date()
+        eq_file = data_dir / f"equity_history_{today}.jsonl"
+        lines = [
+            json.dumps({"t": f"2026-01-01T00:{i//60:02d}:{i%60:02d}+00:00", "net_liq": float(i)})
+            for i in range(3000)
+        ]
+        eq_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        tc = _make_tc_with_session()
+        r = tc.get("/api/equity-history?days=1")
+        assert r.status_code == 200
+        assert len(r.json()["points"]) <= 2000
+    finally:
+        dashboard_app._ROOT = orig
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+        with dashboard_app._session_rate_lock:
+            dashboard_app._SESSION_RATE_STATE.clear()
+
+
+def test_db37_api_equity_history_rate_limit(tmp_path):
+    """11 requests from the same session in one minute → 11th returns 429."""
+    orig = dashboard_app._ROOT
+    dashboard_app._ROOT = tmp_path
+    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
+    _reset_rate_state()
+    with dashboard_app._session_rate_lock:
+        dashboard_app._SESSION_RATE_STATE.clear()
+    try:
+        (tmp_path / "data").mkdir(parents=True, exist_ok=True)
+        tc = _make_tc_with_session()
+        # 10 requests should all succeed (rate limit = 10/min)
+        for i in range(10):
+            r = tc.get("/api/equity-history?days=1")
+            assert r.status_code == 200, f"Request {i+1} should succeed, got {r.status_code}"
+        # 11th must be rate-limited
+        r = tc.get("/api/equity-history?days=1")
+        assert r.status_code == 429, f"Expected 429 on request 11, got {r.status_code}"
+    finally:
+        dashboard_app._ROOT = orig
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        _reset_rate_state()
+        with dashboard_app._session_rate_lock:
+            dashboard_app._SESSION_RATE_STATE.clear()
+
+
+def test_db38_today_and_fills_require_session():
+    """/api/today and /api/recent-fills return 401 without a session cookie."""
+    tc = TestClient(dashboard_app.app, raise_server_exceptions=False)
+    for path in ("/api/today", "/api/recent-fills"):
+        r = tc.get(path)
+        assert r.status_code == 401, f"Expected 401 for unauthenticated {path}, got {r.status_code}"

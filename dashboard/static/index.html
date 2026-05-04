@@ -11,6 +11,18 @@
 <h1>TradeBot — Mission Control</h1>
 <div class="sub" id="sub">polling every 5s</div>
 
+<div class="tabs" role="tablist" aria-label="Dashboard sections">
+  <button class="tab" role="tab" id="tab-mc" aria-selected="true" aria-controls="panel-mc" tabindex="0">Mission Control</button>
+  <button class="tab" role="tab" id="tab-acct" aria-selected="false" aria-controls="panel-acct" tabindex="-1">IBKR Account</button>
+</div>
+
+<div class="kpi-strip" id="kpi-strip">
+  <div class="kpi"><div class="kpi-label">Settled Cash</div><div class="kpi-value" id="kpi-settled">—</div></div>
+  <div class="kpi"><div class="kpi-label">Unrealized P&amp;L</div><div class="kpi-value" id="kpi-unrealized">—</div></div>
+  <div class="kpi"><div class="kpi-label">Realized P&amp;L</div><div class="kpi-value" id="kpi-realized">—</div></div>
+</div>
+
+<section id="panel-mc" role="tabpanel" aria-labelledby="tab-mc">
 <div class="grid">
   <div class="card">
     <h2>Liveness</h2>
@@ -67,15 +79,6 @@
   </div>
 </div>
 
-<div class="login-overlay" id="login-overlay">
-  <div class="login-box">
-    <h2>Dashboard login</h2>
-    <input type="password" id="login-input" placeholder="DASHBOARD_TOKEN" autocomplete="current-password">
-    <div class="login-err" id="login-err"></div>
-    <button class="btn login-btn-wide" id="login-btn">Login</button>
-  </div>
-</div>
-
 <div class="card fills-card">
   <h2>Recent fills</h2>
   <table id="fills-table">
@@ -89,6 +92,65 @@
       <tr><td colspan="7" class="muted-center">no fills yet</td></tr>
     </tbody>
   </table>
+</div>
+</section>
+
+<section id="panel-acct" role="tabpanel" aria-labelledby="tab-acct" hidden>
+  <div class="acct-mismatch" id="acct-mismatch" hidden></div>
+
+  <div class="card acct-dash">
+    <h2>Dashboard</h2>
+    <div class="acct-dash-header">
+      <div>
+        <div class="acct-netliq-label">Net Liquidation</div>
+        <div class="big acct-netliq" id="acct-netliq">—</div>
+        <div class="acct-change" id="acct-change"></div>
+      </div>
+      <div class="freshness-pill" id="acct-freshness"></div>
+    </div>
+    <div class="range-chips" id="range-chips">
+      <button class="chip active" data-days="7">7D</button>
+      <button class="chip" data-days="30">30D</button>
+      <button class="chip" data-days="mtd">MTD</button>
+      <button class="chip" data-days="ytd">YTD</button>
+      <button class="chip" data-days="365">All</button>
+    </div>
+    <svg id="equity-chart" class="equity-chart" viewBox="0 0 800 240" preserveAspectRatio="none">
+      <polyline class="equity-line" id="equity-line" points=""/>
+    </svg>
+    <div class="empty" id="chart-empty" hidden>No data yet.</div>
+  </div>
+
+  <div class="card acct-positions">
+    <h2>Positions</h2>
+    <div class="empty" id="positions-empty" hidden>No open positions.</div>
+    <table class="pos-table" id="positions-table" hidden>
+      <thead>
+        <tr>
+          <th>Instrument</th>
+          <th class="num">Position</th>
+          <th class="num">Market Value</th>
+          <th class="num">Avg Price</th>
+          <th class="num">Unrealized P&amp;L</th>
+        </tr>
+      </thead>
+      <tbody id="positions-body"></tbody>
+    </table>
+  </div>
+
+  <div class="card acct-balances">
+    <h2>Balances</h2>
+    <dl id="balances-list" class="balances-list"></dl>
+  </div>
+</section>
+
+<div class="login-overlay" id="login-overlay">
+  <div class="login-box">
+    <h2>Dashboard login</h2>
+    <input type="password" id="login-input" placeholder="DASHBOARD_TOKEN" autocomplete="current-password">
+    <div class="login-err" id="login-err"></div>
+    <button class="btn login-btn-wide" id="login-btn">Login</button>
+  </div>
 </div>
 
 <div class="footer" id="footer">last refresh: —</div>
