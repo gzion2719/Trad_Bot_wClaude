@@ -276,13 +276,12 @@ class AccountSnapshotPoller(threading.Thread):
             tmp_file.write_text(payload, encoding="utf-8")
             os.replace(str(tmp_file), str(snap_file))
 
-            equity_line = json.dumps(
-                {
-                    "t": captured_at.isoformat(),
-                    "net_liq": summary.get("net_liquidation"),
-                },
-                separators=(",", ":"),
-            )
-            equity_file = self._data_dir / f"{EQUITY_FILENAME_PREFIX}{captured_at.date()}.jsonl"
-            with equity_file.open("a", encoding="utf-8") as fh:
-                fh.write(equity_line + "\n")
+            net_liq = summary.get("net_liquidation")
+            if net_liq is not None:
+                equity_line = json.dumps(
+                    {"t": captured_at.isoformat(), "net_liq": net_liq},
+                    separators=(",", ":"),
+                )
+                equity_file = self._data_dir / f"{EQUITY_FILENAME_PREFIX}{captured_at.date()}.jsonl"
+                with equity_file.open("a", encoding="utf-8") as fh:
+                    fh.write(equity_line + "\n")

@@ -265,6 +265,12 @@ def _enforce_session_rate_limit(sid: str) -> None:
         s["attempts"].append(now)
 
 
+def _clear_session_rate_limit(sid: str) -> None:
+    """Remove a session's rate-limit entry on logout to prevent unbounded growth."""
+    with _session_rate_lock:
+        _SESSION_RATE_STATE.pop(sid, None)
+
+
 @app.get("/api/today")
 def api_today(_: None = Depends(_require_session)) -> Dict[str, Any]:
     return _trade_log.daily_summary()
@@ -336,9 +342,10 @@ def api_equity_history(
 
     days is clamped to [1, 365]. Rate-limited to 10 req/min per session.
     """
-    # _require_session guarantees dashboard_session is non-None here; assert for safety.
-    assert dashboard_session is not None
-    _enforce_session_rate_limit(dashboard_session)
+    # _require_session guarantees dashboard_session is non-None here.
+    # Use fingerprint (truncated hash) as the dict key — avoids storing the raw
+    # 64-char secret token in _SESSION_RATE_STATE where a crash dump could leak it.
+    _enforce_session_rate_limit(fingerprint_session(dashboard_session or ""))
     days = max(1, min(days, 365))
     points = read_equity_history(_ROOT / "data", days)
     orig_count = len(points)
@@ -557,6 +564,7 @@ def api_logout(
         _step_up_store.revoke_session(dashboard_session)
         _console_lock.release(fingerprint_session(dashboard_session))
         _delete_session(dashboard_session)
+        _clear_session_rate_limit(fingerprint_session(dashboard_session))
     response.delete_cookie(key=_SESSION_COOKIE, path="/")
     return {"ok": True}
 

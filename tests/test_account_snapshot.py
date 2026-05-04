@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -167,9 +168,9 @@ def test_as03_run_loop_survives_ib_exception(tmp_path, caplog):
     with caplog.at_level(logging.WARNING, logger="data.account_snapshot"):
         p.start()
         # Wait until at least 2 capture attempts have been made, then stop.
-        deadline = __import__("time").monotonic() + 3.0
-        while call_count < 2 and __import__("time").monotonic() < deadline:
-            __import__("time").sleep(0.02)
+        deadline = time.monotonic() + 3.0
+        while call_count < 2 and time.monotonic() < deadline:
+            time.sleep(0.02)
         p.stop()
         p.join(timeout=2)
 

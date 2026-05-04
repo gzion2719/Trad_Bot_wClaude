@@ -676,3 +676,11 @@ def test_db37_api_equity_history_rate_limit(tmp_path):
         _reset_rate_state()
         with dashboard_app._session_rate_lock:
             dashboard_app._SESSION_RATE_STATE.clear()
+
+
+def test_db38_today_and_fills_require_session():
+    """/api/today and /api/recent-fills return 401 without a session cookie."""
+    tc = TestClient(dashboard_app.app, raise_server_exceptions=False)
+    for path in ("/api/today", "/api/recent-fills"):
+        r = tc.get(path)
+        assert r.status_code == 401, f"Expected 401 for unauthenticated {path}, got {r.status_code}"
