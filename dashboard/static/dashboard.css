@@ -94,11 +94,10 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .fills-card { margin-top: 1rem; }
 .login-btn-wide { width: 100%; }
 .console-modal {
-  display: none; position: fixed; inset: 0;
+  position: fixed; inset: 0;
   background: rgba(14,17,22,0.88); z-index: 200;
   align-items: center; justify-content: center;
 }
-.console-modal.visible { display: flex; }
 .console-modal-box {
   width: 92vw; height: 90vh;
   background: var(--card); border: 1px solid var(--border);
