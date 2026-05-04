@@ -157,35 +157,29 @@ document.getElementById("btn-logout").addEventListener("click", async () => {
   showLogin("Logged out.");
 });
 
-// ---- Gateway Console modal --------------------------------------------------
-const consoleModal = document.getElementById("console-modal");
-const consoleFrame = document.getElementById("console-frame");
-
-function openConsoleModal() {
-  if (!consoleModal || !consoleFrame) return;
-  consoleFrame.src = "/console.html";
-  consoleModal.classList.add("visible");
-}
-async function closeConsoleModal() {
-  if (!consoleModal || !consoleFrame) return;
-  consoleModal.classList.remove("visible");
-  consoleFrame.src = "";
-  await fetch("/api/console/lock/release", { method: "POST", credentials: "same-origin" }).catch(() => {});
-}
-
 const consoleBtn = document.getElementById("btn-console");
-if (consoleBtn) consoleBtn.addEventListener("click", openConsoleModal);
-
-const consoleCloseBtn = document.getElementById("console-modal-close");
-if (consoleCloseBtn) consoleCloseBtn.addEventListener("click", closeConsoleModal);
-
-if (consoleModal) {
-  consoleModal.addEventListener("click", e => { if (e.target === consoleModal) closeConsoleModal(); });
+if (consoleBtn) {
+  consoleBtn.addEventListener("click", () => {
+    // Open in a sized OS window — keeps the dashboard out of the noVNC blast
+    // radius (separate top-level window, no iframe / sandbox / CSP gymnastics).
+    // The console page handles step-up auth, lock acquire, and unload-time
+    // release on its own — closing the window fires beforeunload/pagehide
+    // which sendBeacon's the lock release back to the server.
+    const features = "popup=yes,width=960,height=680,resizable=yes,scrollbars=no,noopener,noreferrer";
+    const w = window.open("/console.html", "tradebot-console", features);
+    if (!w) setMsg("popup blocked — allow popups for this site", "err");
+  });
 }
-document.addEventListener("keydown", e => { if (e.key === "Escape" && consoleModal && consoleModal.classList.contains("visible")) closeConsoleModal(); });
 
 const btnLogin = document.getElementById("btn-login");
-if (btnLogin) btnLogin.addEventListener("click", () => showLogin());
+if (btnLogin) {
+  btnLogin.addEventListener("click", async () => {
+    // Logout first so the prior session cookie + step-up tokens are revoked
+    // server-side before the new login overlay shows. Mirrors btn-logout flow.
+    await fetch("/api/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+    showLogin("");
+  });
+}
 
 document.getElementById("login-btn").addEventListener("click", async () => {
   const token = loginInput.value.trim();

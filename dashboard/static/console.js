@@ -10,13 +10,6 @@
 
 import RFB from "/static/vendor/novnc/core/rfb.js";
 
-// Hide the internal header when embedded in the dashboard modal — the modal
-// provides its own title bar and close button. Use a class (not inline style)
-// because the strict CSP blocks element.style assignments.
-if (window !== window.top) {
-  document.documentElement.classList.add("embedded");
-}
-
 const stepUpCard = document.getElementById("step-up-card");
 const canvasWrap = document.getElementById("canvas-wrap");
 const stateEl    = document.getElementById("console-state");
