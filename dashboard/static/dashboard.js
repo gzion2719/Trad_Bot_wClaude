@@ -162,27 +162,30 @@ const consoleModal = document.getElementById("console-modal");
 const consoleFrame = document.getElementById("console-frame");
 
 function openConsoleModal() {
+  if (!consoleModal || !consoleFrame) return;
   consoleFrame.src = "/console.html";
-  consoleModal.classList.add("visible");
+  consoleModal.style.display = "flex";
 }
 async function closeConsoleModal() {
-  consoleModal.classList.remove("visible");
+  if (!consoleModal || !consoleFrame) return;
+  consoleModal.style.display = "none";
   consoleFrame.src = "";
-  // Release the console lock so the next operator doesn't wait for idle timeout.
   await fetch("/api/console/lock/release", { method: "POST", credentials: "same-origin" }).catch(() => {});
 }
 
 const consoleBtn = document.getElementById("btn-console");
-if (consoleBtn) {
-  consoleBtn.addEventListener("click", openConsoleModal);
-}
-document.getElementById("console-modal-close").addEventListener("click", closeConsoleModal);
-// Close on backdrop click (clicking outside the modal box).
-consoleModal.addEventListener("click", e => { if (e.target === consoleModal) closeConsoleModal(); });
-// Close on Escape key.
-document.addEventListener("keydown", e => { if (e.key === "Escape" && consoleModal.classList.contains("visible")) closeConsoleModal(); });
+if (consoleBtn) consoleBtn.addEventListener("click", openConsoleModal);
 
-document.getElementById("btn-login").addEventListener("click", () => showLogin());
+const consoleCloseBtn = document.getElementById("console-modal-close");
+if (consoleCloseBtn) consoleCloseBtn.addEventListener("click", closeConsoleModal);
+
+if (consoleModal) {
+  consoleModal.addEventListener("click", e => { if (e.target === consoleModal) closeConsoleModal(); });
+}
+document.addEventListener("keydown", e => { if (e.key === "Escape" && consoleModal && consoleModal.style.display === "flex") closeConsoleModal(); });
+
+const btnLogin = document.getElementById("btn-login");
+if (btnLogin) btnLogin.addEventListener("click", () => showLogin());
 
 document.getElementById("login-btn").addEventListener("click", async () => {
   const token = loginInput.value.trim();

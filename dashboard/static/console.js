@@ -10,6 +10,13 @@
 
 import RFB from "/static/vendor/novnc/core/rfb.js";
 
+// Hide the internal header when embedded in the dashboard modal — the modal
+// provides its own title bar and close button.
+if (window !== window.top) {
+  const h = document.querySelector(".console-header");
+  if (h) h.style.display = "none";
+}
+
 const stepUpCard = document.getElementById("step-up-card");
 const canvasWrap = document.getElementById("canvas-wrap");
 const stateEl    = document.getElementById("console-state");
