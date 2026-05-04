@@ -186,3 +186,17 @@ Before writing a test that asserts a response body field (e.g. `r.json().get("st
 **Import-binding patch rule:** When a test patches a module-level variable (e.g. `IB_PORT`, `IB_HOST`), read the import chain in the module under test first. `from config.settings import IB_PORT` in `config/validator.py` binds `IB_PORT` into `config.validator`'s namespace at import time. Patching `config.settings.IB_PORT` afterwards has no effect on `config.validator.IB_PORT`. Always patch the **consuming module's namespace** (`config.validator.IB_PORT = ...`), not the source module.
 
 Example (2026-05-03): `test_cfg02` set `config.settings.IB_PORT = 9999` then called `validate_config()` — the validator still saw the original value because it had already bound its own reference at import time. Patching `config.validator.IB_PORT` directly fixed it.
+
+---
+
+## API endpoint verification (frontend → backend)
+
+**Before writing `fetch("/api/X")` in any JS file, grep for the route definition** in the FastAPI app:
+
+```bash
+grep -n "@app.\(get\|post\|put\|delete\).*\"/api/X\"" dashboard/app.py
+```
+
+URL drift is silent and catastrophic when paired with `.catch(() => {})`. The fetch returns 404, the catch swallows it, and the side-effect (releasing a lock, logging out, etc.) never happens — but the UI looks fine. Verifying takes 5 seconds; the regression takes hours to diagnose.
+
+Example (2026-05-04): `fetch("/api/console/lock/release", ...).catch(() => {})` 404'd on every modal close because the real route is `/api/console/release` — found by independent code review only after multiple deploys. A pre-write grep would have caught the typo immediately.
