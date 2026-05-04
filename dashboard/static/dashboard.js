@@ -98,12 +98,12 @@ async function refresh() {
       banner.classList.remove("visible");
     }
 
-    // Show "Open Gateway Console" button only when the gateway is awaiting login,
-    // matching the most common operator need (Sunday 2FA).
+    // "Open Gateway Console" button is always visible (gateway state is shown
+    // in the System card; no need to hide the entry point). Disabled only when
+    // another operator already holds the single-session console lock.
     const consoleBtn = document.getElementById("btn-console");
     if (consoleBtn) {
       consoleBtn.disabled = !!sys.console_held_by;
-      consoleBtn.style.display = (gwAwaiting || gwDown) ? "" : "none";
     }
 
     document.getElementById("footer").textContent =
