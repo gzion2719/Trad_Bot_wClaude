@@ -3,6 +3,18 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-04 — Console UX overhaul: GC-1 always-visible button + window.open popup + rate-limit tuning
+
+- Synced develop ↔ main (PR #95) and shipped GC-1 always-visible "Open Gateway Console" button (PRs #96/#97). User confirmed GC-2 (full 2FA login rehearsal) completed earlier the same morning.
+- Console rate limit tuned 3 fails → 3 min lockout (was 10/5min) so legitimate retries don't hit the generic "too many requests" guard. Per-minute attempt cap raised 3 → 30 (DoS backstop only). PRs #98/#99 deployed.
+- Iterated 4 commits on an iframe-modal popup before independent review found 2 BLOCKERs — wrong `/api/console/lock/release` URL (real route is `/api/console/release`) and dropped `frame-ancestors 'none'` security barrier. Reverted entire iframe approach for a `window.open` popup instead (PRs #105/#106), net 21 insertions / 66 deletions.
+- Removed `noopener,noreferrer` from popup features — Chrome returns null from `window.open()` when noopener is set, breaking popup-blocked detection. Mitigation: explicit `w.opener = null` after open + `_blank` window name + same-origin trust.
+- Independent review #2 found 6 LOW/MEDIUM follow-ups, all addressed in the same PR: `window.close()` for popup disconnect, `pagehide` alongside `beforeunload`, `_blank` name, btn-login surfaces logout failures, static regression test for noopener absence (`test_db29`).
+- **Process improvement:** WORKFLOW.md gains "API endpoint verification" section — before writing `fetch("/api/X")` in JS, grep `@app.{get,post}` in `app.py`. The 5-second grep would have caught today's `/api/console/lock/release` typo on the spot.
+- **Next session:** GC-3 (security review pass on console: rate limiter, step-up TTL, audit log completeness, CSP scope) OR GC-4 (TLS via Caddy + tailscale-cert so the SSH tunnel goes away) OR start paper trading monitoring (ROADMAP 6.1, 6.2).
+
+---
+
 ## 2026-05-04 — noVNC gateway console MVP live on VPS (replaces VNC tunnel)
 
 - Shipped `feature/dashboard-novnc-console` (4 commits) → develop → main: dashboard `/console.html` with step-up password + single-session lock + WebSocket reverse proxy through to websockify+x11vnc on the VPS. ADR-0001 covers threat model. 38 new tests (CA01-70 + CE01-31) all green.

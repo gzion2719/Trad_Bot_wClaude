@@ -20,8 +20,8 @@ For sprint-by-sprint detail, see `TODO.md`. For the phased roadmap, see `docs/RO
 
 | # | Priority | Item |
 |---|----------|------|
-| GC-1 | P1 | Verify "Open Gateway Console" button on Mission Control actually navigates to /console.html and works end-to-end (button exists in dashboard.js but not yet smoke-tested in this session) |
-| GC-2 | P0 | End-to-end 2FA login rehearsal via the new browser console — type the IBKR code in the noVNC canvas, confirm gateway logs in and bot reconnects. Replaces the old VNC-tunnel rehearsal. |
+| GC-1 | ✅ | DONE 2026-05-04: button is always visible in Controls card; clicking opens /console.html as a sized OS popup (window.open). Static regression test guards the popup-features string. |
+| GC-2 | ✅ | DONE 2026-05-04: full 2FA login rehearsal completed via browser console; gateway logged in, bot reconnected. |
 | GC-3 | P0 | Security review pass: re-audit /api/console/login rate limiter, step-up token expiry, lock idle timeout, audit-log completeness, CSP scope on /console.html |
 | GC-4 | P1 | TLS for the dashboard so noVNC works without an SSH tunnel — Caddy or nginx in front of 8080 with self-signed cert (Tailscale) or Let's Encrypt + tailscale-cert. Removes the localhost-only secure-context workaround. |
 | GC-5 | P2 | Console UI redesign — current page is a bare canvas + minimal header. Match the Mission Control look: header with status pill, footer hint, restyled step-up card, scaling indicator. |

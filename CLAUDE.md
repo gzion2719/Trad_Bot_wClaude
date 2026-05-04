@@ -30,15 +30,15 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot deployed and running on VPS (paper account, SMA crossover on QQQ). Last session shipped the noVNC gateway console MVP — dashboard `/console.html` lets the operator drive IB Gateway in the browser instead of a VNC tunnel. Full session detail in CHATLOG.
+**Phase 6 — paper trading.** Bot deployed and running on VPS (paper account, SMA crossover on QQQ). Console is now opened as an OS popup (`window.open`) from the dashboard's Controls card; iframe modal approach was tried and reverted after independent review found 2 BLOCKERs. Full session detail in CHATLOG.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 **Immediate next steps:**
-1. **GC-2 — full 2FA login rehearsal in the browser console.** Type a real IBKR code into the noVNC canvas, confirm gateway logs in and bot reconnects. New replacement for the old VNC-tunnel rehearsal.
-2. **Sync develop with main** — hotfix PRs landed on main during the console deploy; open `compare/develop...main` if commits are ahead.
-3. **GC-4 — TLS for the dashboard** so noVNC works without the `ssh -L 8080:...` tunnel (Caddy/nginx + tailscale-cert).
-4. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
+1. **GC-3 — security review pass on the console** (rate limiter, step-up TTL, audit log completeness, CSP scope on /console.html). Tightens the surface before TLS lands.
+2. **GC-4 — TLS for the dashboard** so the popup works without the `ssh -L 8080:...` tunnel (Caddy/nginx + tailscale-cert).
+3. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
+4. **GC-5 — console UI redesign** to match the Mission Control look (BACKLOG, lower priority).
 
 ### What was done last session (2026-05-02, dashboard Phase 2 + weekend-aware stale threshold) — RECONSTRUCTED
 
