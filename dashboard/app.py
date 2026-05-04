@@ -168,7 +168,7 @@ _CONSOLE_CSP = (
     "connect-src 'self' ws: wss:; "
     "font-src 'self'; "
     "object-src 'none'; "
-    "frame-ancestors 'none'; "
+    "frame-ancestors 'self'; "
     "base-uri 'self'; "
     "form-action 'self'"
 )
@@ -179,7 +179,10 @@ def console_page() -> FileResponse:
     """Serve the noVNC console page with a CSP that explicitly allows the WS."""
     return FileResponse(
         str(_STATIC_DIR / "console.html"),
-        headers={"Content-Security-Policy": _CONSOLE_CSP},
+        headers={
+            "Content-Security-Policy": _CONSOLE_CSP,
+            "X-Frame-Options": "SAMEORIGIN",
+        },
     )
 
 

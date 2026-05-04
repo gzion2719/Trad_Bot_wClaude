@@ -157,14 +157,32 @@ document.getElementById("btn-logout").addEventListener("click", async () => {
   showLogin("Logged out.");
 });
 
+// ---- Gateway Console modal --------------------------------------------------
+const consoleModal = document.getElementById("console-modal");
+const consoleFrame = document.getElementById("console-frame");
+
+function openConsoleModal() {
+  consoleFrame.src = "/console.html";
+  consoleModal.classList.add("visible");
+}
+async function closeConsoleModal() {
+  consoleModal.classList.remove("visible");
+  consoleFrame.src = "";
+  // Release the console lock so the next operator doesn't wait for idle timeout.
+  await fetch("/api/console/lock/release", { method: "POST", credentials: "same-origin" }).catch(() => {});
+}
+
 const consoleBtn = document.getElementById("btn-console");
 if (consoleBtn) {
-  consoleBtn.addEventListener("click", () => {
-    // /console.html will perform the step-up password challenge before opening
-    // the WebSocket. Keep the main dashboard out of the noVNC blast radius.
-    window.location.href = "/console.html";
-  });
+  consoleBtn.addEventListener("click", openConsoleModal);
 }
+document.getElementById("console-modal-close").addEventListener("click", closeConsoleModal);
+// Close on backdrop click (clicking outside the modal box).
+consoleModal.addEventListener("click", e => { if (e.target === consoleModal) closeConsoleModal(); });
+// Close on Escape key.
+document.addEventListener("keydown", e => { if (e.key === "Escape" && consoleModal.classList.contains("visible")) closeConsoleModal(); });
+
+document.getElementById("btn-login").addEventListener("click", () => showLogin());
 
 document.getElementById("login-btn").addEventListener("click", async () => {
   const token = loginInput.value.trim();
