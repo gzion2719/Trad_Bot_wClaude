@@ -139,6 +139,13 @@ def main() -> None:
     pnl_thread.start()
     logger.info("PnL poller started — daily loss ceiling is now ACTIVE.")
 
+    # ── Step 7b: Account snapshot poller ────────────────────────────────────
+    from data.account_snapshot import AccountSnapshotPoller
+
+    _snapshot_poller = AccountSnapshotPoller(client, Path("data"))
+    _snapshot_poller.start()
+    logger.info("AccountSnapshotPoller started — writing data/account_snapshot.json every 30s.")
+
     # ── Step 8: SIGTERM handler (required for clean VPS/systemd shutdown) ──
     # systemctl stop tradebot sends SIGTERM, not SIGINT (Ctrl+C).
     # Without this, the process is killed uncleanly: open orders left open,
@@ -212,6 +219,7 @@ def main() -> None:
         _stop_scheduler.set()
         strategy.on_stop()
         _stop_pnl_poller.set()  # wake the poller so it exits cleanly
+        _snapshot_poller.stop()
         reconnect.stop()
         client.disconnect()
 
