@@ -179,16 +179,63 @@ def test_ce22_ws_rejects_when_lock_not_held() -> None:
 # ── /console.html serves with WS-permissive CSP ───────────────────────────
 
 
-def test_ce30_console_page_has_relaxed_csp_for_ws() -> None:
+def test_ce30_console_page_csp_uses_self_not_wildcard_ws() -> None:
+    """/console.html CSP must use 'self' for connect-src, not bare ws:/wss:.
+
+    'self' covers same-origin WebSockets in CSP3-compliant browsers (Chrome 95+,
+    FF 99+, Safari 15.4+). Bare ws:/wss: tokens would allow connections to ANY
+    host — the H-1 finding that prompted this change.
+    """
     client = TestClient(dashboard_app.app)
     r = client.get("/console.html")
     assert r.status_code == 200
     csp = r.headers["Content-Security-Policy"]
-    # Must explicitly allow ws/wss in connect-src
-    assert "ws:" in csp or "wss:" in csp
-    # Must still forbid inline + remote
-    assert "unsafe-inline" not in csp
+    # 'self' must cover connect-src (includes same-origin ws/wss)
+    assert "connect-src 'self'" in csp
+    # Bare wildcard ws: and wss: must NOT be present
+    assert " ws:" not in csp
+    assert " wss:" not in csp
+    # Standard hardening must remain
     assert "default-src 'self'" in csp
+    assert "frame-ancestors 'none'" in csp
+    assert "unsafe-inline" not in csp
+    assert "unsafe-eval" not in csp
+
+
+def test_ce13_release_succeeds_with_session_only_no_step_up() -> None:
+    """Release must work even after the 5-min step-up token has expired (M-3 fix).
+
+    Acquire needs step-up; release needs only a valid session so the user can
+    always free their own lock even if they idle past the token TTL.
+    """
+    client, sid = _logged_in_client_with_step_up()
+    client.post("/api/console/acquire")
+    # Remove the console_token cookie to simulate expiry
+    client.cookies.delete("console_token")
+    r = client.post("/api/console/release")
+    assert r.status_code == 200
+    assert r.json()["released"] is True
+    assert dashboard_app._console_lock.current_holder() is None
+
+
+def test_ce24_ws_rate_limited_closes_with_reason() -> None:
+    """Active IP lockout must close the WS upgrade with a rate-limited reason (M-1 fix)."""
+    import time as _time
+
+    _reset_state()
+    sid = dashboard_app._create_session()
+    client = TestClient(dashboard_app.app)
+    client.cookies.set(dashboard_app._SESSION_COOKIE, sid)
+    # Force a lockout for the loopback IP that TestClient uses (127.0.0.1).
+    # starlette's TestClient reports client.host as "testclient" (not 127.0.0.1).
+    with dashboard_app._rate_lock:
+        dashboard_app._rate_state["testclient"] = {
+            "attempts": [],
+            "fails": [],
+            "lockout_until": _time.monotonic() + 60,
+        }
+    _expect_ws_close_with_reason(client, "rate limit")
+    _reset_state()
 
 
 def test_ce31_index_still_has_strict_csp() -> None:

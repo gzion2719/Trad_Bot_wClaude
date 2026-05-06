@@ -96,6 +96,14 @@ def test_ca14_step_up_revoke_session() -> None:
     assert store.validate(t3, "session-B") is True
 
 
+def test_ca14b_step_up_reissue_revokes_prior_token() -> None:
+    """Re-issuing a step-up token must invalidate the previous one (M-4 fix)."""
+    store = StepUpStore(ttl_seconds=60)
+    old_tok = store.issue("session-A")
+    _new_tok = store.issue("session-A")
+    assert store.validate(old_tok, "session-A") is False
+
+
 def test_ca15_step_up_validate_rejects_blank() -> None:
     store = StepUpStore(ttl_seconds=60)
     assert store.validate("", "session-A") is False
