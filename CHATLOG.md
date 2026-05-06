@@ -3,6 +3,15 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-06 — Strategy designer brief + Decision B resolved
+
+- Created `docs/STRATEGY_DESIGNER_BRIEF.md`: 12-question plain-English spec sheet for the strategy designer (no Python knowledge required). Covers entry/exit/stop/timeframe/sizing/filters + summary fill-in block to paste back into chat.
+- Decision B resolved: independent risk model, 2% per strategy, each trade fully separate. Two strategies running simultaneously = up to 4% total exposure (accepted). Recorded in `BACKLOG.md` (4.8 unblocked), memory, and brief.
+- Confirmed: new strategies stay in the same repo (`strategies/` folder) — splitting would break the shared `BaseStrategy`/`BacktestEngine` contract.
+- Open: daily-loss ceiling (global halt vs. per-strategy) — ask owner when wiring 4.8.
+- **Process improvement:** `SESSION_PROTOCOL.md` Step 5 mechanical self-check extended — if `git push` is in the closing message, both GitHub compare URLs must be in the same message. Previous check only caught missing `make pre-push`; PR links were still forgotten.
+- **Next session:** Strategy designer returns with filled brief → backtest new strategy → if results good, wire alongside SMA Crossover (ROADMAP 4.8).
+
 ## 2026-05-06 — GC-3 console security review + B-08 part 2 nightly crash fix
 
 - GC-3 security audit: 1 HIGH + 4 MEDIUM + 5 LOW findings. H-1 (CSP connect-src bare ws:/wss: wildcard → `'self'`), M-1 (rate-limit lockout not closing WS), M-2 (WS rejections not tripping fail counter), M-3 (release required step-up token even after it expired), M-4 (re-login left old step-up token valid). All fixed + independent code review found 3 more (F1 duplicate CSP constant, F2 WS failures not tripping lockout ratchet, F6 docstring missing new event names) — all fixed. 4 new tests (ca14b, ce13, ce24, ce31). ruff ✅ black ✅ mypy ✅. PRs #119/#120 merged.
