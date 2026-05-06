@@ -30,15 +30,14 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot deployed and running on VPS (paper account, SMA crossover on QQQ). Dashboard Phase 4 shipped: IBKR Account tab (KPI strip, equity chart, positions table, balances), file-IPC via `account_snapshot.json` written every 30s by the bot. PRs pending (not yet deployed). Full session detail in CHATLOG.
+**Phase 6 — paper trading.** Bot running on VPS (paper account, SMA crossover on QQQ). Dashboard Phase 4 fully deployed and verified. GC-3 console security review complete (all findings fixed, PRs #119/#120 merged). B-08 part 2 nightly crash fixed and deployed 2026-05-06 13:05 UTC — awaiting first AutoRestartTime confirmation tonight ~00:00 UTC.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 **Immediate next steps:**
-1. **Deploy dashboard Phase 4** — `git pull origin main && systemctl restart tradebot tradebot-dashboard` on VPS. Verify KPI strip shows live balance + equity chart renders within 60s.
-2. **GC-3 — security review pass on the console** (rate limiter, step-up TTL, audit log completeness, CSP scope on /console.html).
-3. **GC-4 — TLS for the dashboard** so the popup works without the `ssh -L 8080:...` tunnel (Caddy/nginx + tailscale-cert).
-4. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
+1. **Verify B-08 fix** — check `journalctl -u tradebot --since "2026-05-06 23:50" --until "2026-05-07 00:15"` for `Sync complete` and no crash. (Reminder saved in memory.)
+2. **GC-4 — TLS for the dashboard** so the popup works without the `ssh -L 8080:...` tunnel (Caddy/nginx + tailscale-cert).
+3. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
 
 ### What was done last session (2026-05-02, dashboard Phase 2 + weekend-aware stale threshold) — RECONSTRUCTED
 
