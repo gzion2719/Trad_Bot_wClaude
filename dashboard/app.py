@@ -158,30 +158,17 @@ def index() -> FileResponse:
     return FileResponse(str(_STATIC_DIR / "index.html"))
 
 
-# Per-route CSP for the console page. `connect-src 'self'` covers same-origin
-# WebSocket (ws:/wss:) in all modern browsers (Chrome 95+, FF 99+, Safari 15.4+).
-# We do NOT add bare `ws: wss:` tokens — those allow connections to any host.
-_CONSOLE_CSP = (
-    "default-src 'self'; "
-    "script-src 'self'; "
-    "style-src 'self'; "
-    "img-src 'self' data:; "
-    "connect-src 'self'; "
-    "font-src 'self'; "
-    "object-src 'none'; "
-    "frame-ancestors 'none'; "
-    "base-uri 'self'; "
-    "form-action 'self'"
-)
+# NOTE: _DEFAULT_CSP uses `connect-src 'self'`, which CSP3-compliant browsers
+# (Chrome 95+, FF 99+, Safari 15.4+) treat as covering same-origin ws/wss.
+# No separate console CSP constant is needed — the middleware applies _DEFAULT_CSP
+# to all routes including /console.html. If a future change requires a different
+# policy for the console page, add a per-route override here at that point.
 
 
 @app.get("/console.html", include_in_schema=False)
 def console_page() -> FileResponse:
-    """Serve the noVNC console page with a CSP that explicitly allows the WS."""
-    return FileResponse(
-        str(_STATIC_DIR / "console.html"),
-        headers={"Content-Security-Policy": _CONSOLE_CSP},
-    )
+    """Serve the noVNC console page. CSP is applied by SecurityHeadersMiddleware."""
+    return FileResponse(str(_STATIC_DIR / "console.html"))
 
 
 @app.get("/api/info")
@@ -752,12 +739,14 @@ async def ws_console(
     if origin:
         origin_host = origin.split("://", 1)[-1].rstrip("/")
         if origin_host != host:
+            _record_auth_failure(ip)
             audit_log("console.ws.origin_mismatch", "unknown", ip)
             await websocket.close(code=4403, reason="origin mismatch")
             return
 
     # 3. Session cookie.
     if not dashboard_session or not _is_valid_session(dashboard_session):
+        _record_auth_failure(ip)
         audit_log("console.ws.no_session", "unknown", ip)
         await websocket.close(code=4401, reason="dashboard session required")
         return
@@ -766,6 +755,7 @@ async def ws_console(
 
     # 4. Step-up token bound to this session.
     if not console_token or not _step_up_store.validate(console_token, dashboard_session):
+        _record_auth_failure(ip)
         audit_log("console.ws.no_step_up", fp, ip)
         await websocket.close(code=4001, reason="console step-up required")
         return
