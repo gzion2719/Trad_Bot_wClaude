@@ -143,6 +143,9 @@ class OrderManager:
                 return list(self._ib.openTrades())
 
             fut = asyncio.run_coroutine_threadsafe(_do_sync(), main_loop)
+            # 30s matches ib_insync's own internal request timeout. A TimeoutError
+            # here propagates to ReconnectManager._attempt_reconnect() which halts
+            # via os._exit(1) — correct: a hung sync means unknown order state.
             open_trades = fut.result(timeout=30)
         else:
             self._ib.reqAllOpenOrders()
