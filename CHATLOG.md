@@ -3,6 +3,16 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-06 — GC-3 console security review + B-08 part 2 nightly crash fix
+
+- GC-3 security audit: 1 HIGH + 4 MEDIUM + 5 LOW findings. H-1 (CSP connect-src bare ws:/wss: wildcard → `'self'`), M-1 (rate-limit lockout not closing WS), M-2 (WS rejections not tripping fail counter), M-3 (release required step-up token even after it expired), M-4 (re-login left old step-up token valid). All fixed + independent code review found 3 more (F1 duplicate CSP constant, F2 WS failures not tripping lockout ratchet, F6 docstring missing new event names) — all fixed. 4 new tests (ca14b, ce13, ce24, ce31). ruff ✅ black ✅ mypy ✅. PRs #119/#120 merged.
+- Phase 6 monitoring: no fills (expected — SMA crossover hasn't fired). Last tick May 5 16:10 ET ✅. Discovered nightly crash: bot crashed every night at ~00:02 UTC (May 3/4/5/6) — IBC AutoRestartTime triggered reconnect → ReconnectManager.sync() → ib_insync asyncio.get_event_loop() → RuntimeError in Python 3.12 non-main thread → os._exit(1).
+- B-08 part 2 fix: `OrderManager.sync()` now detects non-main-thread call + running main loop and routes via `asyncio.run_coroutine_threadsafe`. Mirrors existing B-08 pattern from `ibkr_client.connect()`. 3 new regression tests (no TWS required). Independent CR: no BLOCKERs; 2 MEDIUMs addressed (timeout documented, test coverage caveat annotated). Deployed to VPS 2026-05-06 13:05 UTC. First real test is tonight ~00:00 UTC.
+- **Process improvement:** none new — existing patterns held.
+- **Next session:** Verify B-08 fix survived nightly AutoRestartTime (`journalctl -u tradebot --since "2026-05-06 23:50" --until "2026-05-07 00:15"`). Then GC-4 (TLS via Caddy + tailscale-cert).
+
+---
+
 ## 2026-05-06 — Dashboard verification + KPI strip fixes
 
 - Opening ritual caught that Phase 4 was already deployed (CHATLOG said "PRs pending" — stale). Verification confirmed all 3 services active, snapshot poller writing every 30s, equity history 3 days deep. All backend checks passed.
