@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import threading
@@ -123,12 +124,32 @@ class OrderManager:
 
         Returns:
             Number of open orders found.
+
+        Thread safety: may be called from non-main threads (e.g. ReconnectManager
+        daemon). ib_insync internally calls asyncio.get_event_loop() which raises
+        RuntimeError in Python 3.12 non-main threads. We detect this and route
+        through run_coroutine_threadsafe on the main loop instead (B-08 part 2).
         """
-        self._ib.reqAllOpenOrders()
-        self._ib.sleep(0.5)
-        # Fetch trades BEFORE acquiring the lock so event callbacks are not
-        # blocked while openTrades() waits on ib_insync's internal state.
-        open_trades = self._ib.openTrades()
+        main_loop = getattr(self._client, "_main_loop", None)
+        if (
+            threading.current_thread() is not threading.main_thread()
+            and main_loop is not None
+            and main_loop.is_running()
+        ):
+
+            async def _do_sync() -> list:
+                self._ib.reqAllOpenOrders()
+                await asyncio.sleep(0.5)
+                return list(self._ib.openTrades())
+
+            fut = asyncio.run_coroutine_threadsafe(_do_sync(), main_loop)
+            open_trades = fut.result(timeout=30)
+        else:
+            self._ib.reqAllOpenOrders()
+            self._ib.sleep(0.5)
+            # Fetch trades BEFORE acquiring the lock so event callbacks are not
+            # blocked while openTrades() waits on ib_insync's internal state.
+            open_trades = list(self._ib.openTrades())
         with self._lock:
             for trade in open_trades:
                 self._orders[trade.order.orderId] = trade
