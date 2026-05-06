@@ -155,7 +155,11 @@ git push
 `make pre-push` runs: `ruff check` → `black --check` → `mypy` → `python -m tests.run_tests`
 It is a verbatim mirror of what `.github/workflows/ci.yml` runs.
 
-**Mechanical pre-send self-check.** Re-read your draft's first 3 lines before sending. If they don't contain `make pre-push`, the draft is wrong — prepend it. This applies to ANY "ready to commit" handoff, not just closing ones.
+**Mechanical pre-send self-check.** Re-read your draft before sending. Two checks, both required:
+1. If the draft contains `git push`, it must also contain `make pre-push` earlier in the same message — if not, prepend it.
+2. If the draft contains `git push`, it must also contain both GitHub compare URLs (feature→develop AND develop→main) in the same message — if not, add them before sending.
+
+These checks apply to ANY "ready to commit" handoff, not just the closing ritual. The PR links are not optional follow-up — they are part of the same block.
 
 **Two-PR rule — enforced every time, no exceptions.** Every time you say "open a PR", you MUST provide BOTH links in the same message:
 1. Feature → develop: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/develop...<branch>`
