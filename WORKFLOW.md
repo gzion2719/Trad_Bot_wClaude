@@ -200,3 +200,11 @@ grep -n "@app.\(get\|post\|put\|delete\).*\"/api/X\"" dashboard/app.py
 URL drift is silent and catastrophic when paired with `.catch(() => {})`. The fetch returns 404, the catch swallows it, and the side-effect (releasing a lock, logging out, etc.) never happens — but the UI looks fine. Verifying takes 5 seconds; the regression takes hours to diagnose.
 
 Example (2026-05-04): `fetch("/api/console/lock/release", ...).catch(() => {})` 404'd on every modal close because the real route is `/api/console/release` — found by independent code review only after multiple deploys. A pre-write grep would have caught the typo immediately.
+
+---
+
+## JS rate-limit gate rule
+
+When adding a polling gate that references multiple fetch functions (e.g. `_onAcctTab ? [fetchAccount(), fetchEquity()] : []`), the comment **must name the specific endpoint(s) that are rate-limited**, not the functions. Gate comments that name functions imply all named functions are rate-limited — reviewers will not re-check each endpoint's backend definition.
+
+Example (2026-05-06): `_onAcctTab` gate comment said "prevents fetchAccount / fetchEquity from consuming the rate limit" — but `/api/account` has no rate limit, only `/api/equity-history` does. The imprecise comment let `fetchAccount()` get swept into the gate, causing the KPI strip to show `—` on Mission Control until the user switched tabs.
