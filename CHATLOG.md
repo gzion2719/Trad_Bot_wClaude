@@ -3,6 +3,18 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-06 — Dashboard verification + KPI strip fixes
+
+- Opening ritual caught that Phase 4 was already deployed (CHATLOG said "PRs pending" — stale). Verification confirmed all 3 services active, snapshot poller writing every 30s, equity history 3 days deep. All backend checks passed.
+- Bug 1: `_onAcctTab` gate in `dashboard.js` blocked `fetchAccount()` (no rate limit) alongside `fetchEquity()` (rate-limited 10/min), causing the KPI strip to show `—` on Mission Control until user switched tabs. Fixed: account polls every 30s regardless of tab; equity stays tab-gated.
+- Bug 2: IBKR doesn't return `SettledCash` tag for paper accounts — KPI always `—`. Fixed: relabeled KPI to "Cash", sourced from `TotalCashValue` (populated for paper + live). Detailed Balances list unchanged.
+- Non-bug: chart range chips (7D/30D/MTD/YTD/All) appeared broken — actually correct; only 3 days of equity history exist so all ranges return identical data. Will self-correct as history accumulates.
+- Both fixes shipped as feature branches → develop → main → VPS. Verified live: Cash KPI shows $1,047,324.06, Unrealized -$13.73.
+- **Process improvement:** WORKFLOW.md gains "JS rate-limit gate rule" — gate comments must name the specific rate-limited endpoint, not the functions. Imprecise comment let `fetchAccount()` get swept into a gate that was only meant for `fetchEquity()`.
+- **Next session:** GC-3 (security review on console: rate limiter, step-up TTL, audit log, CSP scope) or GC-4 (TLS via Caddy + tailscale-cert).
+
+---
+
 ## 2026-05-04 — Dashboard Phase 4: IBKR Account tab (KPI strip, equity chart, positions, balances)
 
 - Shipped `feature/dashboard-ibkr-account-tab` (4 commits, branch pushed): `AccountSnapshotPoller` daemon writes `data/account_snapshot.json` every 30s via file-IPC + per-day `equity_history_YYYY-MM-DD.jsonl` (365-day retention, server-side bucketed-mean downsampling to ≤2000 pts). New `data/account_snapshot.py` with `_IBClient` structural Protocol, `read_snapshot()`, `read_equity_history()`, `downsample()`.
