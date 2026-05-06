@@ -166,17 +166,19 @@ function _setKpiStale(id) {
 
 function renderKpis(snap) {
   if (!snap || snap.status !== "ok") {
-    _setKpiStale("kpi-settled");
+    _setKpiStale("kpi-cash");
     _setKpiStale("kpi-unrealized");
     _setKpiStale("kpi-realized");
     return;
   }
   const s = snap.summary || {};
 
-  const settled = document.getElementById("kpi-settled");
-  if (settled) {
-    settled.textContent = s.settled_cash != null ? fmtUSD.format(s.settled_cash) : "—";
-    settled.className = "kpi-value kpi-zero";
+  // IBKR paper accounts don't populate SettledCash — TotalCashValue ("cash") is
+  // the operationally meaningful value and is populated for both paper and live.
+  const cash = document.getElementById("kpi-cash");
+  if (cash) {
+    cash.textContent = s.cash != null ? fmtUSD.format(s.cash) : "—";
+    cash.className = "kpi-value kpi-zero";
   }
   const unreal = document.getElementById("kpi-unrealized");
   if (unreal) {
