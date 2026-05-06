@@ -158,30 +158,17 @@ def index() -> FileResponse:
     return FileResponse(str(_STATIC_DIR / "index.html"))
 
 
-# Per-route CSP for the console page. Same strictness as the default but
-# explicitly names the WebSocket scheme so older browsers without CSP3 'self'
-# matching for ws:// still load. Still no 'unsafe-inline', no remote origins.
-_CONSOLE_CSP = (
-    "default-src 'self'; "
-    "script-src 'self'; "
-    "style-src 'self'; "
-    "img-src 'self' data:; "
-    "connect-src 'self' ws: wss:; "
-    "font-src 'self'; "
-    "object-src 'none'; "
-    "frame-ancestors 'none'; "
-    "base-uri 'self'; "
-    "form-action 'self'"
-)
+# NOTE: _DEFAULT_CSP uses `connect-src 'self'`, which CSP3-compliant browsers
+# (Chrome 95+, FF 99+, Safari 15.4+) treat as covering same-origin ws/wss.
+# No separate console CSP constant is needed — the middleware applies _DEFAULT_CSP
+# to all routes including /console.html. If a future change requires a different
+# policy for the console page, add a per-route override here at that point.
 
 
 @app.get("/console.html", include_in_schema=False)
 def console_page() -> FileResponse:
-    """Serve the noVNC console page with a CSP that explicitly allows the WS."""
-    return FileResponse(
-        str(_STATIC_DIR / "console.html"),
-        headers={"Content-Security-Policy": _CONSOLE_CSP},
-    )
+    """Serve the noVNC console page. CSP is applied by SecurityHeadersMiddleware."""
+    return FileResponse(str(_STATIC_DIR / "console.html"))
 
 
 @app.get("/api/info")
@@ -687,10 +674,17 @@ def api_console_release(
     request: Request,
     _o: None = Depends(_check_origin),
     dashboard_session: Optional[str] = Cookie(default=None),
-    console_token: Optional[str] = Cookie(default=None),
 ) -> Dict[str, Any]:
-    """Release the lock if the caller currently holds it. 200 even if not held."""
-    fp = _require_console_token(request, dashboard_session, console_token)
+    """Release the lock if the caller currently holds it. 200 even if not held.
+
+    Requires only a valid session cookie — NOT the step-up token. The lock is
+    identified by session fingerprint, so a caller can release their own lock
+    even after the 5-minute step-up token has expired (e.g. on Disconnect click
+    or page unload beacon after an idle session).
+    """
+    if not dashboard_session or not _is_valid_session(dashboard_session):
+        raise HTTPException(status_code=401, detail="dashboard session required")
+    fp = fingerprint_session(dashboard_session)
     ip = _client_ip(request)
     released = _console_lock.release(fp)
     if released:
@@ -707,15 +701,19 @@ async def ws_console(
     """Reverse-proxy a browser WebSocket to websockify (127.0.0.1:6080).
 
     Auth chain (all required, in order):
-      1. Same-origin check on the WebSocket upgrade
-      2. Valid dashboard session cookie
-      3. Valid console step-up token bound to that session
-      4. Caller currently holds the console lock
+      1. Per-IP rate limit
+      2. Same-origin check on the WebSocket upgrade
+      3. Valid dashboard session cookie
+      4. Valid console step-up token bound to that session
+      5. Caller currently holds the console lock
 
     On any failure we close with a specific code rather than 1000 so the
     UI can distinguish "log in again" from "wait, someone else is on" from
     "upstream gone". 4001 = need step-up, 4003 = lock held by other,
-    1011 = upstream connect failure.
+    4029 = rate limited, 1011 = upstream connect failure.
+
+    Every rejection branch emits an audit_log event so failed-auth attempts
+    are visible in journalctl alongside successful connects.
     """
     # We must accept() before sending custom close codes — pre-accept close
     # is downgraded to HTTP 403 by ASGI servers and the browser sees only
@@ -724,32 +722,50 @@ async def ws_console(
     # Subprotocol "binary" matches what noVNC's RFB client requests.
     await websocket.accept(subprotocol="binary")
 
-    # 1. Same-origin check on upgrade — websockets bypass the HTTP _check_origin
+    ip = websocket.client.host if websocket.client is not None else "unknown"
+
+    # 1. Per-IP rate limit — same sliding-window gate as the HTTP console endpoints.
+    try:
+        _enforce_rate_limit(ip)
+    except HTTPException:
+        audit_log("console.ws.rate_limited", "unknown", ip)
+        await websocket.close(code=4029, reason="rate limited")
+        return
+
+    # 2. Same-origin check on upgrade — websockets bypass the HTTP _check_origin
     #    dependency, so we re-implement the rule here.
     origin = websocket.headers.get("origin")
     host = websocket.headers.get("host", "")
     if origin:
         origin_host = origin.split("://", 1)[-1].rstrip("/")
         if origin_host != host:
+            _record_auth_failure(ip)
+            audit_log("console.ws.origin_mismatch", "unknown", ip)
             await websocket.close(code=4403, reason="origin mismatch")
             return
 
-    # 2 + 3. Cookie + step-up.
+    # 3. Session cookie.
     if not dashboard_session or not _is_valid_session(dashboard_session):
+        _record_auth_failure(ip)
+        audit_log("console.ws.no_session", "unknown", ip)
         await websocket.close(code=4401, reason="dashboard session required")
-        return
-    if not console_token or not _step_up_store.validate(console_token, dashboard_session):
-        await websocket.close(code=4001, reason="console step-up required")
         return
 
     fp = fingerprint_session(dashboard_session)
-    ip = websocket.client.host if websocket.client is not None else "unknown"
 
-    # 4. Lock holder check. Acquire-then-proxy is the documented flow; if a
+    # 4. Step-up token bound to this session.
+    if not console_token or not _step_up_store.validate(console_token, dashboard_session):
+        _record_auth_failure(ip)
+        audit_log("console.ws.no_step_up", fp, ip)
+        await websocket.close(code=4001, reason="console step-up required")
+        return
+
+    # 5. Lock holder check. Acquire-then-proxy is the documented flow; if a
     #    caller didn't acquire first we refuse rather than auto-acquire (clearer
     #    audit trail; UI always calls /api/console/acquire before connecting).
     current = _console_lock.current_holder()
     if current is None or current.session_fingerprint != fp:
+        audit_log("console.ws.lock_not_held", fp, ip)
         await websocket.close(code=4003, reason="lock not held by caller")
         return
 

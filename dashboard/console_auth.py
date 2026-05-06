@@ -80,6 +80,11 @@ class StepUpStore:
         now = time.monotonic()
         with self._lock:
             self._purge_expired_locked(now)
+            # Revoke any existing tokens for this session — re-login must not
+            # leave old tokens valid alongside the new one.
+            for tok, entry in list(self._tokens.items()):
+                if entry.session_id == session_id:
+                    self._tokens.pop(tok, None)
             self._tokens[token] = StepUpToken(
                 token=token, session_id=session_id, expires_at=now + self._ttl
             )
@@ -217,9 +222,14 @@ def audit_log(
     separate file sink here — that would require ReadWritePaths changes in
     the systemd unit and a logrotate config; out of scope for this module.
 
-    Recorded events: console.step_up.success, console.step_up.failure,
-    console.lock.acquired, console.lock.released, console.lock.idle_release,
-    console.lock.contended, console.ws.connect, console.ws.disconnect.
+    Recorded events:
+      console.step_up.success, console.step_up.failure
+      console.lock.acquired, console.lock.reacquire, console.lock.released,
+      console.lock.contended
+      console.ws.rate_limited, console.ws.origin_mismatch, console.ws.no_session,
+      console.ws.no_step_up, console.ws.lock_not_held,
+      console.ws.connect, console.ws.disconnect
+      console.auth.no_step_up
 
     NEVER pass a password, 2FA code, or raw session ID as *detail*. Pass
     fingerprints and structured event metadata only.
