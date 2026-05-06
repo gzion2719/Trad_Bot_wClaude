@@ -69,7 +69,14 @@ def test_om_sync01_main_thread_uses_direct_path():
 
 
 def test_om_sync02_non_main_thread_no_loop_falls_back_to_direct():
-    """If _main_loop is None, non-main thread falls back to direct path (no crash)."""
+    """If _main_loop is None, non-main thread falls back to direct path (no crash).
+
+    Coverage note: the mock ib never calls asyncio.get_event_loop(), so this test
+    only verifies the branching logic (guard routes to else-branch), not that the
+    direct path is safe under real ib_insync from a non-main thread. The actual
+    production guard against that crash is the _main_loop is not None condition —
+    if _main_loop was never captured the bot would have already failed at connect().
+    """
     client = _make_mock_client(main_loop=None)
     ib = _make_mock_ib()
     om = _build_order_manager(client, ib)
@@ -85,7 +92,7 @@ def test_om_sync02_non_main_thread_no_loop_falls_back_to_direct():
     t = threading.Thread(target=_run, name="TestThread-NoLoop", daemon=True)
     t.start()
     t.join(timeout=5)
-
+    assert t.is_alive() is False, "sync() hung — thread did not finish in time"
     assert not errors, f"sync() raised from non-main thread: {errors}"
     ib.reqAllOpenOrders.assert_called_once()
 
@@ -115,7 +122,7 @@ def test_om_sync03_non_main_thread_routes_through_main_loop():
         t = threading.Thread(target=_run, name="ReconnectManager", daemon=True)
         t.start()
         t.join(timeout=10)
-
+        assert t.is_alive() is False, "sync() hung — thread did not finish in time"
         assert not errors, f"sync() raised from non-main thread: {errors}"
         assert result == [0]
         # reqAllOpenOrders must have been called exactly once via the coroutine path
