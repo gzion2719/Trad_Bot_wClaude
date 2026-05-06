@@ -47,7 +47,7 @@ For sprint-by-sprint detail, see `TODO.md`. For the phased roadmap, see `docs/RO
 | 4.5 | P1 | Tune SMA parameters after 1+ week paper results — test sma_fast=20/sma_slow=50; validate on 2008/2022 bear regimes |
 | 4.6 | P2 | Implement and backtest a second strategy |
 | 4.7 | P2 | Strategy parameter management (YAML/JSON config, no code changes to switch params) |
-| 4.8 | P2 | Multi-strategy runner — blocked on Decision B |
+| 4.8 | P1 | Multi-strategy runner — Decision B resolved 2026-05-06: **independent, 2% per strategy, each trade is separate**. Ready to implement when second strategy design is ready. |
 | 6.1 | P0 | Monitor TradeLog.daily_summary() every trading day — check realized_pnl, trade count, fill quality |
 | 6.2 | P0 | Verify fills at expected prices (compare backtest vs paper fills) |
 | 6.8 | P2 | Build RESOURCES.md with vetted sources for strategies, risk management, market microstructure |
@@ -85,4 +85,4 @@ For sprint-by-sprint detail, see `TODO.md`. For the phased roadmap, see `docs/RO
 | # | Decision | Options |
 |---|----------|---------|
 | A | Live market data subscription (~$10–25/month via IBKR)? | **Yes** = real-time, works for intraday. **No** = 15-min delayed, fine for daily-bar strategies, free. |
-| B | Multi-strategy position behavior? | **Independent** = each strategy gets own position (default). **Combined** = shared cap, more complex. |
+| B | ✅ RESOLVED 2026-05-06 | **Independent** — each strategy gets its own 2% risk cap; trades are completely independent. |
