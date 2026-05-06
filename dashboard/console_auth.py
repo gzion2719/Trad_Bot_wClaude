@@ -80,6 +80,11 @@ class StepUpStore:
         now = time.monotonic()
         with self._lock:
             self._purge_expired_locked(now)
+            # Revoke any existing tokens for this session — re-login must not
+            # leave old tokens valid alongside the new one.
+            for tok, entry in list(self._tokens.items()):
+                if entry.session_id == session_id:
+                    self._tokens.pop(tok, None)
             self._tokens[token] = StepUpToken(
                 token=token, session_id=session_id, expires_at=now + self._ttl
             )
