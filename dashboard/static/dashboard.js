@@ -20,8 +20,8 @@ const fmtUSD = new Intl.NumberFormat("en-US", {
 let _infoAccount = null;
 
 // True when the IBKR Account tab is the active view.
-// Prevents fetchAccount / fetchEquity from consuming the rate limit in the
-// background while the user is on the Mission Control tab.
+// Gates fetchEquity (rate-limited 10/min) — NOT fetchAccount, which feeds the
+// always-visible KPI strip and is a cheap snapshot-file read.
 let _onAcctTab = false;
 
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
@@ -307,6 +307,7 @@ function renderNetliq(snap) {
 async function fetchAccount() {
   const snap = await _fetchJSON("/api/account");
   if (!snap) return;
+  _lastAccountFetch = Date.now();
   renderKpis(snap);
   renderBalances(snap);
   renderPositions(snap);
@@ -319,6 +320,7 @@ async function fetchAccount() {
 
 let _currentRange = "7";
 let _lastEquityFetch = 0;
+let _lastAccountFetch = 0;
 
 function daysFor(range) {
   if (range === "7") return 7;
@@ -473,15 +475,18 @@ function _initTabs() {
 
 async function refresh() {
   try {
+    // Account snapshot: poll every 30s regardless of tab. The bot writes the
+    // file every 30s, so faster polling is wasted; the KPI strip is always
+    // visible (Mission Control + IBKR Account tab both show it). On the IBKR
+    // tab _selectTab triggers an immediate fetch so the tab feels live.
+    const accountDue = Date.now() - _lastAccountFetch >= 30000;
+
     await Promise.all([
       fetchHealth(),
       fetchToday(),
       fetchFills(),
       fetchSystem(),
-      // Account data only fetched while the IBKR Account tab is active —
-      // prevents silently exhausting the per-session equity rate limit while
-      // the user is looking at Mission Control.
-      ...(_onAcctTab ? [fetchAccount()] : []),
+      ...(accountDue ? [fetchAccount()] : []),
     ]);
 
     // Equity: only when tab is active AND 30s have elapsed since last fetch
