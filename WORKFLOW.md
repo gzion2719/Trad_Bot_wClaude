@@ -151,6 +151,19 @@ Example (2026-05-02): dashboard "stale liveness" alarm chased a phantom BarSched
 
 ---
 
+## ib_insync sync-vs-async rule (inside threadsafe coroutines)
+
+When wrapping ib_insync calls in `asyncio.run_coroutine_threadsafe`, every call inside the coroutine MUST use the `*Async` variant. Sync ib_insync wrappers (e.g. `reqAllOpenOrders`, `accountSummary`, `qualifyContracts`) internally call `loop.run_until_complete()` via `IB._run()`. Inside an awaiting coroutine the loop is already running, so `_run()` raises `RuntimeError("This event loop is already running")` — exactly the failure mode the threadsafe routing was meant to prevent.
+
+Audit checklist when reviewing/CR'ing any `run_coroutine_threadsafe` patch:
+1. List every ib_insync call inside the inner coroutine (`async def _do_X` or similar).
+2. For each, verify it ends in `Async` OR is a pure attribute read (`openTrades`, `wrapper.accounts`, `portfolio()` — these don't call `_run`).
+3. Sync calls inside the coroutine = latent bug; will fire the next time the main loop is busy when the daemon thread schedules.
+
+Example (2026-05-07): B-09 v1 (the May 6 sync() fix) routed correctly via `run_coroutine_threadsafe` but the inner `_do_sync()` called sync `reqAllOpenOrders()` — every nightly AutoRestartTime triggered the systemd-restart cascade. B-10 fix: `await reqAllOpenOrdersAsync()`.
+
+---
+
 ## Emergency protocol
 
 If the bot is making unexpected live trades or the VPS is behaving incorrectly:
