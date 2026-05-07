@@ -138,7 +138,10 @@ class OrderManager:
         ):
 
             async def _do_sync() -> list:
-                self._ib.reqAllOpenOrders()
+                # Must use the *Async variant: sync ib_insync wrappers call
+                # loop.run_until_complete() internally, which raises "This event
+                # loop is already running" because we're already awaiting on it.
+                await self._ib.reqAllOpenOrdersAsync()
                 await asyncio.sleep(0.5)
                 return list(self._ib.openTrades())
 
