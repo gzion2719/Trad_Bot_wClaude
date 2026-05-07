@@ -30,14 +30,15 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot running on VPS (paper account, SMA crossover on QQQ). Dashboard Phase 4 fully deployed and verified. GC-3 console security review complete (all findings fixed, PRs #119/#120 merged). B-08 part 2 nightly crash fixed and deployed 2026-05-06 13:05 UTC — awaiting first AutoRestartTime confirmation tonight ~00:00 UTC.
+**Phase 6 — paper trading.** Bot running on VPS (paper account, SMA crossover on QQQ). Dashboard Phase 4 fully deployed and verified. GC-3 console security review complete (PRs #119/#120 merged). B-09 (sync threadsafe routing) deployed 2026-05-06 but **still crashed nightly at 00:02 UTC on 2026-05-07** — root cause: `_do_sync()` coroutine called sync `reqAllOpenOrders()` which raises "This event loop is already running" because we're already awaiting on the main loop. **B-10 fix** on `feature/fix-sync-async-loop-conflict` switches to `await reqAllOpenOrdersAsync()`. Awaiting deploy + nightly confirmation. Bot self-heals via systemd restart so trading is not actually disrupted, just noisy.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 **Immediate next steps:**
-1. **Verify B-08 fix** — check `journalctl -u tradebot --since "2026-05-06 23:50" --until "2026-05-07 00:15"` for `Sync complete` and no crash. (Reminder saved in memory.)
-2. **GC-4 — TLS for the dashboard** so the popup works without the `ssh -L 8080:...` tunnel (Caddy/nginx + tailscale-cert).
-3. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
+1. **Merge B-10 PRs and deploy to VPS** — feature → develop → main → `git pull && systemctl restart tradebot`. Verify tonight ~00:00 UTC: `journalctl -u tradebot --since "2026-05-07 23:50" --until "2026-05-08 00:15"` should show `Sync complete` and no crash.
+2. **Bug A (deferred follow-up)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'" (likely a sync ib_insync call after `connectAsync`, e.g. `_set_market_data_type`). Bot self-heals via attempt 6 + systemd, so not urgent. Track separately.
+3. **GC-4 — TLS for the dashboard** so the popup works without the `ssh -L 8080:...` tunnel (Caddy/nginx + tailscale-cert).
+4. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
 
 ### What was done last session (2026-05-02, dashboard Phase 2 + weekend-aware stale threshold) — RECONSTRUCTED
 

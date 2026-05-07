@@ -265,7 +265,8 @@ These two questions are not blocking Sprint 2 or 3, but must be answered before 
 | B-06 | S1 | Double-lock race in `_handle_order_status()` Cancelled branch | Fixed |
 | B-07 | S2 | `PendingCancel` not in `OrderStatus` enum — logged false warnings | Fixed |
 | B-08 | S1 | `ReconnectManager` reconnect always failed — `ib_insync` calls `asyncio.get_event_loop()` internally; Python 3.12 raises RuntimeError in non-main threads. Fix: `run_coroutine_threadsafe(ib.connectAsync(), main_loop)` in `broker/ibkr_client.py` | Fixed 2026-05-02 |
-| B-09 | S1 | `OrderManager.sync()` crashed nightly (~00:00 UTC) — called from ReconnectManager daemon thread after IBC AutoRestartTime; same Python 3.12 asyncio thread issue. Fix: `run_coroutine_threadsafe` path in `sync()`. Deployed 2026-05-06. | Fixed 2026-05-06 — awaiting nightly confirmation |
+| B-09 | S1 | `OrderManager.sync()` crashed nightly (~00:00 UTC) — called from ReconnectManager daemon thread after IBC AutoRestartTime; same Python 3.12 asyncio thread issue. Fix: `run_coroutine_threadsafe` path in `sync()`. Deployed 2026-05-06. | Fix v1 incomplete (see B-10) |
+| B-10 | S1 | B-09 v1 still crashed nightly: `_do_sync()` coroutine called sync `reqAllOpenOrders()` which calls `loop.run_until_complete()` — raises "This event loop is already running" because we're already awaiting on the main loop. Fix: `await reqAllOpenOrdersAsync()` inside the threadsafe coroutine. Bug A (analogous failure in `connect()` post-handshake at attempt 5) deferred — bot recovers via systemd restart. | Fixed 2026-05-07 — awaiting nightly confirmation |
 
 ---
 
