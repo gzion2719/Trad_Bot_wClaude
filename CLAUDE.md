@@ -30,7 +30,7 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot running on VPS (paper account, SMA crossover on QQQ). Dashboard Phase 4 fully deployed and verified. GC-3 console security review complete (PRs #119/#120 merged). B-09 (sync threadsafe routing) deployed 2026-05-06 but **still crashed nightly at 00:02 UTC on 2026-05-07** — root cause: `_do_sync()` coroutine called sync `reqAllOpenOrders()` which raises "This event loop is already running" because we're already awaiting on the main loop. **B-10 fix** on `feature/fix-sync-async-loop-conflict` switches to `await reqAllOpenOrdersAsync()`. Awaiting deploy + nightly confirmation. Bot self-heals via systemd restart so trading is not actually disrupted, just noisy.
+**Phase 6 — paper trading.** Bot running on VPS (paper account, SMA crossover on QQQ). Dashboard Phase 4 fully deployed and verified. GC-3 console security review complete (PRs #119/#120 merged). B-10 (`reqAllOpenOrdersAsync` inside `_do_sync()`) shipped + deployed 2026-05-07 — pending nightly confirmation that no exit-code 1 fires at 00:02 UTC. **ROADMAP 4.8 Phase A done in this worktree 2026-05-07** (multi-strategy runner): new `config/strategies.REGISTRY` + `runtime/StrategyRunner` with per-strategy `RiskManager`, per-strategy scheduler thread (DailyAt or Interval), fills routed via `OrderResult.strategy_name`. SMACrossover-QQQ is the only registered strategy — parity-with-old-wiring shipping for one trading day before Phase B (adding a second strategy) in a future session.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 

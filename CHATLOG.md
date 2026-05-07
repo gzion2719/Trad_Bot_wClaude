@@ -3,6 +3,18 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-07 — Multi-strategy runner Phase A (ROADMAP 4.8)
+
+- Built `config/strategies.REGISTRY` (`StrategyConfig` + frozen `RiskCaps` + `DailyAt` / `Interval` schedule kinds) and `runtime/StrategyRunner` — supervises N strategies with one `RiskManager` per strategy (independent caps; Decision B). Each strategy runs in its own scheduler thread; `_ERROR_BUDGET=5` mirrors `BarScheduler`.
+- Threaded `strategy_name` through `OrderRequest` → `OrderManager._strategy_name_by_order_id` → `OrderResult.strategy_name`. Per-strategy `on_fill` hooks filter by name so RiskManager and TradeLog rows stay isolated. `BaseStrategy.safe_place_order` stamps the request automatically.
+- Refactored `main.py`: removed single-strategy / single-RM wiring, now `StrategyRunner.build()` + `start_all()` + `stop_all()`. PnLPoller calls `runner.reset_all_daily()` and `runner.update_daily_pnl_all(...)` instead of poking one RM. SMACrossover-QQQ is the only registered strategy — parity behavior, ship before Phase B.
+- Caught a deadlock during pre-push: `_fill_to_result` initially acquired `self._lock` for the new strategy_name lookup, but `reconcile_fills` already holds it → non-reentrant `Lock` hung. Fixed by relying on GIL-safe `dict.get()` (the writer side stays under the lock). 152 tests pass (49 skipped, expected without TWS); ruff/black/mypy ✅.
+- Open caveat documented in `config/strategies.py`: per-strategy `max_daily_loss` reads account-level realized P&L from the single PnLPoller — fine with one strategy, needs per-strategy P&L attribution before N>1 (BACKLOG).
+- **Process improvement:** WORKFLOW.md gains "Lock-reentrancy audit rule" — when a previously stateless static method becomes an instance method that touches `self._lock`, grep for callers that already hold the lock; non-reentrant `threading.Lock` deadlocks silently and the symptom (pytest hang) is hard to read.
+- **Next session:** Phase B — user supplies the new strategy spec → backtest → register alongside SMACrossover-QQQ in `config/strategies.REGISTRY`. Before that: CR + QA + deploy Phase A to VPS for one trading-day parity check.
+
+---
+
 ## 2026-05-07 — B-09 v1 still crashed nightly; shipped B-10 (reqAllOpenOrdersAsync)
 
 - Verified B-09 v1: ntfy fired again at 2026-05-07 00:02 UTC. Logs showed two distinct failures: (A) attempt 5 of `connect()` raised "no current event loop in thread 'ReconnectManager'" post-handshake; (B) attempt 6 succeeded but `OrderManager.sync()` raised "This event loop is already running" → `os._exit(1)` → systemd restart at 00:03:20.

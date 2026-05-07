@@ -63,12 +63,25 @@ class BaseStrategy(ABC):
         self.feed = feed
         self.symbol = symbol.upper() if symbol else ""
 
+        # Set by StrategyRunner.build() in multi-strategy mode. None for
+        # single-strategy / backtest paths — fills then carry strategy_name=None.
+        self._strategy_name: str | None = None
+
         # Auto-wire fill events to this strategy's on_fill() method.
-        # Strategies override on_fill() to update state after a fill fires.
-        # This is registered here so the strategy never needs to call
-        # self.om.on_fill(self.on_fill) manually in on_start().
+        # In multi-strategy mode the OrderManager broadcasts every fill to
+        # every registered callback, so we filter by strategy_name here so
+        # strategy A's on_fill never fires for strategy B's fills (which
+        # would corrupt position state, place spurious stop orders, etc.).
+        # When _strategy_name is None (single-strategy / backtest path) the
+        # filter is a no-op — strategy sees every fill, matching old behavior.
         if self.om is not None:
-            self.om.on_fill(self.on_fill)
+            self.om.on_fill(self._dispatch_on_fill)
+
+    def _dispatch_on_fill(self, result: OrderResult) -> None:
+        """Filter by strategy_name then dispatch to user-defined on_fill."""
+        if self._strategy_name is not None and result.strategy_name != self._strategy_name:
+            return
+        self.on_fill(result)
 
     # ------------------------------------------------------------------
     # Abstract lifecycle methods — must be implemented by every strategy
@@ -138,6 +151,11 @@ class BaseStrategy(ABC):
         """
         if self.risk_manager is not None:
             self.risk_manager.check(request, current_price)
+        # Tag the request so OrderManager can route fills back to this strategy
+        # via OrderResult.strategy_name. _strategy_name is set by StrategyRunner
+        # in multi-strategy mode; None in single-strategy / backtest paths.
+        if request.strategy_name is None and self._strategy_name is not None:
+            request.strategy_name = self._strategy_name
         return self.om.place_order(request, allow_duplicate=allow_duplicate)
 
     # ------------------------------------------------------------------
