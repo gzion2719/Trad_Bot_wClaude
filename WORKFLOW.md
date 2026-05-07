@@ -143,6 +143,21 @@ Example (2026-05-03): `gitleaks-action@v2` failed with HTTP 403 on `pulls/{n}/co
 
 ---
 
+## Lock-reentrancy audit rule
+
+When a previously **stateless `@staticmethod`** is converted to an instance method that touches `self._lock` (or any `threading.Lock`), grep every call site to confirm none of them already hold the lock. Python's default `threading.Lock` is non-reentrant — a recursive acquire deadlocks silently, and the symptom (pytest hangs partway through, `pytest -x` never reaches the failing assertion) is hard to read.
+
+```bash
+grep -n "with self._lock" broker/order_manager.py    # callers that hold the lock
+grep -n "self\._method_name(" broker/order_manager.py # callers of the converted method
+```
+
+If a caller already holds the lock, either: (a) drop the inner acquire and rely on GIL-safe primitives (`dict.get`, `list` append) for the read, or (b) switch the lock to `threading.RLock` (intentionally — note in code).
+
+Example (2026-05-07): `OrderManager._fill_to_result` was converted from `@staticmethod` to instance method to look up `strategy_name`. The new `with self._lock:` deadlocked `reconcile_fills`, which already wraps the call in `with self._lock:`. Pytest hung on `test_fr02_missed_fill_fires_callback_with_correct_fields` with no traceback. Fix: dropped the inner `with self._lock:`; `dict.get()` under the GIL is safe for this read.
+
+---
+
 ## Debugging discipline
 
 Before hypothesizing failure modes for a "stopped" or "stale" symptom, read the producer code to confirm the **expected** cadence. Most "X stopped firing" investigations are actually "X is firing on the cadence I forgot it had." Check expected behavior first, then look for failure modes.

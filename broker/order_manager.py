@@ -90,6 +90,12 @@ class OrderManager:
         self._orders: Dict[int, Trade] = {}
         self._lock = threading.Lock()
 
+        # Multi-strategy mode: order_id -> strategy_name (set at place_order time).
+        # Read by _trade_to_result / _fill_to_result so OrderResult.strategy_name
+        # is populated for every fill — letting StrategyRunner route fills back
+        # to the originating strategy. None for un-tagged or external orders.
+        self._strategy_name_by_order_id: Dict[int, Optional[str]] = {}
+
         # Tracks execIds of fills that have been processed (live or replayed).
         # Guarded by self._lock. Used by reconcile_fills() to avoid double-firing
         # on_fill callbacks if a fill arrives both via live event and replay.
@@ -191,7 +197,10 @@ class OrderManager:
                     continue
                 self._seen_exec_ids.add(exec_id)
                 self._orders.pop(fill.execution.orderId, None)
+                # Build the result first (it reads _strategy_name_by_order_id),
+                # then drop the strategy_name entry — terminal state, no longer needed.
                 result = self._fill_to_result(fill)
+                self._strategy_name_by_order_id.pop(fill.execution.orderId, None)
 
             logger.info(
                 "Reconciled missed fill | %s %s x%s @ %.4f | execId=%s",
@@ -273,6 +282,7 @@ class OrderManager:
         # If the event fires first, _handle_new_order adds it; this is a safe upsert.
         with self._lock:
             self._orders[trade.order.orderId] = trade
+            self._strategy_name_by_order_id[trade.order.orderId] = request.strategy_name
 
         result = self._trade_to_result(trade, submitted_at=submitted_at)
         logger.info(
@@ -433,8 +443,8 @@ class OrderManager:
             )
         raise ValueError(f"Unsupported order type: {request.order_type}")
 
-    @staticmethod
     def _trade_to_result(
+        self,
         trade: Trade,
         submitted_at: Optional[datetime] = None,
     ) -> OrderResult:
@@ -459,6 +469,9 @@ class OrderManager:
             )
             mapped_status = OrderStatus.ERROR
 
+        # dict.get() is safe under the GIL; avoid acquiring self._lock here
+        # because callers (e.g. reconcile_fills) may already hold it.
+        strat_name = self._strategy_name_by_order_id.get(o.orderId)
         return OrderResult(
             order_id=o.orderId,
             symbol=trade.contract.symbol,
@@ -473,12 +486,15 @@ class OrderManager:
             limit_price=o.lmtPrice if o.lmtPrice else None,
             stop_price=o.auxPrice if o.auxPrice else None,
             submitted_at=submitted_at or datetime.now(timezone.utc),
+            strategy_name=strat_name,
         )
 
-    @staticmethod
-    def _fill_to_result(fill: Fill) -> OrderResult:
+    def _fill_to_result(self, fill: Fill) -> OrderResult:
         """Build an OrderResult from an ib_insync Fill (used during reconciliation)."""
         ex = fill.execution
+        # dict.get() is safe under the GIL; avoid acquiring self._lock here
+        # because callers (e.g. reconcile_fills) may already hold it.
+        strat_name = self._strategy_name_by_order_id.get(ex.orderId)
         return OrderResult(
             order_id=ex.orderId,
             symbol=fill.contract.symbol,
@@ -493,6 +509,7 @@ class OrderManager:
             limit_price=None,
             stop_price=None,
             submitted_at=datetime.now(timezone.utc),
+            strategy_name=strat_name,
         )
 
     # ------------------------------------------------------------------
@@ -530,6 +547,8 @@ class OrderManager:
             # Snapshot result inside the lock: Trade is mutable; reading it
             # outside risks a concurrent status update on another thread.
             result = self._trade_to_result(trade)
+            # Terminal state — drop the strategy_name entry to bound memory.
+            self._strategy_name_by_order_id.pop(trade.order.orderId, None)
         logger.info(
             "Order cancelled | id=%s | %s %s",
             trade.order.orderId,
@@ -555,6 +574,10 @@ class OrderManager:
             # Snapshot fill result inside the lock while Trade is stable.
             if status == "Filled":
                 fill_result = self._trade_to_result(trade)
+            # Terminal states drop the strategy_name entry to bound memory.
+            # _trade_to_result already read it for fill_result above.
+            if status in ("Cancelled", "Filled"):
+                self._strategy_name_by_order_id.pop(trade.order.orderId, None)
 
         if fill_result is not None:
             logger.info(
