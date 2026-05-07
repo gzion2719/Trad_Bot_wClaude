@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 def _make_mock_client(main_loop=None):
@@ -25,6 +25,8 @@ def _make_mock_ib(open_trades=None):
     """Return a mock ib object whose calls are synchronous no-ops."""
     ib = MagicMock()
     ib.reqAllOpenOrders.return_value = None
+    # Async variant used by the threadsafe (non-main-thread) path.
+    ib.reqAllOpenOrdersAsync = AsyncMock(return_value=None)
     ib.sleep.return_value = None
     ib.openTrades.return_value = open_trades or []
     return ib
@@ -125,8 +127,11 @@ def test_om_sync03_non_main_thread_routes_through_main_loop():
         assert t.is_alive() is False, "sync() hung — thread did not finish in time"
         assert not errors, f"sync() raised from non-main thread: {errors}"
         assert result == [0]
-        # reqAllOpenOrders must have been called exactly once via the coroutine path
-        ib.reqAllOpenOrders.assert_called_once()
+        # The threadsafe path MUST use the *Async variant — the sync wrapper
+        # would call loop.run_until_complete() inside an already-running loop
+        # and raise "This event loop is already running" (see 2026-05-07 incident).
+        ib.reqAllOpenOrdersAsync.assert_awaited_once()
+        ib.reqAllOpenOrders.assert_not_called()
         ib.openTrades.assert_called_once()
         # ib.sleep must NOT have been called (async path uses asyncio.sleep instead)
         ib.sleep.assert_not_called()
