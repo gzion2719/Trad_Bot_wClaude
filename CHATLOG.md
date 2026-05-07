@@ -3,6 +3,17 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-07 — B-09 v1 still crashed nightly; shipped B-10 (reqAllOpenOrdersAsync)
+
+- Verified B-09 v1: ntfy fired again at 2026-05-07 00:02 UTC. Logs showed two distinct failures: (A) attempt 5 of `connect()` raised "no current event loop in thread 'ReconnectManager'" post-handshake; (B) attempt 6 succeeded but `OrderManager.sync()` raised "This event loop is already running" → `os._exit(1)` → systemd restart at 00:03:20.
+- Root cause for B (the regression): May 6 fix routed `sync()` through `run_coroutine_threadsafe` correctly, but the inner `_do_sync()` coroutine still called the **sync** `reqAllOpenOrders()` wrapper — `IB._run()` calls `loop.run_until_complete()` and the loop was already running because we were awaiting on it.
+- Shipped B-10 one-liner on `feature/fix-sync-async-loop-conflict`: `await self._ib.reqAllOpenOrdersAsync()` inside `_do_sync`. Updated `test_om_sync03` to assert async variant awaited and sync variant NOT called. PRs #133/#134 merged; deployed to VPS (`3c8dd8a`); bot reconnected cleanly (PID 112078).
+- Bug A deferred — bot self-heals via attempt 6 + systemd; trading not actually disrupted, just noisy. Tracked as B-10 follow-up.
+- **Process improvement:** WORKFLOW.md gains "ib_insync sync-vs-async rule" with a 3-step audit checklist for any `run_coroutine_threadsafe` patch — sync ib_insync calls inside an awaiting coroutine are latent "loop already running" bugs.
+- **Next session:** Confirm tonight's 00:00 UTC AutoRestartTime survives clean (no exit-code 1, no traceback). Then Bug A scoping (find the sync ib_insync call leaking from `connect()` post-handshake) or GC-4 TLS.
+
+---
+
 ## 2026-05-06 — Strategy designer brief + Decision B resolved
 
 - Created `docs/STRATEGY_DESIGNER_BRIEF.md`: 12-question plain-English spec sheet for the strategy designer (no Python knowledge required). Covers entry/exit/stop/timeframe/sizing/filters + summary fill-in block to paste back into chat.
