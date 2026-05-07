@@ -52,6 +52,7 @@ class OrderRequest:
     tif: TimeInForce = TimeInForce.GTC
     exchange: str = "SMART"
     currency: str = "USD"
+    strategy_name: Optional[str] = None  # set by StrategyRunner; tags fills back to source
 
     def __post_init__(self):
         if self.quantity <= 0:
@@ -99,6 +100,7 @@ class OrderResult:
     cost_basis: Optional[float] = None  # avg cost per share at the moment of a SELL fill
     # populated by BacktestPortfolio; None for live orders
     # used by metrics.win_rate() and metrics.profit_factor()
+    strategy_name: Optional[str] = None  # source strategy in multi-strategy mode
 
     @property
     def is_active(self) -> bool:

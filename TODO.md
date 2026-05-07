@@ -161,7 +161,7 @@ backtester/
 | 4.5 | [ ] | P1 | Tune strategy parameters based on backtest + paper results |
 | 4.6 | [ ] | P2 | Implement and backtest a second strategy |
 | 4.7 | [ ] | P2 | Strategy parameter management (YAML/JSON config, no code changes to switch params) |
-| 4.8 | [!] | P2 | Multi-strategy runner — blocked on Decision B (see below) |
+| 4.8 | [~] | P2 | Multi-strategy runner — Phase A done 2026-05-07: `config/strategies.REGISTRY` + `runtime/StrategyRunner`, per-strategy RiskManager + scheduler (DailyAt/Interval), fills routed via `OrderResult.strategy_name`. SMACrossover-QQQ is the only registered strategy; parity with previous wiring. Phase B (add second strategy) in a future session. |
 
 ---
 
