@@ -65,6 +65,12 @@ cd "C:\Users\galzi\OneDrive - Afiki-C\Afikim\TradeBot"
 make pre-push
 ```
 
+**TWS not running on your PC?** Broker tests (live_client fixture) will fail with ConnectionRefused. Use the CI-equivalent gate instead — it skips broker tests exactly as CI does:
+
+```bash
+GITHUB_ACTIONS=true make pre-push
+```
+
 On Windows without `make`, run the steps manually (see Makefile for exact commands):
 ```bash
 ruff check .
