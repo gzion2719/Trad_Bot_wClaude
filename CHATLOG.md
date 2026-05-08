@@ -10,7 +10,7 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 - Pre-push caught a deadlock: `_fill_to_result` initially acquired `self._lock` for the strategy_name lookup, but `reconcile_fills` already held it → non-reentrant `Lock` hung. Fixed by relying on GIL-safe `dict.get()` for the read.
 - Shipped commit 0deed75 to VPS — startup logs confirm parity (`RiskManager initialized`, `PnL poller started — daily loss ceiling is now ACTIVE for all strategies.`, `Strategy started: SMACrossover-QQQ (symbol=QQQ, schedule=DailyAt)`). QA outstanding: tonight's 00:02 UTC AutoRestartTime (B-10 hold) and tomorrow's 16:10 ET daily scheduler fire.
 - Caveat: per-strategy `max_daily_loss` still reads account-level realized P&L from the single PnLPoller — fine with one strategy, needs per-strategy P&L attribution before N>1 takes the cap seriously (BACKLOG).
-- **Process improvement:** WORKFLOW.md gains two rules — "Lock-reentrancy audit" (caught the deadlock) and "CR-to-fix transition" (gating CR-fix passes behind a Step 7 restated plan, written after the user flagged me jumping from "yes" to code without re-running the critique).
+- **Process improvement:** WORKFLOW.md gains three rules — "Lock-reentrancy audit" (caught the deadlock), "CR-to-fix transition" (gating CR-fix passes behind a Step 7 restated plan), and "Worktree commit-handoff" (Claude commits/pushes from the worktree itself in auto mode instead of giving the user shell-mismatched command blocks; written after two failed handoffs in one closing ritual — bash heredoc in PowerShell, then PowerShell here-string in the wrong cwd).
 - **Next session:** confirm overnight + daily-scheduler QA, then Phase B — user supplies the new strategy spec → backtest → append to `REGISTRY`.
 
 ---
