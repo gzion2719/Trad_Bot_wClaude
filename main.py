@@ -17,6 +17,7 @@ Usage:
 
 import logging
 import signal
+import sys
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -40,7 +41,7 @@ def main() -> None:
         validate_config()
     except ConfigError as e:
         logger.critical("Startup aborted — invalid configuration:\n%s", e)
-        return
+        sys.exit(0)  # permanent failure — don't retry; fix config and restart manually
 
     # ── Step 2: Connect to TWS ───────────────────────────────────────────
     client = IBKRClient()
@@ -48,7 +49,7 @@ def main() -> None:
         client.connect(retries=3)
     except ConnectionError as e:
         logger.critical("Could not connect to IBKR: %s — is TWS running?", e)
-        return
+        sys.exit(1)
 
     # ── Step 3: Order management ─────────────────────────────────────────
     om = OrderManager(client)
