@@ -43,15 +43,17 @@ CREATE TABLE IF NOT EXISTS trades (
     account         TEXT,
     cost_basis      REAL,                   -- avg cost/share at time of SELL; NULL for BUY / live
     realized_pnl    REAL,                   -- (fill_price - cost_basis) × quantity; NULL if no basis
-    strategy_params TEXT                    -- JSON blob of strategy config at trade time
+    strategy_params TEXT,                   -- JSON blob of strategy config at trade time
+    real_r_multiple REAL                    -- (exit - entry) / (entry - stop); RSI2MR only; NULL otherwise
 );
 """
 
-# Columns added in Sprint 4 — applied via migration so existing DBs are upgraded safely.
+# Columns added in Sprint 4/Phase-B — applied via migration so existing DBs are upgraded safely.
 _MIGRATIONS = [
     "ALTER TABLE trades ADD COLUMN cost_basis REAL",
     "ALTER TABLE trades ADD COLUMN realized_pnl REAL",
     "ALTER TABLE trades ADD COLUMN strategy_params TEXT",
+    "ALTER TABLE trades ADD COLUMN real_r_multiple REAL",
 ]
 
 
@@ -80,6 +82,7 @@ class TradeLog:
         result: OrderResult,
         strategy_name: str,
         strategy_params: Optional[dict] = None,
+        real_r_multiple: Optional[float] = None,
     ) -> None:
         """
         Record a filled order. Call this from an on_fill callback.
@@ -113,14 +116,18 @@ class TradeLog:
             except (TypeError, ValueError) as exc:
                 logger.warning("Could not serialize strategy_params to JSON: %s", exc)
 
+        # Prefer real_r_multiple from the explicit arg; fall back to result field
+        # (RSI2MR sets result.real_r_multiple at exit time; other strategies pass None).
+        r_multiple = real_r_multiple if real_r_multiple is not None else result.real_r_multiple
+
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO trades
                     (strategy_name, symbol, action, quantity, fill_price,
                      fill_value, filled_at, order_id, account,
-                     cost_basis, realized_pnl, strategy_params)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     cost_basis, realized_pnl, strategy_params, real_r_multiple)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     strategy_name,
@@ -135,6 +142,7 @@ class TradeLog:
                     result.cost_basis,
                     realized_pnl,
                     params_json,
+                    r_multiple,
                 ),
             )
 
