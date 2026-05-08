@@ -41,7 +41,7 @@ def main() -> None:
         validate_config()
     except ConfigError as e:
         logger.critical("Startup aborted — invalid configuration:\n%s", e)
-        sys.exit(1)
+        sys.exit(0)  # permanent failure — don't retry; fix config and restart manually
 
     # ── Step 2: Connect to TWS ───────────────────────────────────────────
     client = IBKRClient()
