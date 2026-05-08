@@ -3,6 +3,18 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-08 — B-10 confirmed + startup exit-code fix (B-11)
+
+- B-10 confirmed: 00:02 UTC AutoRestartTime survived clean — no os._exit(1). Bug A (attempt 5 "no current event loop") still fires but self-heals on attempt 6; not urgent.
+- Bot was down 07:00–12:22 UTC (5h): IBKR connectivity blip at 05:01 invalidated the gateway session token; IBC restarted the gateway ~2h later; systemd dependency chain stopped the bot; ConnectionError path exited code 0 → systemd saw "clean exit", didn't retry, OnFailure didn't fire → no ntfy alert.
+- Shipped B-11 (commits 8f879f2 + 8183002, branch claude/optimistic-burnell-831f02): ConnectionError → sys.exit(1) (transient, systemd retries every 30s + ntfy fires); ConfigError → sys.exit(0) (permanent, no retry, no spam). Post-CR finding applied in same session.
+- User recovered via dashboard noVNC console + manual 2FA; bot back up at 12:22 UTC.
+- Phase A daily scheduler QA (16:10 ET / 20:10 UTC tick on QQQ) still pending — fires later today.
+- **Process improvement:** WORKFLOW.md pre-push section gains `GITHUB_ACTIONS=true make pre-push` note — skips broker tests when TWS isn't running locally, matching CI exactly.
+- **Next session:** Merge PRs (feature→develop, develop→main) + VPS deploy; confirm today's 20:10 UTC tick in logs; then GC-4 TLS or Phase B new strategy.
+
+---
+
 ## 2026-05-07 — Multi-strategy runner Phase A: build → CR → deploy (ROADMAP 4.8)
 
 - Built `config/strategies.REGISTRY` + `runtime/StrategyRunner` — supervises N strategies with one `RiskManager` per strategy (independent caps; Decision B), per-strategy scheduler thread (`DailyAt` / `Interval`), and fills routed via `OrderResult.strategy_name`. SMACrossover-QQQ is the only registered strategy — parity ship; Phase B in a separate session.
