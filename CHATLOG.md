@@ -3,15 +3,15 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
-## 2026-05-07 — Multi-strategy runner Phase A (ROADMAP 4.8)
+## 2026-05-07 — Multi-strategy runner Phase A: build → CR → deploy (ROADMAP 4.8)
 
-- Built `config/strategies.REGISTRY` (`StrategyConfig` + frozen `RiskCaps` + `DailyAt` / `Interval` schedule kinds) and `runtime/StrategyRunner` — supervises N strategies with one `RiskManager` per strategy (independent caps; Decision B). Each strategy runs in its own scheduler thread; `_ERROR_BUDGET=5` mirrors `BarScheduler`.
-- Threaded `strategy_name` through `OrderRequest` → `OrderManager._strategy_name_by_order_id` → `OrderResult.strategy_name`. Per-strategy `on_fill` hooks filter by name so RiskManager and TradeLog rows stay isolated. `BaseStrategy.safe_place_order` stamps the request automatically.
-- Refactored `main.py`: removed single-strategy / single-RM wiring, now `StrategyRunner.build()` + `start_all()` + `stop_all()`. PnLPoller calls `runner.reset_all_daily()` and `runner.update_daily_pnl_all(...)` instead of poking one RM. SMACrossover-QQQ is the only registered strategy — parity behavior, ship before Phase B.
-- Caught a deadlock during pre-push: `_fill_to_result` initially acquired `self._lock` for the new strategy_name lookup, but `reconcile_fills` already holds it → non-reentrant `Lock` hung. Fixed by relying on GIL-safe `dict.get()` (the writer side stays under the lock). 152 tests pass (49 skipped, expected without TWS); ruff/black/mypy ✅.
-- Open caveat documented in `config/strategies.py`: per-strategy `max_daily_loss` reads account-level realized P&L from the single PnLPoller — fine with one strategy, needs per-strategy P&L attribution before N>1 (BACKLOG).
-- **Process improvement:** WORKFLOW.md gains "Lock-reentrancy audit rule" — when a previously stateless static method becomes an instance method that touches `self._lock`, grep for callers that already hold the lock; non-reentrant `threading.Lock` deadlocks silently and the symptom (pytest hang) is hard to read.
-- **Next session:** Phase B — user supplies the new strategy spec → backtest → register alongside SMACrossover-QQQ in `config/strategies.REGISTRY`. Before that: CR + QA + deploy Phase A to VPS for one trading-day parity check.
+- Built `config/strategies.REGISTRY` + `runtime/StrategyRunner` — supervises N strategies with one `RiskManager` per strategy (independent caps; Decision B), per-strategy scheduler thread (`DailyAt` / `Interval`), and fills routed via `OrderResult.strategy_name`. SMACrossover-QQQ is the only registered strategy — parity ship; Phase B in a separate session.
+- Unbiased CR before commit caught two real findings: **B1** — `BaseStrategy` auto-wires `on_fill` globally, so without filtering, two strategies on the same symbol would corrupt each other's position state; fixed via `_dispatch_on_fill` that filters by `strategy_name`. **B2** — `OrderManager._strategy_name_by_order_id` grew unbounded; now popped on terminal events (Filled / Cancelled / reconciled). 10 multi-strategy tests including MS-09 (cross-symbol on_fill isolation) and MS-10 (memory cleanup).
+- Pre-push caught a deadlock: `_fill_to_result` initially acquired `self._lock` for the strategy_name lookup, but `reconcile_fills` already held it → non-reentrant `Lock` hung. Fixed by relying on GIL-safe `dict.get()` for the read.
+- Shipped commit 0deed75 to VPS — startup logs confirm parity (`RiskManager initialized`, `PnL poller started — daily loss ceiling is now ACTIVE for all strategies.`, `Strategy started: SMACrossover-QQQ (symbol=QQQ, schedule=DailyAt)`). QA outstanding: tonight's 00:02 UTC AutoRestartTime (B-10 hold) and tomorrow's 16:10 ET daily scheduler fire.
+- Caveat: per-strategy `max_daily_loss` still reads account-level realized P&L from the single PnLPoller — fine with one strategy, needs per-strategy P&L attribution before N>1 takes the cap seriously (BACKLOG).
+- **Process improvement:** WORKFLOW.md gains two rules — "Lock-reentrancy audit" (caught the deadlock) and "CR-to-fix transition" (gating CR-fix passes behind a Step 7 restated plan, written after the user flagged me jumping from "yes" to code without re-running the critique).
+- **Next session:** confirm overnight + daily-scheduler QA, then Phase B — user supplies the new strategy spec → backtest → append to `REGISTRY`.
 
 ---
 

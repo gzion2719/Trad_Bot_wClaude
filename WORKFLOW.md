@@ -143,6 +143,41 @@ Example (2026-05-03): `gitleaks-action@v2` failed with HTTP 403 on `pulls/{n}/co
 
 ---
 
+## Worktree commit-handoff rule
+
+When Claude's edits live in a worktree (`.claude/worktrees/<name>/`) and the user's shell is in the main checkout — which is the default Claude Code setup on this project — **Claude commits and pushes from the worktree itself** instead of giving the user a gate-first command block. The user runs only the steps that require their hands (click "Merge PR" in the browser, run `git pull && systemctl restart tradebot` on the VPS).
+
+Why: the user's shell is PowerShell on Windows + the main checkout, which differs from Claude's Bash + worktree environment in two ways:
+1. **Shell language.** PowerShell can't run bash heredoc (`<<'EOF'`), `$(cat <<...)`, or `cmd | git commit -F -` reliably for multi-line commit messages.
+2. **Working directory.** Claude's file edits aren't in the user's `pwd`; the user must `cd` into the worktree first or git will say "nothing to commit, working tree clean" on whatever branch the main checkout last had.
+
+Default flow when wrapping work in auto mode:
+1. Claude runs `make pre-push` (or the equivalent) inside the worktree via Bash tool.
+2. Claude runs `git add ... && git commit -F -` (Bash heredoc works here because Claude IS in bash) inside the worktree.
+3. Claude runs `git push origin <worktree-branch>` inside the worktree.
+4. Claude hands the user **only**: the PR compare URL(s), merge instruction, and the VPS deploy one-liner.
+
+Multi-line commit messages: always use `git commit -F -` with a heredoc on Claude's side. **Never give the user a heredoc** — if for some reason the user must run the commit themselves (non-auto mode, or they explicitly ask to drive), prefer either (a) `git commit -m "single short title"` plus a follow-up `git commit --amend` once they've inspected, or (b) write the message to a tracked temp file with the Write tool and tell them `git commit -F .git/COMMIT_MSG.tmp`.
+
+Example (2026-05-07): twice in one closing ritual, Claude handed the user a multi-line `git commit -m "$(cat <<'EOF' ... EOF)"` and assumed cwd was the worktree. First attempt failed with PowerShell parse errors; second attempt succeeded syntactically but ran in the main checkout on a stale branch and committed nothing. Both rounds were wasted; both were avoidable by Claude just running the commit itself in the worktree.
+
+---
+
+## CR-to-fix transition rule
+
+When a code review (`/ultrareview` or an in-chat unbiased review) identifies fixable findings, **do NOT auto-apply them**. The CR is one deliverable; the fix pass is a separate one that needs its own Step 7 self-critique. Specifically:
+
+1. Present findings (✓ part of the CR).
+2. Propose a fix scope as a Step 7 plan: list each fix, name files touched, flag scope creep candidates explicitly, identify smaller-increment options.
+3. **Wait for explicit go on scope** — even if the user already said "yes apply fixes", treat that as authorization to plan, not authorization to code. A second "go" on the plan is required.
+4. Only then edit code.
+
+Step 7 in `SESSION_PROTOCOL.md` already covers production-code changes; this rule is its CR-pipeline corollary, written because CR fixes feel like rubber-stamp work but routinely touch core paths (this session: `OrderManager._handle_order_status`, `BaseStrategy.__init__`).
+
+Example (2026-05-07): user said "yes apply B1+B2+tests" after a Phase-A CR; I jumped to code, expanded scope unilaterally to also include M4 + cosmetic test-helper changes, and edited 4 production-code files without restating the plan. The user flagged the procedure break ("you are not working according to procedure"). The fix pass was correct in outcome but should have been gated by a 30-second restated plan.
+
+---
+
 ## Lock-reentrancy audit rule
 
 When a previously **stateless `@staticmethod`** is converted to an instance method that touches `self._lock` (or any `threading.Lock`), grep every call site to confirm none of them already hold the lock. Python's default `threading.Lock` is non-reentrant — a recursive acquire deadlocks silently, and the symptom (pytest hangs partway through, `pytest -x` never reaches the failing assertion) is hard to read.
