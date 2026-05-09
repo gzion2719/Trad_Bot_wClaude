@@ -162,6 +162,9 @@ backtester/
 | 4.6 | [x] | P2 | Implement and backtest a second strategy — RSI2-MR SPY done 2026-05-08 (PR #147). 67 trades 2006-2025, 59.7% win, Sharpe 0.34, DD -8.5%. Not registered in REGISTRY yet — paper-only branch until promoted. |
 | 4.7 | [ ] | P2 | Strategy parameter management (YAML/JSON config, no code changes to switch params) |
 | 4.8 | [x] | P2 | Multi-strategy runner — Phase A done 2026-05-07: `config/strategies.REGISTRY` + `runtime/StrategyRunner`, per-strategy RiskManager + scheduler (DailyAt/Interval), fills routed via `OrderResult.strategy_name`. Phase B done 2026-05-09: RSI2MR-SPY added to REGISTRY (symbol=SPY, DailyAt(16,10), all default params). VIX sidecar is self-managed by the strategy — no StrategyRunner changes needed. |
+| 4.8.1 | [x] | P1 | MS-A1 (cost_basis pipeline) done 2026-05-09: strategies stamp `OrderResult.cost_basis` on SELL from `_entry_price`; per-strategy JSON state files persist entry across restarts; broker `avg_cost` fallback for clean installs; callback-ordering contract documented in `runtime/strategy_runner.py` and tested both directions. 15 new tests in `tests/test_pnl_attribution_a1.py`. Pure plumbing — no production behavior change yet. |
+| 4.8.2 | [ ] | P1 | MS-A2 — wire PnLPoller to query TradeLog per strategy (replaces account-level realized P&L feed). Each RiskManager gets its own number; halts become per-strategy. Depends on 4.8.1 ✅. |
+| 4.8.3 | [ ] | P0 | MS-D — `REGISTRY.build()` raises ConfigError on shared symbols (precondition for MS-A1's avg_cost fallback). ~5-line guard. |
 
 ---
 
