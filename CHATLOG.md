@@ -3,6 +3,17 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-09 — MS-A1+A2 shipped + gitleaks false-positive fixed (PR #157)
+
+- VPS deploy verified: both SMACrossover-QQQ and RSI2MR-SPY confirmed running post-deploy; systemd description updated to "TradeBot (multi-strategy runner)" via cp + daemon-reload.
+- MS-A1: strategies stamp `OrderResult.cost_basis` on SELL from internal `_entry_price`; per-strategy JSON state files persist across restarts; `_persist_state` flag gates disk I/O so backtests don't pollute VPS state. 15 new tests.
+- MS-A2: `TradeLog.realized_pnl_since(strategy, cutoff)` replaces account-level IBKR P&L feed; RiskManager gains `strategy_name` + sticky `_halted_today` flag (cleared only by 9:30 ET reset); `check()` and `is_halted()` both honor sticky. 14 new tests including the bug-of-record assertion. Three unbiased CR passes; all findings addressed.
+- CI failing on "leaks found: 1" — simulated exact gitleaks v8 generic-api-key rule (entropy > 3.5) across full repo; found ROADMAP.md:32 `Key deliverables: … DataFeed/IBKRFeed/BarScheduler` as the sole false positive (entropy 3.61). Added allowlist entry to `.gitleaks.toml`; pushed to trigger CI re-run.
+- **Process improvement:** none this session.
+- **Next session:** Confirm CI green on PR #157, merge to develop then main, VPS deploy. Then MS-D (P0) — `REGISTRY.build()` raises `ConfigError` on shared symbols (~5 lines).
+
+---
+
 ## 2026-05-09 — ROADMAP 4.8 Phase B: RSI2MR-SPY registered in REGISTRY
 
 - Verified 16:10 ET tick on VPS (May 8 20:10:00 UTC confirmed in logs) before starting Phase B. Registered RSI2MR-SPY in `config/strategies.py` REGISTRY: symbol=SPY, DailyAt(16,10), same risk caps as SMA Crossover. No StrategyRunner changes needed — VIX sidecar is self-managed in `RSI2MR_SPY.on_start()`.
