@@ -81,6 +81,8 @@ Restate the chosen focus. Run a substantive critique:
 For trivial focuses (log check, quick config tweak), a one-line ack is fine.
 For anything touching production code, architecture, or deployment: the critique must be a real list.
 
+**Pre-implementation CR sub-rule:** if the user's focus request includes "unbiased review", "CR the plan", or "subagent review", spawn the CR agent as PART of Step 7 — before presenting the revised plan to the user. Do not present the plan, wait for "go", then spawn the CR. The CR is the last bullet of Step 7; the revised plan that comes out of it is what the user approves.
+
 Wait for "go" before proceeding.
 
 ---
