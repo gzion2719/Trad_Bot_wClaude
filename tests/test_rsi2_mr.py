@@ -781,9 +781,9 @@ def test_fi08_cooldown_prevents_reentry():
 
     buys = [f for f in result.fills if f.action == "BUY"]
     if len(buys) >= 2:
-        # Second buy must come after the first sell (cooldown enforced)
-        sells = sorted(
-            [f for f in result.fills if f.action == "SELL"], key=lambda f: f.submitted_at
-        )
+        # Second buy must come after the first sell (cooldown enforced).
+        # Use order_id (monotonically incrementing) not submitted_at — backtest fills
+        # within the same run can share the same datetime.now() microsecond.
+        sells = sorted([f for f in result.fills if f.action == "SELL"], key=lambda f: f.order_id)
         if sells:
-            assert buys[1].submitted_at > sells[0].submitted_at
+            assert buys[1].order_id > sells[0].order_id
