@@ -30,16 +30,18 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot running on VPS (paper account). Dashboard Phase 4 fully deployed. B-10 confirmed stable. **ROADMAP 4.8 Phase B done 2026-05-09**: RSI2MR-SPY registered in `config/strategies.py` REGISTRY (symbol=SPY, DailyAt(16,10), all default params). VIX sidecar is self-managed by the strategy — no StrategyRunner changes were needed. PR pending: deploy to VPS so both strategies start on next restart.
+**Phase 6 — paper trading.** Bot running on VPS (paper account, both strategies confirmed live as of 2026-05-09 13:25 UTC). Dashboard Phase 4 fully deployed. B-10 confirmed stable. **ROADMAP 4.8 Phase B done 2026-05-09**: RSI2MR-SPY registered in REGISTRY alongside SMACrossover-QQQ. **MS-A1 (cost_basis pipeline) done 2026-05-09**: strategies stamp `OrderResult.cost_basis` on SELL fills from internal `_entry_price`; per-strategy JSON state (`data/sma_crossover_state.json`, `data/rsi2_mr_state.json`) persists entry across restarts; broker `avg_cost` fallback for clean-install carry-over; callback-ordering contract documented in `runtime/strategy_runner.py` and tested with both positive and negative tests. Pure data-pipeline work — production behaviour unchanged. PR pending. MS-A2 (wire PnLPoller per-strategy) is next session.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 **Immediate next steps:**
-1. **Merge this PR** → develop → main, then deploy to VPS: `cd /opt/tradebot && git pull origin main && systemctl restart tradebot`. Verify startup logs show both `Strategy started: SMACrossover-QQQ` and `Strategy started: RSI2MR-SPY`.
-2. **Verify today's 20:10 UTC tick** — `journalctl -u tradebot --since '2026-05-09 20:05' --until '2026-05-09 20:20'` — should show both strategies downloading bars.
-3. **Bug A (deferred)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'". Bot self-heals via attempt 6 + systemd. Not urgent.
-4. **GC-4 — TLS for the dashboard** (Caddy/nginx + tailscale-cert).
-5. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
+1. **Merge MS-A1 PR** → develop → main, then deploy to VPS: `cd /opt/tradebot && git pull origin main && systemctl restart tradebot`. Pure plumbing — production behaviour unchanged; cost_basis just becomes available for MS-A2 to read.
+2. **MS-A2 next session**: wire `PnLPoller` to query `TradeLog` per strategy (replaces account-level realized P&L feed). Each `RiskManager` gets its own number; halts become per-strategy.
+3. **MS-D (P0)** — add `REGISTRY.build()` ConfigError on shared symbols. Precondition for MS-A1's `avg_cost` fallback safety. ~5-line guard.
+4. **Verify today's 20:10 UTC tick** — `journalctl -u tradebot --since '2026-05-09 20:05' --until '2026-05-09 20:20'` — should show both strategies downloading bars.
+5. **Bug A (deferred)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'". Bot self-heals via attempt 6 + systemd. Not urgent.
+6. **GC-4 — TLS for the dashboard** (Caddy/nginx + tailscale-cert).
+7. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
 
 ### What was done this session (2026-05-08 — RSI2-MR strategy, ROADMAP 4.6)
 

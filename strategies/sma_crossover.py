@@ -69,9 +69,11 @@ Backtest
     engine.run().print_summary()
 """
 
+import json
 import logging
 import os
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import List, Optional
 
 from models.order import (
@@ -87,6 +89,9 @@ logger = logging.getLogger(__name__)
 
 # How many days of history to fetch from yfinance on startup / each live tick.
 _HISTORY_DAYS = 90
+
+# Persistent state file path (default; injectable via constructor for test isolation).
+_DEFAULT_STATE_FILE = Path(__file__).parent.parent / "data" / "sma_crossover_state.json"
 
 
 class SMACrossover(BaseStrategy):
@@ -111,6 +116,7 @@ class SMACrossover(BaseStrategy):
         sma_fast: int = 10,
         sma_slow: int = 30,
         initial_capital: float = 100_000.0,
+        state_file_path: Optional[Path] = None,
     ) -> None:
         super().__init__(
             client=client,
@@ -131,12 +137,28 @@ class SMACrossover(BaseStrategy):
         self._position_shares: int = 0  # actual filled quantity (set in on_fill)
         self._stop_price: float = 0.0  # planned stop, set at entry
         self._stop_order_id: Optional[int] = None  # broker-side STOP order ID (C2)
+        self._entry_price: float = 0.0  # MS-A1: avg fill price; source of cost_basis on SELL
+
+        # State file path (injectable for test isolation; defaults to module path)
+        self._state_file_path: Path = state_file_path or _DEFAULT_STATE_FILE
+        # Persist to disk only in live mode OR when an explicit path was injected
+        # (for tests). Backtests with the default path skip persistence so they
+        # cannot pollute the production VPS state file.
+        self._persist_state: bool = (client is not None) or (state_file_path is not None)
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     def on_start(self) -> None:
+        # Step 0 (MS-A1): load persisted state so _entry_price survives restarts.
+        # Done before broker reconcile so the broker fallback only fires when
+        # the state file is missing/stale.
+        self._load_state()
+        # Track whether the state file claimed we held a position; if the broker
+        # disagrees (no matching position) we clear the stale entry_price below.
+        _state_claimed_position: bool = self._entry_price > 0
+
         # Step 1 (C4 / NEW-3): seed close history FIRST so _calc_stop() has data
         # when we find a reconciled position one step below.
         if self.client is not None:
@@ -149,6 +171,30 @@ class SMACrossover(BaseStrategy):
                     if pos.symbol == self.symbol and pos.quantity > 0:
                         self._in_position = True
                         self._position_shares = int(pos.quantity)
+                        # MS-A1: if state file did not provide an entry price
+                        # (clean install / corrupted state), fall back to broker
+                        # avg_cost. Safe today because SMA owns QQQ exclusively
+                        # (MS-D guards future shared-symbol cases at REGISTRY build).
+                        if self._entry_price <= 0 and pos.avg_cost > 0:
+                            self._entry_price = float(pos.avg_cost)
+                            logger.warning(
+                                "%s: entry_price recovered from broker avg_cost=%.2f "
+                                "(no state file value).",
+                                self.name,
+                                self._entry_price,
+                            )
+                        elif self._entry_price <= 0:
+                            # IBKR sometimes reports avg_cost=0 (CLAUDE.md Q4).
+                            # Surface loudly: cost_basis on the next SELL will be
+                            # None and realized P&L attribution will miss this trade.
+                            logger.error(
+                                "%s: reconciled position has avg_cost=%.2f and no "
+                                "state-file entry — cost_basis will be unavailable "
+                                "for the next SELL. Trade will not contribute to "
+                                "MS-A2 per-strategy P&L attribution.",
+                                self.name,
+                                pos.avg_cost,
+                            )
                         logger.warning(
                             "%s: reconciled existing position %s x%d from broker.",
                             self.name,
@@ -256,6 +302,19 @@ class SMACrossover(BaseStrategy):
             except Exception as exc:
                 logger.warning("%s: position reconcile failed -- %s", self.name, exc)
 
+        # MS-A1: if state file said we were in a position but the broker reconcile
+        # found none, the state file is stale (e.g. crash between SELL fill and
+        # _save_state). Clear the entry_price so a future BUY isn't tainted by it.
+        if _state_claimed_position and not self._in_position:
+            logger.warning(
+                "%s: state file claimed in_position with entry_price=%.2f but "
+                "broker shows no position — clearing stale state.",
+                self.name,
+                self._entry_price,
+            )
+            self._entry_price = 0.0
+            self._save_state()
+
         # Step 3 (H3): register order-error callback to clear _entry_pending.
         if self.om is not None:
             try:
@@ -272,6 +331,10 @@ class SMACrossover(BaseStrategy):
         )
 
     def on_stop(self) -> None:
+        # MS-A1: persist current state (consistent with RSI2MR's on_stop pattern).
+        # Belt-and-suspenders to BUY/SELL fill saves: covers any in-memory mutation
+        # that didn't already trigger _save_state.
+        self._save_state()
         # NEW-1: do NOT cancel the broker STOP on shutdown.
         # A GTC stop's entire purpose is to protect the position while the bot
         # is offline.  Cancelling it here would leave the position naked against
@@ -300,8 +363,20 @@ class SMACrossover(BaseStrategy):
         self._entry_pending = False  # H3 -- clear regardless of direction
 
         if result.action == OrderAction.BUY.value:
+            # No pyramiding: this strategy assumes a single round-trip at a time.
+            # If we ever add a second BUY before the first SELL, _entry_price would
+            # be overwritten and cost_basis attribution would silently lose the prior leg.
+            assert not self._in_position, (
+                f"{self.name}: BUY fill received while _in_position=True — "
+                "pyramiding is not supported."
+            )
             self._position_shares = int(result.filled)
             self._in_position = True
+            # MS-A1: capture entry price for cost_basis on the eventual SELL.
+            if result.avg_fill_price is not None:
+                self._entry_price = float(result.avg_fill_price)
+            # Persist so a restart between BUY and SELL still attributes correctly.
+            self._save_state()
             logger.info(
                 "%s BUY filled | %s x%d @ %.2f | stop=%.2f",
                 self.name,
@@ -341,6 +416,13 @@ class SMACrossover(BaseStrategy):
                     )
 
         elif result.action == OrderAction.SELL.value:
+            # MS-A1: stamp cost_basis on the SELL OrderResult so TradeLog.record()
+            # can compute realized_pnl. Must happen BEFORE clearing _entry_price.
+            # Per runtime/strategy_runner.py callback contract, this hook runs
+            # before the trade_log hook reads the result.
+            if self._entry_price > 0:
+                result.cost_basis = self._entry_price
+
             # Cancel the outstanding protective stop (C2), if any
             if self._stop_order_id is not None:
                 try:
@@ -352,6 +434,8 @@ class SMACrossover(BaseStrategy):
             self._in_position = False
             self._position_shares = 0
             self._stop_price = 0.0
+            self._entry_price = 0.0
+            self._save_state()
             logger.info(
                 "%s SELL filled | %s @ %.2f",
                 self.name,
@@ -675,6 +759,49 @@ class SMACrossover(BaseStrategy):
 
             shares = int(PositionSizer.risk_based(equity, entry, stop, risk_pct=0.02))
             return min(shares, max_by_cash)
+
+    # ------------------------------------------------------------------
+    # State persistence (MS-A1)
+    # ------------------------------------------------------------------
+
+    def _save_state(self) -> None:
+        """Persist entry price + position flag so cost_basis survives a restart."""
+        if not self._persist_state:
+            return  # backtest path with default state file — skip disk I/O
+        try:
+            state = {
+                "in_position": self._in_position,
+                "entry_price": self._entry_price,
+                "position_shares": self._position_shares,
+                "stop_price": self._stop_price,
+            }
+            self._state_file_path.parent.mkdir(parents=True, exist_ok=True)
+            self._state_file_path.write_text(json.dumps(state, indent=2))
+        except Exception as exc:
+            logger.warning("%s: could not save state: %s", self.name, exc)
+
+    def _load_state(self) -> None:
+        """Restore entry price from disk if a position was held when we shut down."""
+        if not self._persist_state:
+            return  # backtest path with default state file — skip disk I/O
+        try:
+            if not self._state_file_path.exists():
+                return
+            state = json.loads(self._state_file_path.read_text())
+            # Only honor entry_price if the persisted state says we were in position;
+            # otherwise leave defaults so a stale file doesn't pollute fresh state.
+            if state.get("in_position"):
+                ep = state.get("entry_price", 0.0)
+                if ep:
+                    self._entry_price = float(ep)
+                logger.info(
+                    "%s: loaded state — entry_price=%.2f position_shares=%d",
+                    self.name,
+                    self._entry_price,
+                    int(state.get("position_shares", 0)),
+                )
+        except Exception as exc:
+            logger.warning("%s: could not load state (using defaults): %s", self.name, exc)
 
     # ------------------------------------------------------------------
     # Strategy metadata

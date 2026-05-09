@@ -56,7 +56,7 @@ _LIVE_HISTORY_DAYS = 400
 # Warmup period before first eligible trade (per spec §1.12)
 _WARMUP_BARS = 240
 # Persistent state file path (relative to project root)
-_STATE_FILE = Path(__file__).parent.parent / "data" / "rsi2_mr_state.json"
+_DEFAULT_STATE_FILE = Path(__file__).parent.parent / "data" / "rsi2_mr_state.json"
 
 
 class RSI2MR_SPY(BaseStrategy):
@@ -99,6 +99,7 @@ class RSI2MR_SPY(BaseStrategy):
         atr_multiplier: float = 1.5,
         initial_capital: float = 50_000.0,
         vix_feed: Optional[VIXFeed] = None,
+        state_file_path: Optional[Path] = None,
     ) -> None:
         super().__init__(
             client=client,
@@ -120,6 +121,13 @@ class RSI2MR_SPY(BaseStrategy):
 
         # VIX feed (injected in backtest; created live in on_start)
         self._vix_feed: Optional[VIXFeed] = vix_feed
+
+        # State file path (injectable for test isolation; defaults to module path)
+        self._state_file_path: Path = state_file_path or _DEFAULT_STATE_FILE
+        # Persist to disk only in live mode OR when an explicit path was injected
+        # (for tests). Backtests with the default path skip persistence so they
+        # cannot pollute the production VPS state file.
+        self._persist_state: bool = (client is not None) or (state_file_path is not None)
 
         # Price history buffers (oldest-first)
         self._closes: List[float] = []
@@ -162,12 +170,25 @@ class RSI2MR_SPY(BaseStrategy):
 
         # Restore circuit-breaker state (survives daily restarts)
         self._load_state()
+        # MS-A1: track whether state file claimed we held a position so we can
+        # detect a stale state-vs-broker mismatch after the reconcile pass below.
+        _state_claimed_position: bool = self._entry_price > 0
 
         # Seed history for live mode
         if self.client is not None:
             self._refresh_history()
             # Reconcile existing position from broker
             self._reconcile_position()
+            # MS-A1: state said in_position but broker disagrees → clear stale entry.
+            if _state_claimed_position and not self._in_position:
+                logger.warning(
+                    "%s: state file claimed in_position with entry_price=%.2f but "
+                    "broker shows no position — clearing stale state.",
+                    self.name,
+                    self._entry_price,
+                )
+                self._entry_price = 0.0
+                self._save_state()
 
         logger.info(
             "%s starting | symbol=%s sma=%d rsi=%d oversold=%.0f overbought=%.0f "
@@ -197,11 +218,21 @@ class RSI2MR_SPY(BaseStrategy):
         self._entry_pending = False
 
         if result.action == OrderAction.BUY.value:
+            # No pyramiding: this strategy assumes a single round-trip at a time.
+            # If we ever add a second BUY before the first SELL, _entry_price would
+            # be overwritten and cost_basis attribution would silently lose the prior leg.
+            assert not self._in_position, (
+                f"{self.name}: BUY fill received while _in_position=True — "
+                "pyramiding is not supported."
+            )
             self._in_position = True
             self._position_shares = int(result.filled)
             if result.avg_fill_price is not None:
                 self._entry_price = result.avg_fill_price
             self._bars_held = 0
+            # Persist entry price so a restart between BUY and SELL still attributes
+            # cost_basis correctly on the eventual SELL fill.
+            self._save_state()
             logger.info(
                 "%s BUY filled | %s x%d @ %.2f | stop=%.2f target=%.2f",
                 self.name,
@@ -216,6 +247,13 @@ class RSI2MR_SPY(BaseStrategy):
 
         elif result.action == OrderAction.SELL.value:
             fill_price = result.avg_fill_price or 0.0
+
+            # MS-A1: stamp cost_basis on the SELL OrderResult so TradeLog.record()
+            # can compute realized_pnl. Must happen BEFORE clearing _entry_price
+            # below. Per runtime/strategy_runner.py callback contract, this hook
+            # runs before the trade_log hook reads the result.
+            if self._entry_price > 0:
+                result.cost_basis = self._entry_price
 
             # Compute real_r_multiple and attach to result for TradeLog
             if self._entry_price > 0 and self._stop_price > 0:
@@ -636,11 +674,36 @@ class RSI2MR_SPY(BaseStrategy):
                 if pos.symbol == self.symbol and pos.quantity > 0:
                     self._in_position = True
                     self._position_shares = int(pos.quantity)
+                    # MS-A1: if state file did not provide an entry price (clean
+                    # install / corrupted state), fall back to broker avg_cost.
+                    # Safe today because RSI2MR owns SPY exclusively (MS-D guards
+                    # future shared-symbol cases at REGISTRY build time).
+                    if self._entry_price <= 0 and pos.avg_cost > 0:
+                        self._entry_price = float(pos.avg_cost)
+                        logger.warning(
+                            "%s: entry_price recovered from broker avg_cost=%.2f "
+                            "(no state file value).",
+                            self.name,
+                            self._entry_price,
+                        )
+                    elif self._entry_price <= 0:
+                        # IBKR sometimes reports avg_cost=0 (CLAUDE.md Q4).
+                        # Surface loudly: cost_basis on the next SELL will be
+                        # None and realized P&L attribution will miss this trade.
+                        logger.error(
+                            "%s: reconciled position has avg_cost=%.2f and no "
+                            "state-file entry — cost_basis will be unavailable "
+                            "for the next SELL.",
+                            self.name,
+                            pos.avg_cost,
+                        )
                     logger.warning(
-                        "%s: reconciled existing position %s x%d from broker.",
+                        "%s: reconciled existing position %s x%d from broker "
+                        "(entry_price=%.2f).",
                         self.name,
                         self.symbol,
                         self._position_shares,
+                        self._entry_price,
                     )
         except Exception as exc:
             logger.warning("%s: position reconcile failed: %s", self.name, exc)
@@ -667,6 +730,8 @@ class RSI2MR_SPY(BaseStrategy):
     # ── State persistence ─────────────────────────────────────────────────────
 
     def _save_state(self) -> None:
+        if not self._persist_state:
+            return  # backtest path with default state file — skip disk I/O
         try:
             state = {
                 "consecutive_losses": self._consecutive_losses,
@@ -674,17 +739,23 @@ class RSI2MR_SPY(BaseStrategy):
                 "circuit_breaker_until": (
                     self._circuit_breaker_until.isoformat() if self._circuit_breaker_until else None
                 ),
+                # MS-A1: persist entry price so cost_basis survives a restart
+                # between BUY fill and SELL fill.
+                "entry_price": self._entry_price,
+                "in_position": self._in_position,
             }
-            _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            _STATE_FILE.write_text(json.dumps(state, indent=2))
+            self._state_file_path.parent.mkdir(parents=True, exist_ok=True)
+            self._state_file_path.write_text(json.dumps(state, indent=2))
         except Exception as exc:
             logger.warning("%s: could not save state: %s", self.name, exc)
 
     def _load_state(self) -> None:
+        if not self._persist_state:
+            return  # backtest path with default state file — skip disk I/O
         try:
-            if not _STATE_FILE.exists():
+            if not self._state_file_path.exists():
                 return
-            state = json.loads(_STATE_FILE.read_text())
+            state = json.loads(self._state_file_path.read_text())
             self._consecutive_losses = int(state.get("consecutive_losses", 0))
             self._strategy_peak_equity = float(
                 state.get("strategy_peak_equity", self._initial_capital)
@@ -692,12 +763,20 @@ class RSI2MR_SPY(BaseStrategy):
             cb_until = state.get("circuit_breaker_until")
             if cb_until:
                 self._circuit_breaker_until = date.fromisoformat(cb_until)
+            # MS-A1: recover entry price across restarts (only if state says we
+            # are in position — keeps the pre-MS-A1 default-None path clean).
+            if state.get("in_position"):
+                ep = state.get("entry_price", 0.0)
+                if ep:
+                    self._entry_price = float(ep)
             logger.info(
-                "%s: loaded state — consecutive_losses=%d peak_equity=%.2f cb_until=%s",
+                "%s: loaded state — consecutive_losses=%d peak_equity=%.2f cb_until=%s "
+                "entry_price=%.2f",
                 self.name,
                 self._consecutive_losses,
                 self._strategy_peak_equity,
                 self._circuit_breaker_until,
+                self._entry_price,
             )
         except Exception as exc:
             logger.warning("%s: could not load state (using defaults): %s", self.name, exc)
