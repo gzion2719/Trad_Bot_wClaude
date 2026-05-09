@@ -620,19 +620,16 @@ def test_em04_circuit_breaker_equity_drawdown():
     assert strategy._circuit_breaker_until is not None
 
 
-def test_em05_state_round_trip(tmp_path, monkeypatch):
+def test_em05_state_round_trip(tmp_path):
     """_save_state/_load_state round-trip preserves circuit-breaker fields."""
-    import strategies.rsi2_mr as rsi2_module
-
     state_path = tmp_path / "rsi2_mr_state.json"
-    monkeypatch.setattr(rsi2_module, "_STATE_FILE", state_path)
 
-    strategy, *_ = _make_strategy()
+    strategy, *_ = _make_strategy(state_file_path=state_path)
     strategy._consecutive_losses = 4
     strategy._circuit_breaker_until = date(2027, 3, 1)
     strategy._save_state()
 
-    strategy2, *_ = _make_strategy()
+    strategy2, *_ = _make_strategy(state_file_path=state_path)
     strategy2._load_state()
     assert strategy2._consecutive_losses == 4
     assert strategy2._circuit_breaker_until == date(2027, 3, 1)

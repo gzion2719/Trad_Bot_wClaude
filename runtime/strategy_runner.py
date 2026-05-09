@@ -122,6 +122,21 @@ class StrategyRunner:
 
             # Per-strategy fill hooks. Both filter on strategy_name so a fill
             # from strategy A never bumps strategy B's bookkeeping.
+            #
+            # CALLBACK ORDERING CONTRACT (MS-A1) — DO NOT REORDER without updating
+            # both this comment and the `test_a1_07_callback_order_contract` test.
+            #
+            #   1. BaseStrategy.__init__ (already ran above at strategy_class(...))
+            #      registered `_dispatch_on_fill` → strategy.on_fill on om.on_fill.
+            #   2. _make_risk_fill_hook is registered next.
+            #   3. _make_trade_log_hook is registered last.
+            #
+            # OrderManager._on_fill_callbacks is a list iterated in registration
+            # order. The strategy's on_fill MUST run BEFORE the trade_log hook so
+            # the strategy can mutate `OrderResult.cost_basis` (and other fields
+            # such as `real_r_multiple`) before TradeLog.record() reads them.
+            # Reversing this order silently corrupts per-strategy P&L attribution
+            # because cost_basis would still be None when the row is persisted.
             self.om.on_fill(self._make_risk_fill_hook(cfg.name, rm))
             self.om.on_fill(self._make_trade_log_hook(cfg.name, strategy))
 
