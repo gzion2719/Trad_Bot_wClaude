@@ -759,13 +759,18 @@ def test_fi08_cooldown_prevents_reentry():
     """After a SELL, no new BUY fires for at least COOLDOWN_BARS bars."""
     from strategies.rsi2_mr import RSI2MR_SPY
 
-    # Very long flat section after time-stop to allow potential re-entry
+    # Long flat section after time-stop where re-entry would normally fire.
+    # We patch _COOLDOWN_BARS to 200 — larger than the bars remaining after
+    # the first SELL (~80) — so the cooldown gate is the only thing that
+    # could prevent a second BUY. If cooldown logic is broken, we'll see
+    # len(buys) >= 2.
     df = _make_spy_df(n=350, signal_offset=90)
 
     with (
         _PATCH_FOMC,
         _PATCH_RUSSELL,
         _PATCH_HOLIDAY,
+        patch.object(RSI2MR_SPY, "_COOLDOWN_BARS", 200),
         patch.object(RSI2MR_SPY, "_load_state", lambda self: None),
         patch.object(RSI2MR_SPY, "_save_state", lambda self: None),
     ):
@@ -780,10 +785,7 @@ def test_fi08_cooldown_prevents_reentry():
         result = engine.run()
 
     buys = [f for f in result.fills if f.action == "BUY"]
-    if len(buys) >= 2:
-        # Second buy must come after the first sell (cooldown enforced).
-        # Use order_id (monotonically incrementing) not submitted_at — backtest fills
-        # within the same run can share the same datetime.now() microsecond.
-        sells = sorted([f for f in result.fills if f.action == "SELL"], key=lambda f: f.order_id)
-        if sells:
-            assert buys[1].order_id > sells[0].order_id
+    sells = [f for f in result.fills if f.action == "SELL"]
+    # Cooldown gate blocks the second entry — exactly one full cycle fits.
+    assert len(buys) == 1, f"Cooldown failed to block re-entry: got {len(buys)} BUYs"
+    assert len(sells) == 1, f"Expected exactly one SELL (time-stop), got {len(sells)}"
