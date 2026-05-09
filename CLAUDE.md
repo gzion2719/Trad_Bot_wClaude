@@ -30,14 +30,13 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot running on VPS (paper account, both strategies confirmed live as of 2026-05-09 13:25 UTC). Dashboard Phase 4 fully deployed. B-10 confirmed stable. **ROADMAP 4.8 Phase B done 2026-05-09**: RSI2MR-SPY registered in REGISTRY alongside SMACrossover-QQQ. **MS-A1 (cost_basis pipeline) done 2026-05-09**: strategies stamp `OrderResult.cost_basis` on SELL fills from internal `_entry_price`; per-strategy JSON state (`data/sma_crossover_state.json`, `data/rsi2_mr_state.json`) persists entry across restarts; broker `avg_cost` fallback for clean-install carry-over; callback-ordering contract documented in `runtime/strategy_runner.py` and tested with both positive and negative tests. Pure data-pipeline work — production behaviour unchanged. PR pending. MS-A2 (wire PnLPoller per-strategy) is next session.
+**Phase 6 — paper trading.** Bot running on VPS (paper account, both strategies confirmed live as of 2026-05-09 13:25 UTC). Dashboard Phase 4 fully deployed. B-10 confirmed stable. **ROADMAP 4.8 Phase B done 2026-05-09**: RSI2MR-SPY registered in REGISTRY alongside SMACrossover-QQQ. **MS-A done 2026-05-09 (A1 + A2)**: strategies stamp `OrderResult.cost_basis` on SELL from `_entry_price`; per-strategy JSON state survives restarts; PnLPoller queries TradeLog per strategy (replaces account-level RealizedPnL feed); each RiskManager has its own `strategy_name` + sticky `_halted_today` flag cleared only by 9:30 ET reset; `check()` and `is_halted()` both honor sticky; initial sync refresh on startup; ET-trading-day cutoff is DST-safe; index `idx_trades_strategy_filled` added. The bug-of-record (one strategy halting all others when account total breaches any cap) is fixed and asserted in tests. PR pending.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 **Immediate next steps:**
-1. **Merge MS-A1 PR** → develop → main, then deploy to VPS: `cd /opt/tradebot && git pull origin main && systemctl restart tradebot`. Pure plumbing — production behaviour unchanged; cost_basis just becomes available for MS-A2 to read.
-2. **MS-A2 next session**: wire `PnLPoller` to query `TradeLog` per strategy (replaces account-level realized P&L feed). Each `RiskManager` gets its own number; halts become per-strategy.
-3. **MS-D (P0)** — add `REGISTRY.build()` ConfigError on shared symbols. Precondition for MS-A1's `avg_cost` fallback safety. ~5-line guard.
+1. **Merge MS-A1+A2 PR** → develop → main, then deploy to VPS: `cd /opt/tradebot && git pull origin main && systemctl restart tradebot`. Verify startup logs show "PnL poller started — per-strategy daily loss ceiling is now ACTIVE" and "Initial per-strategy P&L refresh complete (cutoff=...)".
+2. **MS-D (P0)** — add `REGISTRY.build()` ConfigError on shared symbols. Precondition for MS-A1's `avg_cost` fallback safety. ~5-line guard.
 4. **Verify today's 20:10 UTC tick** — `journalctl -u tradebot --since '2026-05-09 20:05' --until '2026-05-09 20:20'` — should show both strategies downloading bars.
 5. **Bug A (deferred)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'". Bot self-heals via attempt 6 + systemd. Not urgent.
 6. **GC-4 — TLS for the dashboard** (Caddy/nginx + tailscale-cert).

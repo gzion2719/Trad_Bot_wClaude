@@ -56,6 +56,12 @@ _MIGRATIONS = [
     "ALTER TABLE trades ADD COLUMN real_r_multiple REAL",
 ]
 
+# Indexes (idempotent via IF NOT EXISTS). MS-A2: per-strategy P&L queries fire
+# every 60s × N strategies — without this index they would scan the full table.
+_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_trades_strategy_filled " "ON trades(strategy_name, filled_at)",
+]
+
 
 class TradeLog:
     """
@@ -263,6 +269,61 @@ class TradeLog:
         with self._connect() as conn:
             return conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
 
+    def realized_pnl_since(
+        self,
+        strategy_name: str,
+        cutoff_iso: str,
+    ) -> float:
+        """
+        Sum of `realized_pnl` for SELL fills attributed to `strategy_name`
+        with `filled_at >= cutoff_iso` (lexical compare). Returns 0.0 when no
+        rows match or all matching rows have NULL `realized_pnl`.
+
+        Args:
+            strategy_name: Strategy name as recorded by `record(...)`.
+            cutoff_iso:    ISO-8601 timestamp (typically the most recent
+                           9:30 ET market open, in UTC ISO form). Lexical
+                           compare is safe because `submitted_at` is always
+                           UTC-aware (`datetime.now(timezone.utc).isoformat()`)
+                           — see `models/order.py:OrderResult.submitted_at`.
+                           A `substr(filled_at, 1, 19)` form would be more
+                           robust if non-UTC offsets ever appeared.
+
+        Used by MS-A2: per-strategy P&L attribution for `RiskManager`.
+        Pre-A1 fills with NULL `realized_pnl` are treated as 0 by `SUM`,
+        which is correct — they had no cost_basis so we can't attribute.
+        Caller (PnLPoller) logs a one-time WARNING if NULLs exist in the
+        current trading day so the gap is observable.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(realized_pnl), 0) "
+                "FROM trades "
+                "WHERE strategy_name = ? AND filled_at >= ? AND action = 'SELL'",
+                (strategy_name, cutoff_iso),
+            ).fetchone()
+        return float(row[0]) if row and row[0] is not None else 0.0
+
+    def count_null_pnl_since(
+        self,
+        strategy_name: str,
+        cutoff_iso: str,
+    ) -> int:
+        """
+        Number of SELL rows for `strategy_name` since `cutoff_iso` that have
+        NULL `realized_pnl`. Used by PnLPoller to surface a one-time WARNING
+        when pre-A1 fills sit inside today's window — the per-strategy sum
+        will silently under-count those trades.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM trades "
+                "WHERE strategy_name = ? AND filled_at >= ? "
+                "AND action = 'SELL' AND realized_pnl IS NULL",
+                (strategy_name, cutoff_iso),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -278,6 +339,8 @@ class TradeLog:
                     conn.execute(migration)
                 except sqlite3.OperationalError:
                     pass  # column already exists in this DB
+            for idx_sql in _INDEXES:
+                conn.execute(idx_sql)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path)
