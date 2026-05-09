@@ -3,6 +3,16 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-09 — MS-D: shared-symbol guard at module load (PR pending)
+
+- Implemented `config.strategies.validate_registry()` (public): raises `ConfigError` at module load on empty registry, blank/duplicate names, or shared symbols (case-insensitive). `StrategyRunner._validate_registry()` delegates to it — single source of truth. All prior `ValueError` raises unified to `ConfigError`.
+- Two-stage CR: pre-plan agent caught H1 (guard planned for `StrategyRunner.__init__` only; moved to module load so any importer of REGISTRY gets the check). Post-implementation agent caught LOW items: private function renamed public, double-validation comment added, error message gains normalized key, MS-12e strengthened.
+- MS-09 updated (QQQ/QQQ → AAPL/MSFT, shared-symbol now blocked at registry level); MS-12a–e added (6 new tests covering shared symbol, name regression, #1↔#3 collision, case-insensitive, single-entry build). 234 pass; ruff ✅ black ✅.
+- **Process improvement:** `SESSION_PROTOCOL.md` Step 7 gains "Pre-implementation CR sub-rule" — spawn CR agent as part of Step 7 when user asks for "unbiased review with plan", not after "go".
+- **Next session:** Open PRs (feature→develop, develop→main), merge, VPS deploy (`systemctl restart tradebot`). Then MS-B (strategy-attributed equity for RSI2MR circuit breaker) or MS-C (yfinance hardening).
+
+---
+
 ## 2026-05-09 — MS-A1+A2 shipped + gitleaks false-positive fixed (PR #157)
 
 - VPS deploy verified: both SMACrossover-QQQ and RSI2MR-SPY confirmed running post-deploy; systemd description updated to "TradeBot (multi-strategy runner)" via cp + daemon-reload.
