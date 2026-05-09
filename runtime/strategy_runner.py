@@ -14,8 +14,11 @@ Lifecycle:
     runner.stop_all()    # signals all schedulers, calls strategy.on_stop()
 
 Risk-bookkeeping integration:
-    runner.reset_all_daily()                # call from PnLPoller at 9:30 ET
-    runner.update_daily_pnl_all(pnl)        # call from PnLPoller every 60s
+    runner.reset_all_daily()                       # call from PnLPoller at 9:30 ET
+    runner.update_daily_pnl_per_strategy(cutoff)   # MS-A2: call every 60s; per-
+                                                   # strategy P&L from TradeLog
+                                                   # (replaces deprecated
+                                                   # update_daily_pnl_all)
 """
 
 from __future__ import annotations
@@ -105,6 +108,7 @@ class StrategyRunner:
                 max_open_orders=cfg.risk_caps.max_open_orders,
                 max_risk_per_trade_pct=cfg.risk_caps.max_risk_per_trade_pct,
                 min_reward_risk_ratio=cfg.risk_caps.min_reward_risk_ratio,
+                strategy_name=cfg.name,  # MS-A2: per-strategy halt log lines
             )
 
             strategy = cfg.strategy_class(
@@ -291,7 +295,23 @@ class StrategyRunner:
             h.risk_manager.reset_daily()
 
     def update_daily_pnl_all(self, pnl: float) -> None:
-        # NOTE: this currently feeds account-level realized P&L to every
-        # strategy's RiskManager. See config/strategies.py module docstring.
+        # DEPRECATED (MS-A2): feeds the SAME pnl to every RM. Kept for tests
+        # and backwards compat with single-strategy paths. New code should call
+        # update_daily_pnl_per_strategy() which queries TradeLog per strategy.
         for h in self.handles:
+            h.risk_manager.update_daily_pnl(pnl)
+
+    def update_daily_pnl_per_strategy(self, cutoff_iso: str) -> None:
+        """
+        MS-A2: feed each RiskManager its OWN realized P&L since `cutoff_iso`,
+        sourced from TradeLog. Replaces the IBKR-account-level feed that made
+        every strategy halt when account total breached any single cap.
+
+        Args:
+            cutoff_iso: ISO-8601 UTC cutoff (typically the most recent
+                        9:30 ET). Computed in PnLPoller (`main.py`) where
+                        the wall clock lives.
+        """
+        for h in self.handles:
+            pnl = self.trade_log.realized_pnl_since(h.config.name, cutoff_iso)
             h.risk_manager.update_daily_pnl(pnl)

@@ -7,4 +7,7 @@ regexes = [
   # Example placeholder in deploy/ibc/config.ini — not a real credential
   "YOUR_IBKR_USERNAME",
   "YOUR_IBKR_PASSWORD",
+  # docs/ROADMAP.md Phase 3 key-deliverables line — slash-separated component
+  # names push Shannon entropy over 3.5; false positive (not a credential).
+  "Feed/IBKRFeed/BarScheduler",
 ]

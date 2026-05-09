@@ -34,6 +34,7 @@ Wiring in main.py:
 import logging
 import math
 import threading
+from typing import Optional
 
 from broker.ibkr_client import IBKRClient
 from models.order import OrderAction, OrderRequest, OrderResult
@@ -81,6 +82,7 @@ class RiskManager:
         max_open_orders: int = 10,
         max_risk_per_trade_pct: float = 0.02,  # 2% of equity per trade
         min_reward_risk_ratio: float = 3.0,  # minimum 1:3 R/R
+        strategy_name: Optional[str] = None,  # MS-A2: tag for log lines + per-strategy halt
     ) -> None:
         if max_daily_loss >= 0:
             raise ValueError("max_daily_loss must be negative (e.g., -500.0)")
@@ -100,14 +102,22 @@ class RiskManager:
         self.max_open_orders = max_open_orders
         self.max_risk_per_trade_pct = max_risk_per_trade_pct
         self.min_reward_risk_ratio = min_reward_risk_ratio
+        self.strategy_name = strategy_name  # None in single-strategy / backtest paths
 
         self._daily_realized_pnl: float = 0.0
+        # MS-A2: sticky halt — once breached, stays True until reset_daily().
+        # Prevents intraday recovery from re-arming a strategy that already
+        # exhausted its daily loss budget. is_halted() reads the OR of this
+        # flag and the live P&L vs cap; daily_pnl() returns the current value
+        # (not worst-of-day) for dashboard transparency.
+        self._halted_today: bool = False
         self._lock = threading.Lock()
 
         logger.info(
-            "RiskManager initialized | max_order=$%.0f | max_position=$%.0f "
+            "RiskManager initialized%s | max_order=$%.0f | max_position=$%.0f "
             "| max_daily_loss=$%.0f | max_open_orders=%d "
             "| max_risk_per_trade=%.1f%% | min_R/R=1:%.1f",
+            f" [{strategy_name}]" if strategy_name else "",
             max_order_value,
             max_position_value,
             max_daily_loss,
@@ -133,12 +143,18 @@ class RiskManager:
         """
         with self._lock:
             daily_pnl = self._daily_realized_pnl
+            sticky_halted = self._halted_today
 
-        # Rule 0: Daily loss ceiling
-        if daily_pnl <= self.max_daily_loss:
+        # Rule 0: Daily loss ceiling — sticky (MS-A2). check() must mirror
+        # is_halted()'s OR-logic so that paths bypassing the top-of-tick
+        # is_halted() guard (e.g. on_fill-driven re-entry, future async paths)
+        # cannot place orders after the day's halt is locked in, even if
+        # intraday P&L recovers above the cap.
+        if sticky_halted or daily_pnl <= self.max_daily_loss:
             raise RiskViolationError(
                 f"Daily loss ceiling breached (P&L={daily_pnl:.2f}, "
-                f"limit={self.max_daily_loss:.2f}). Trading is halted for today."
+                f"limit={self.max_daily_loss:.2f}, sticky={sticky_halted}). "
+                f"Trading is halted for today."
             )
 
         order_value = request.quantity * current_price
@@ -424,35 +440,49 @@ class RiskManager:
 
     def update_daily_pnl(self, pnl: float) -> None:
         """
-        Directly set today's realized P&L from an external source
-        (e.g., read from IBKR account summary).
+        Directly set today's realized P&L from an external source.
 
-        Call this periodically (e.g., every minute) for accurate loss tracking.
+        MS-A2: source is `TradeLog.realized_pnl_since(strategy_name, cutoff)` —
+        the per-strategy sum of SELL fills since the most recent 9:30 ET. Pre-
+        MS-A2 the source was IBKR `RealizedPnL` (account-level — see PnLPoller).
+
+        Sticky-halt semantics: once `pnl <= max_daily_loss`, `_halted_today`
+        is set and `is_halted()` returns True for the rest of the day even if
+        intraday P&L recovers above the cap. The point of the daily ceiling is
+        to stop digging — flickering on/off with market noise defeats it.
 
         Args:
             pnl: Today's net realized P&L in USD (negative = loss).
         """
         with self._lock:
             self._daily_realized_pnl = pnl
+            newly_halted = (not self._halted_today) and (pnl <= self.max_daily_loss)
+            if newly_halted:
+                self._halted_today = True
 
-        if pnl <= self.max_daily_loss:
+        if newly_halted:
             logger.warning(
-                "Daily loss ceiling BREACHED: P&L=$%.2f, limit=$%.2f. "
-                "All new orders will be rejected until reset_daily() is called.",
+                "Daily loss ceiling BREACHED%s: P&L=$%.2f, limit=$%.2f. "
+                "Halt is sticky for the day — cleared by reset_daily() at next 9:30 ET.",
+                f" [{self.strategy_name}]" if self.strategy_name else "",
                 pnl,
                 self.max_daily_loss,
             )
 
     def reset_daily(self) -> None:
         """
-        Reset daily P&L counter. Call this at market open each day.
+        Reset daily P&L counter AND sticky halt flag. Call at 9:30 ET each day.
 
         In main.py you can schedule this with a timer or by checking
         the current time at the start of each on_tick().
         """
         with self._lock:
             self._daily_realized_pnl = 0.0
-        logger.info("RiskManager daily counters reset (market open).")
+            self._halted_today = False
+        logger.info(
+            "RiskManager daily counters reset%s (market open).",
+            f" [{self.strategy_name}]" if self.strategy_name else "",
+        )
 
     # ------------------------------------------------------------------
     # State queries
@@ -460,13 +490,17 @@ class RiskManager:
 
     def is_halted(self) -> bool:
         """
-        Returns True if the daily loss ceiling is breached.
+        Returns True if the daily loss ceiling has been breached at any point
+        today (sticky — see update_daily_pnl docstring) OR if the live P&L is
+        currently at-or-below the cap. The sticky flag handles intraday
+        recovery; the live check handles the case where the flag hasn't been
+        set yet on this exact poll cycle.
 
         Strategies should check this at the top of on_tick() and return
         early if True — no new orders should be placed while halted.
         """
         with self._lock:
-            return self._daily_realized_pnl <= self.max_daily_loss
+            return self._halted_today or (self._daily_realized_pnl <= self.max_daily_loss)
 
     def daily_pnl(self) -> float:
         """Return today's tracked realized P&L."""

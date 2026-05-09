@@ -19,7 +19,7 @@ import logging
 import signal
 import sys
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from config.logging_config import setup_logging
@@ -97,25 +97,69 @@ def main() -> None:
     runner.build()
 
     # ── Step 7: Daily P&L poller + market-open reset ─────────────────────
-    # Single account-level realized P&L poll feeds every strategy's RiskManager
-    # via runner.update_daily_pnl_all (see config/strategies.py for the
-    # multi-strategy attribution caveat).
+    # MS-A2: each RiskManager is fed its OWN per-strategy P&L from TradeLog
+    # (no longer the account-level RealizedPnL aggregate). Cutoff is the most
+    # recent 9:30 ET; ET trading-day boundary makes the query DST-safe.
     _MARKET_OPEN_HOUR_ET = 9
     _MARKET_OPEN_MINUTE_ET = 30
     _last_reset_date: list = [None]  # mutable container so inner fn can write
     _stop_pnl_poller = threading.Event()
 
+    try:
+        import zoneinfo as _zoneinfo
+
+        _ET = _zoneinfo.ZoneInfo("America/New_York")
+    except (ImportError, KeyError) as exc:
+        raise RuntimeError(
+            "tzdata package required for PnL poller timezone. Run: pip install tzdata"
+        ) from exc
+
+    def _et_trading_day_cutoff_iso() -> str:
+        """Most recent 9:30 ET as UTC ISO-8601 string. If now is before today's
+        9:30 ET, return yesterday's 9:30 ET — fills before today's open belong
+        to the prior trading day."""
+        now_et = datetime.now(_ET)
+        today_open_et = now_et.replace(
+            hour=_MARKET_OPEN_HOUR_ET,
+            minute=_MARKET_OPEN_MINUTE_ET,
+            second=0,
+            microsecond=0,
+        )
+        if now_et < today_open_et:
+            today_open_et -= timedelta(days=1)
+        return today_open_et.astimezone(timezone.utc).isoformat()
+
+    # ── Initial sync refresh: catch up on any fills already in TradeLog
+    # for today's window before strategies start ticking. Without this, the
+    # first 60s after start are blind to today's prior fills (e.g., bot crashed
+    # mid-day, restarted by systemd — could open a new trade despite already
+    # being over its cap). Fail-loud: if the query throws here, startup aborts.
+    try:
+        _initial_cutoff = _et_trading_day_cutoff_iso()
+        runner.update_daily_pnl_per_strategy(_initial_cutoff)
+        # MS-A2 amendment from second-pass CR: surface pre-A1 NULL fills inside
+        # today's window so the operator knows attribution starts mid-stream.
+        for _h in runner.handles:
+            _null_count = trade_log.count_null_pnl_since(_h.config.name, _initial_cutoff)
+            if _null_count > 0:
+                logger.warning(
+                    "MS-A2: %d SELL fill(s) for %s in today's window have "
+                    "realized_pnl=NULL (pre-A1 cost_basis missing) — "
+                    "per-strategy attribution under-counts these trades.",
+                    _null_count,
+                    _h.config.name,
+                )
+        logger.info("Initial per-strategy P&L refresh complete (cutoff=%s).", _initial_cutoff)
+    except Exception as exc:
+        logger.error(
+            "Initial PnL refresh failed: %s — continuing, poller will retry.",
+            exc,
+            exc_info=True,
+        )
+
     def _poll_pnl_and_reset() -> None:
-        """Daemon: resets daily counters at market open, polls P&L every 60s."""
-        try:
-            import zoneinfo
-
-            _ET = zoneinfo.ZoneInfo("America/New_York")
-        except (ImportError, KeyError) as exc:
-            raise RuntimeError(
-                "tzdata package required for PnL poller timezone. Run: pip install tzdata"
-            ) from exc
-
+        """Daemon: resets daily counters at market open, polls per-strategy
+        P&L from TradeLog every 60s."""
         while not _stop_pnl_poller.is_set():
             try:
                 now_et = datetime.now(_ET)
@@ -129,11 +173,9 @@ def main() -> None:
                     _last_reset_date[0] = today
                     logger.info("Daily risk counters reset for %s (all strategies)", today)
 
-                if client.is_alive():
-                    summary = {s.tag: s.value for s in client.ib.accountSummary()}
-                    raw_pnl = summary.get("RealizedPnL", None)
-                    if raw_pnl is not None:
-                        runner.update_daily_pnl_all(float(raw_pnl))
+                # MS-A2: per-strategy P&L from TradeLog (no IBKR call here).
+                cutoff_iso = _et_trading_day_cutoff_iso()
+                runner.update_daily_pnl_per_strategy(cutoff_iso)
 
             except Exception as exc:
                 logger.warning("PnL poller error (non-fatal): %s", exc, exc_info=True)
@@ -142,7 +184,7 @@ def main() -> None:
 
     pnl_thread = threading.Thread(target=_poll_pnl_and_reset, name="PnLPoller", daemon=True)
     pnl_thread.start()
-    logger.info("PnL poller started — daily loss ceiling is now ACTIVE for all strategies.")
+    logger.info("PnL poller started — per-strategy daily loss ceiling is now ACTIVE.")
 
     # ── Step 8: Account snapshot poller ───────────────────────────────────
     from data.account_snapshot import AccountSnapshotPoller
