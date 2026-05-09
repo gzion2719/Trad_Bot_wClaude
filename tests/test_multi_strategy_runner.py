@@ -18,6 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from config.strategies import DailyAt, Interval, RiskCaps, StrategyConfig
+from config.validator import ConfigError
 from models.order import OrderResult, OrderStatus
 from runtime.strategy_runner import StrategyRunner
 from strategies.base_strategy import BaseStrategy
@@ -126,7 +127,7 @@ def _make_runner(*, configs: list[StrategyConfig]):
 
 
 def test_ms01_empty_registry_rejected():
-    with pytest.raises(ValueError, match="empty"):
+    with pytest.raises(ConfigError, match="empty"):
         _make_runner(configs=[])
 
 
@@ -139,8 +140,62 @@ def test_ms02_duplicate_names_rejected():
         schedule=Interval(seconds=60),
         risk_caps=_basic_caps(),
     )
-    with pytest.raises(ValueError, match="duplicate"):
+    with pytest.raises(ConfigError, match="[Dd]uplicate strategy name"):
         _make_runner(configs=[cfg, cfg])
+
+
+# ── MS-12: shared-symbol guard (MS-D) ─────────────────────────────────────────
+
+
+def _cfg(name: str, symbol: str) -> StrategyConfig:
+    return StrategyConfig(
+        name=name,
+        strategy_class=_RecordingStrategy,
+        symbol=symbol,
+        params={"test_label": name},
+        schedule=Interval(seconds=60),
+        risk_caps=_basic_caps(),
+    )
+
+
+def test_ms12a_shared_symbol_distinct_names_raises_config_error():
+    """Two strategies, same symbol, different names → ConfigError (MS-D)."""
+    a = _cfg("A", "AAPL")
+    b = _cfg("B", "AAPL")
+    with pytest.raises(ConfigError, match="both target symbol"):
+        _make_runner(configs=[a, b])
+
+
+def test_ms12b_shared_name_distinct_symbols_still_raises():
+    """Regression for unified exception model: shared name → ConfigError, not ValueError."""
+    a = _cfg("same", "AAPL")
+    b = _cfg("same", "MSFT")
+    with pytest.raises(ConfigError, match="[Dd]uplicate strategy name"):
+        _make_runner(configs=[a, b])
+
+
+def test_ms12c_three_entry_collision_between_first_and_third():
+    """Sliding-window detection: collision is #1↔#3, not adjacent."""
+    a = _cfg("A", "AAPL")
+    b = _cfg("B", "MSFT")
+    c = _cfg("C", "AAPL")
+    with pytest.raises(ConfigError, match="both target symbol"):
+        _make_runner(configs=[a, b, c])
+
+
+def test_ms12d_case_insensitive_symbol_collision():
+    """SPY vs spy must be treated as the same symbol."""
+    a = _cfg("A", "SPY")
+    b = _cfg("B", "spy")
+    with pytest.raises(ConfigError, match="both target symbol"):
+        _make_runner(configs=[a, b])
+
+
+def test_ms12e_single_entry_passes():
+    """Sanity: a one-entry registry validates and builds without error."""
+    runner, _, _ = _make_runner(configs=[_cfg("solo", "AAPL")])
+    runner.build()
+    assert len(runner.handles) == 1
 
 
 # ── MS-03: build() wires N strategies with independent RMs ────────────────────
@@ -334,11 +389,12 @@ def test_ms08_reset_all_daily_resets_every_strategy():
 def test_ms09_on_fill_isolation_between_strategies():
     """Regression: BaseStrategy auto-wires on_fill on om — without the
     strategy_name filter every strategy would see every fill, corrupting
-    state when two strategies share a symbol."""
+    state. MS-D now blocks shared-symbol configs at registry validation;
+    isolation is verified via strategy_name filtering on distinct symbols."""
     cfg_a = StrategyConfig(
         name="A",
         strategy_class=_RecordingStrategy,
-        symbol="QQQ",  # Same symbol on purpose — the post-Phase-B scenario.
+        symbol="AAPL",
         params={"test_label": "A"},
         schedule=Interval(seconds=60),
         risk_caps=_basic_caps(),
@@ -346,7 +402,7 @@ def test_ms09_on_fill_isolation_between_strategies():
     cfg_b = StrategyConfig(
         name="B",
         strategy_class=_RecordingStrategy,
-        symbol="QQQ",
+        symbol="MSFT",
         params={"test_label": "B"},
         schedule=Interval(seconds=60),
         risk_caps=_basic_caps(),
@@ -354,9 +410,9 @@ def test_ms09_on_fill_isolation_between_strategies():
     runner, om, _ = _make_runner(configs=[cfg_a, cfg_b])
     runner.build()
 
-    om.fire(_result("QQQ", strategy_name="A", order_id=1))
-    om.fire(_result("QQQ", strategy_name="B", order_id=2))
-    om.fire(_result("QQQ", strategy_name=None, order_id=3))  # untagged
+    om.fire(_result("AAPL", strategy_name="A", order_id=1))
+    om.fire(_result("MSFT", strategy_name="B", order_id=2))
+    om.fire(_result("AAPL", strategy_name=None, order_id=3))  # untagged
 
     strat_a = runner.handles[0].strategy
     strat_b = runner.handles[1].strategy
