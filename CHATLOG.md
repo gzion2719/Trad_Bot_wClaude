@@ -3,6 +3,17 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-09 — RSI2-MR strategy shipped + deployed (ROADMAP 4.6 complete)
+
+- Built and shipped RSI2-MR SPY mean-reversion: RSI(2)≤10 entry, SMA(200) regime gate, VIX≤35 panic filter, bracket orders (GTC STP+LMT), 8-bar time stop, circuit-breaker, state persistence. Baseline backtest 2006-2025: 67 trades, 59.7% win, Sharpe 0.34, max DD -8.5%, PF 1.48.
+- Fixed two blocking bugs before baseline ran: INACTIVE orders re-queued every bar in MockOrderManager ("no position to sell" flood); VIX sidecar key `"VIX"` vs `"vix"` case mismatch yielded 0 trades.
+- Unbiased CR: 20 issues found (3 CRITICAL); all fixed — `avg_fill_price is not None` guard, cold-restart fallback in `_exit()`, exception path no longer zeros stop/target; HIGH off-by-one fixed: `_bars_held` incremented before `_check_exits`.
+- 45 new tests green; ruff ✅ black ✅ mypy ✅. PR #147 merged develop → main; VPS deployed cleanly (PID 124886, SMA Crossover running, RSI2-MR code on VPS but not yet in REGISTRY).
+- **Process improvement:** WORKFLOW.md gains "Time-based exit test rule" — time-stop and cooldown tests must assert bar count at exit, not just fill presence; the `_bars_held` off-by-one would have been caught.
+- **Next session:** Phase B — register RSI2-MR in `config/strategies.py` REGISTRY, wire VIX sidecar into StrategyRunner, deploy both strategies on VPS paper account.
+
+---
+
 ## 2026-05-08 — B-10 confirmed + startup exit-code fix (B-11)
 
 - B-10 confirmed: 00:02 UTC AutoRestartTime survived clean — no os._exit(1). Bug A (attempt 5 "no current event loop") still fires but self-heals on attempt 6; not urgent.

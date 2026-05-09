@@ -272,6 +272,21 @@ Example (2026-05-04): `fetch("/api/console/lock/release", ...).catch(() => {})` 
 
 ---
 
+## Time-based exit test rule
+
+Integration tests for time-bounded exits (time-stop, cooldown) **must assert the bar count at exit**, not merely that a fill occurred. Asserting fill presence only lets off-by-one errors in `_bars_held` or `_cooldown_remaining` go undetected — the test passes while the strategy holds positions one bar too long or re-enters one bar too early.
+
+Minimum assertions for a time-stop test:
+- A SELL fill exists.
+- The SELL fill's `submitted_at` (or bar index derived from fill list position) falls at `entry_bar + TIME_STOP_BARS`, not `+ TIME_STOP_BARS + 1` or later.
+
+For cooldown tests:
+- The second BUY fill's bar index is ≥ `first_sell_bar + COOLDOWN_BARS + 1`.
+
+Example (2026-05-09): `test_fi02_time_stop_produces_sell` only checked `len(sell_fills) >= 1` — the `_bars_held` off-by-one (increment after check instead of before) held positions 9 bars instead of 8. The test passed; the CR agent caught it as HIGH.
+
+---
+
 ## JS rate-limit gate rule
 
 When adding a polling gate that references multiple fetch functions (e.g. `_onAcctTab ? [fetchAccount(), fetchEquity()] : []`), the comment **must name the specific endpoint(s) that are rate-limited**, not the functions. Gate comments that name functions imply all named functions are rate-limited — reviewers will not re-check each endpoint's backend definition.
