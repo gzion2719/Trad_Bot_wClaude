@@ -23,8 +23,9 @@ strategies' losses, OR wait for per-strategy P&L attribution (BACKLOG).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Type, Union
+from typing import Any, Iterable, Type, Union
 
+from config.validator import ConfigError
 from strategies.base_strategy import BaseStrategy
 from strategies.rsi2_mr import RSI2MR_SPY
 from strategies.sma_crossover import SMACrossover
@@ -79,6 +80,55 @@ class StrategyConfig:
     )
 
 
+def _normalize_symbol(symbol: str) -> str:
+    """Canonical form for shared-symbol detection.
+
+    Trim + uppercase only. When `StrategyConfig` grows an `exchange` or
+    `contract_type` field, the key here must include them so e.g. SPY-stock
+    and SPY-option are not flagged as the same instrument (BACKLOG: MS-D ext).
+    """
+    return symbol.strip().upper()
+
+
+def validate_registry(configs: Iterable[StrategyConfig]) -> None:
+    """Validate a registry of StrategyConfigs. Raises ConfigError on any defect.
+
+    Checks (ordered for clearest error messages):
+      1. Non-empty.
+      2. Every entry has a non-empty name.
+      3. Names are unique.
+      4. Symbols are unique (case-insensitive).
+
+    Note: blocking shared symbols narrows but does not close the MS-A1
+    `avg_cost` ambiguity — manual same-symbol trades outside the bot still
+    confound an account-level cost basis lookup.
+    """
+    seq = list(configs)
+    if not seq:
+        raise ConfigError("REGISTRY is empty: at least one StrategyConfig is required.")
+
+    seen_names: set[str] = set()
+    for cfg in seq:
+        if not cfg.name:
+            raise ConfigError("Every StrategyConfig needs a non-empty name.")
+        if cfg.name in seen_names:
+            raise ConfigError(f"Duplicate strategy name in REGISTRY: {cfg.name!r}.")
+        seen_names.add(cfg.name)
+
+    seen_symbols: dict[str, str] = {}  # normalized symbol -> first owner name
+    for cfg in seq:
+        key = _normalize_symbol(cfg.symbol)
+        if key in seen_symbols:
+            raise ConfigError(
+                f"Strategies {seen_symbols[key]!r} and {cfg.name!r} both target "
+                f"symbol {cfg.symbol!r} (normalized: {key!r}). Sharing a symbol "
+                f"across strategies is unsafe with the current per-strategy P&L "
+                f"attribution (MS-A1 avg_cost fallback becomes ambiguous). Pick "
+                f"distinct symbols or wait for MS-G/H."
+            )
+        seen_symbols[key] = cfg.name
+
+
 REGISTRY: list[StrategyConfig] = [
     StrategyConfig(
         name="SMACrossover-QQQ",
@@ -118,3 +168,9 @@ REGISTRY: list[StrategyConfig] = [
         ),
     ),
 ]
+
+
+# MS-D: validate at module load so any importer of REGISTRY (main.py, tests,
+# scripts, dashboards) gets the same guard. Re-validated by StrategyRunner
+# for callers that pass a custom config list.
+validate_registry(REGISTRY)

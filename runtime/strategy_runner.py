@@ -31,7 +31,12 @@ from typing import Callable, List, Optional
 from broker.ibkr_client import IBKRClient
 from broker.order_manager import OrderManager
 from broker.reconnect import ReconnectManager
-from config.strategies import DailyAt, Interval, StrategyConfig
+from config.strategies import (
+    DailyAt,
+    Interval,
+    StrategyConfig,
+    validate_registry,
+)
 from data.feed import DataFeed
 from data.trade_log import TradeLog
 from models.order import OrderResult
@@ -86,15 +91,12 @@ class StrategyRunner:
     # ------------------------------------------------------------------
 
     def _validate_registry(self) -> None:
-        if not self.registry:
-            raise ValueError("StrategyRunner: registry is empty.")
-        seen: set[str] = set()
-        for cfg in self.registry:
-            if not cfg.name:
-                raise ValueError("StrategyRunner: every StrategyConfig needs a non-empty name.")
-            if cfg.name in seen:
-                raise ValueError(f"StrategyRunner: duplicate strategy name {cfg.name!r}.")
-            seen.add(cfg.name)
+        # Single source of truth: config.strategies.validate_registry. Raises
+        # ConfigError on empty registry, blank/duplicate names, or shared
+        # symbols (case-insensitive). Second pass is intentional — defends
+        # against custom registries passed directly (not the global REGISTRY
+        # which is already validated at module load).
+        validate_registry(self.registry)
 
     def build(self) -> None:
         """Construct each strategy + per-strategy RiskManager and register callbacks."""
