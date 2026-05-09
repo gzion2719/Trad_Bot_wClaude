@@ -3,6 +3,17 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-09 — ROADMAP 4.8 Phase B: RSI2MR-SPY registered in REGISTRY
+
+- Verified 16:10 ET tick on VPS (May 8 20:10:00 UTC confirmed in logs) before starting Phase B. Registered RSI2MR-SPY in `config/strategies.py` REGISTRY: symbol=SPY, DailyAt(16,10), same risk caps as SMA Crossover. No StrategyRunner changes needed — VIX sidecar is self-managed in `RSI2MR_SPY.on_start()`.
+- Unbiased CR (user caught the skip) found 3 HIGH/MEDIUM items: MS-A (PnLPoller feeds account-level P&L to all RMs — all halt when any cap trips), MS-B (`_strategy_peak_equity` uses NetLiquidation, not strategy-attributed equity — SMA losses can fire RSI2MR circuit breaker), MS-C (yfinance outage silently skips daily tick). All three logged to BACKLOG; fixes deferred — user chose "properly, no shortcuts" in a fresh session.
+- Fixed test_fi08 cooldown assertion: patched `_COOLDOWN_BARS=200` and asserted `len(buys)==1` — behavioral gate. Previous attempt (order_id comparison) was tautologically true by placement order, not cooldown logic.
+- Added MS-11 smoke test: `REGISTRY.build()` cleanly with both strategies — catches constructor-signature drift before VPS deploy.
+- **Process improvement:** WORKFLOW.md gains "Unbiased CR is mandatory after every production-code commit" rule — CR must run before declaring any strategy/broker/runtime commit done; no user prompt required.
+- **Next session:** Implement MS-A (per-strategy P&L attribution in PnLPoller), MS-B (strategy-attributed equity for RSI2MR circuit breaker), MS-C (yfinance failure alerting + IBKR fallback). Then merge PRs + VPS deploy.
+
+---
+
 ## 2026-05-09 — RSI2-MR strategy shipped + deployed (ROADMAP 4.6 complete)
 
 - Built and shipped RSI2-MR SPY mean-reversion: RSI(2)≤10 entry, SMA(200) regime gate, VIX≤35 panic filter, bracket orders (GTC STP+LMT), 8-bar time stop, circuit-breaker, state persistence. Baseline backtest 2006-2025: 67 trades, 59.7% win, Sharpe 0.34, max DD -8.5%, PF 1.48.

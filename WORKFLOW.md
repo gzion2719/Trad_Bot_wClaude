@@ -169,6 +169,20 @@ Example (2026-05-07): twice in one closing ritual, Claude handed the user a mult
 
 ---
 
+## Unbiased CR is mandatory after every production-code commit
+
+After committing any production-code change (strategies, broker, risk, runtime, backtester), run an unbiased code review **before declaring the task done**. This is not optional. The user should not have to ask.
+
+What counts as a mandatory CR trigger: any new file in `strategies/`, `broker/`, `risk/`, `runtime/`, or `backtester/`; any modification to `config/strategies.py` REGISTRY; any new `StrategyConfig` entry.
+
+What does NOT require a full CR: docs-only commits, CHATLOG updates, test-only changes that don't touch production paths.
+
+Spawn the CR agent (or run an in-chat unbiased review) immediately after the commit that ships the feature. Report findings to the user before saying "done."
+
+Example (2026-05-09): Phase B registered RSI2MR-SPY in REGISTRY, committed, and pushed — CR was skipped. User caught the omission ("did you do unbiased code review?"). The CR found 3 HIGH items (MS-A, MS-B, MS-C) that are now tracked in BACKLOG.
+
+---
+
 ## CR-to-fix transition rule
 
 When a code review (`/ultrareview` or an in-chat unbiased review) identifies fixable findings, **do NOT auto-apply them**. The CR is one deliverable; the fix pass is a separate one that needs its own Step 7 self-critique. Specifically:

@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any, Type, Union
 
 from strategies.base_strategy import BaseStrategy
+from strategies.rsi2_mr import RSI2MR_SPY
 from strategies.sma_crossover import SMACrossover
 
 
@@ -84,6 +85,28 @@ REGISTRY: list[StrategyConfig] = [
         strategy_class=SMACrossover,
         symbol="QQQ",
         params={"sma_fast": 10, "sma_slow": 30},
+        schedule=DailyAt(hour=16, minute=10),
+        risk_caps=RiskCaps(
+            max_order_value=120_000.0,
+            max_position_value=100_000.0,
+            max_daily_loss=-2_000.0,
+            max_open_orders=10,
+            max_risk_per_trade_pct=0.02,
+            min_reward_risk_ratio=3.0,
+        ),
+    ),
+    StrategyConfig(
+        name="RSI2MR-SPY",
+        strategy_class=RSI2MR_SPY,
+        symbol="SPY",
+        params={
+            "sma_period": 200,
+            "rsi_period": 2,
+            "rsi_oversold": 10.0,
+            "rsi_overbought": 70.0,
+            "vix_upper": 35.0,
+            "atr_multiplier": 1.5,
+        },
         schedule=DailyAt(hour=16, minute=10),
         risk_caps=RiskCaps(
             max_order_value=120_000.0,
