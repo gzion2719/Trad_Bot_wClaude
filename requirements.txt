@@ -10,3 +10,4 @@ httpx>=0.27.0
 websockets>=12.0,<14.0
 # websockify is installed as a system package via apt (not pip) on the VPS.
 # apt install websockify (0.10.0) — do not add it here.
+pandas_market_calendars>=4.3.0

@@ -53,6 +53,7 @@ class OrderRequest:
     exchange: str = "SMART"
     currency: str = "USD"
     strategy_name: Optional[str] = None  # set by StrategyRunner; tags fills back to source
+    backtest_slippage_bps: Optional[float] = None  # slip applied by MockOrderManager; ignored live
 
     def __post_init__(self):
         if self.quantity <= 0:
@@ -101,6 +102,9 @@ class OrderResult:
     # populated by BacktestPortfolio; None for live orders
     # used by metrics.win_rate() and metrics.profit_factor()
     strategy_name: Optional[str] = None  # source strategy in multi-strategy mode
+    real_r_multiple: Optional[float] = (
+        None  # (exit - entry) / (entry - stop); set by RSI2MR on SELL
+    )
 
     @property
     def is_active(self) -> bool:

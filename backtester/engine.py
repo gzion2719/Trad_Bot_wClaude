@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-BacktestEngine + MockOrderManager — Task 3.3
+BacktestEngine + MockOrderManager — Task 3.3 (extended for bracket simulation)
 
 The engine replays historical OHLCV data through a strategy, bar by bar,
 using MockOrderManager as a drop-in replacement for the real OrderManager.
@@ -9,6 +9,17 @@ using MockOrderManager as a drop-in replacement for the real OrderManager.
 Key design principle: strategies run UNCHANGED in backtesting. The same
 class that runs live also runs here — no code changes, no special modes.
 Only the injected OrderManager differs.
+
+Bracket simulation (added for RSI2-MR):
+  MKT orders  — fill at bar.open ± slippage_bps
+  STP SELL    — triggers when bar.low ≤ stop_price; gap-through if bar.open < stop_price
+  LMT SELL    — triggers when bar.high ≥ limit_price; fills at limit_price (no slip)
+  GTC         — untriggered STP/LMT orders stay in queue across bars
+  DAY         — untriggered orders expire at end-of-bar (not re-queued)
+
+External data (VIX sidecar):
+  Pass external_data={"VIX": vix_series} to BacktestEngine; the feed
+  exposes feed.get_external("VIX", date) for strategies to read.
 
 Usage:
     from backtester.engine import BacktestEngine
@@ -29,7 +40,7 @@ Usage:
 import logging
 import threading
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Callable, Dict, List, Optional, Type
 
 import pandas as pd
@@ -41,7 +52,9 @@ from models.order import (
     OrderRequest,
     OrderResult,
     OrderStatus,
+    OrderType,
     Position,
+    TimeInForce,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,19 +83,29 @@ class MockOrderManager:
     Implements the same public interface as OrderManager so strategies
     don't need to know whether they are live or in a backtest.
 
-    Fill simulation: orders fill at the NEXT bar's open price (realistic —
-    avoids look-ahead bias by not filling at the same bar's close).
+    Fill simulation:
+      - MKT orders fill at the current bar's open ± slippage (next bar after placement).
+      - STP SELL orders trigger when bar.low ≤ stop_price; fills at stop_price or
+        bar.open on gap-down, minus slippage.
+      - LMT SELL orders trigger when bar.high ≥ limit_price; fills at limit_price.
+      - GTC orders remain in queue until triggered or cancelled.
+      - DAY orders expire at end-of-bar if not triggered.
+
+    Important callback-safety note:
+      When a BUY fills and on_fill places bracket (STP+LMT) orders via place_order(),
+      those new orders are appended to self._pending_orders directly. The processing
+      loop works on a snapshot taken at the start of _process_pending_orders() so
+      newly-added orders are not processed until the next bar.
 
     Args:
         portfolio:   BacktestPortfolio that holds cash and positions.
-        symbol:      Primary symbol being traded (used for price lookup).
     """
 
     def __init__(self, portfolio: BacktestPortfolio) -> None:
         self._portfolio = portfolio
         self._current_bar: Optional[Bar] = None
-        self._next_bar: Optional[Bar] = None  # fill price comes from here
-        self._pending_orders: List[Dict] = []  # orders waiting to fill next bar
+        self._next_bar: Optional[Bar] = None
+        self._pending_orders: List[Dict] = []
         self._open_orders: Dict[int, OrderResult] = {}
 
         # Callbacks — same signature as real OrderManager
@@ -100,26 +123,78 @@ class MockOrderManager:
         self._next_bar = next_bar
         self._process_pending_orders()
 
+    def _apply_slippage(self, price: float, action: OrderAction, slippage_bps: float) -> float:
+        """Apply slippage: BUY pays more, SELL receives less."""
+        factor = slippage_bps / 10_000.0
+        if action == OrderAction.BUY:
+            return price * (1.0 + factor)
+        return price * (1.0 - factor)
+
     def _process_pending_orders(self) -> None:
-        """Fill any pending orders at the current bar's open price."""
+        """
+        Process pending orders against the current bar.
+
+        Works on a snapshot of pending orders taken at entry so that bracket
+        orders added by on_fill callbacks are not double-processed this bar.
+        """
         if not self._pending_orders:
             return
 
-        fill_price = self._current_bar.open if self._current_bar else None
-        if fill_price is None:
+        bar = self._current_bar
+        if bar is None:
             return
 
-        still_pending = []
-        for order in self._pending_orders:
-            symbol = order["symbol"]
-            prices = self._portfolio._current_prices
-            price = prices.get(symbol, fill_price)
+        # Snapshot current pending; callbacks may append to self._pending_orders
+        to_process = list(self._pending_orders)
+        self._pending_orders = []  # new orders from callbacks land here
+
+        still_pending: List[Dict] = []
+
+        for order in to_process:
+            order_type = order.get("order_type", OrderType.MARKET)
+            action: OrderAction = order["action"]
+            symbol: str = order["symbol"]
+            stop_px: Optional[float] = order.get("stop_price")
+            limit_px: Optional[float] = order.get("limit_price")
+            slippage_bps: float = order.get("slippage_bps", 0.0)
+            tif: TimeInForce = order.get("tif", TimeInForce.GTC)
+
+            fill_price: Optional[float] = None
+            triggered = False
+
+            if order_type == OrderType.MARKET:
+                fill_price = self._apply_slippage(bar.open, action, slippage_bps)
+                triggered = True
+
+            elif order_type == OrderType.STOP and action == OrderAction.SELL:
+                if stop_px is not None and bar.low <= stop_px:
+                    if bar.open <= stop_px:
+                        # Gap-down through stop — fill at open (already worse than stop)
+                        fill_price = self._apply_slippage(bar.open, action, slippage_bps)
+                    else:
+                        fill_price = self._apply_slippage(stop_px, action, slippage_bps)
+                    triggered = True
+
+            elif order_type == OrderType.LIMIT and action == OrderAction.SELL:
+                if limit_px is not None and bar.high >= limit_px:
+                    fill_price = limit_px  # limit fills get no additional slippage
+                    triggered = True
+
+            if not triggered:
+                if tif == TimeInForce.GTC:
+                    still_pending.append(order)
+                # DAY orders that didn't trigger expire silently
+                continue
+
+            if fill_price is None:
+                still_pending.append(order)
+                continue
 
             result = self._portfolio.fill(
                 symbol=symbol,
-                action=order["action"],
+                action=action,
                 quantity=order["quantity"],
-                price=price,
+                price=fill_price,
                 order_id=order["order_id"],
                 submitted_at=order["submitted_at"],
             )
@@ -128,11 +203,11 @@ class MockOrderManager:
                 self._open_orders.pop(order["order_id"], None)
                 for cb in self._on_fill_callbacks:
                     cb(result)
-            else:
-                # Fill was skipped (insufficient cash, no position to sell)
-                still_pending.append(order)
+            # INACTIVE = portfolio rejected a triggered order (e.g. bracket LMT arriving
+            # after STP already closed the position).  Discard — do NOT re-queue.
 
-        self._pending_orders = still_pending
+        # non-triggered orders go first; callback-added orders (brackets) go after
+        self._pending_orders = still_pending + self._pending_orders
 
     # ------------------------------------------------------------------
     # OrderManager public interface
@@ -144,21 +219,25 @@ class MockOrderManager:
         allow_duplicate: bool = False,
     ) -> OrderResult:
         """
-        Queue an order. It fills at the next bar's open.
+        Queue an order.
 
-        If allow_duplicate=False (default), a pending order for the same
-        symbol and action is treated as a duplicate and the existing order
-        is returned without queuing a new one. This mirrors the live
-        OrderManager's duplicate-prevention behaviour.
+        MKT orders fill at the next bar's open.
+        STP/LMT GTC orders rest in the queue until triggered or cancelled.
+
+        If allow_duplicate=False (default), a pending MKT order for the same
+        symbol and action is treated as a duplicate. STP/LMT orders are always
+        allowed through regardless (brackets need multiple SELL orders per symbol).
         """
-        if not allow_duplicate:
+        is_contingent = request.order_type in (OrderType.STOP, OrderType.LIMIT)
+        if not allow_duplicate and not is_contingent:
             for existing in self._pending_orders:
                 if (
                     existing["symbol"] == request.symbol.upper()
                     and existing["action"] == request.action
+                    and existing.get("order_type", OrderType.MARKET) == OrderType.MARKET
                 ):
                     logger.debug(
-                        "Backtest: duplicate order blocked | %s %s "
+                        "Backtest: duplicate MKT order blocked | %s %s "
                         "(pass allow_duplicate=True to override)",
                         request.action.value,
                         request.symbol,
@@ -168,12 +247,17 @@ class MockOrderManager:
         order_id = _next_order_id()
         submitted_at = datetime.now(timezone.utc)
 
-        pending = {
+        pending: Dict = {
             "symbol": request.symbol,
             "action": request.action,
             "quantity": request.quantity,
             "order_id": order_id,
             "submitted_at": submitted_at,
+            "order_type": request.order_type,
+            "stop_price": request.stop_price,
+            "limit_price": request.limit_price,
+            "tif": request.tif,
+            "slippage_bps": request.backtest_slippage_bps or 0.0,
         }
         self._pending_orders.append(pending)
 
@@ -195,7 +279,8 @@ class MockOrderManager:
         self._open_orders[order_id] = result
 
         logger.debug(
-            "Backtest: order queued | %s %s x%s (fills next bar)",
+            "Backtest: order queued | %s %s %s x%s",
+            request.order_type.value,
             request.action.value,
             request.symbol,
             request.quantity,
@@ -240,6 +325,10 @@ class MockOrderManager:
     def sync(self) -> int:
         return len(self._open_orders)
 
+    def current_equity(self) -> float:
+        """Return current simulated portfolio equity (cash + mark-to-market positions)."""
+        return self._portfolio.current_equity()
+
     # Callback registration — same API as real OrderManager
     def on_fill(self, cb: Callable[[OrderResult], None]) -> None:
         self._on_fill_callbacks.append(cb)
@@ -257,7 +346,7 @@ class MockOrderManager:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BacktestDataFeed  (lightweight — serves bars from DataFrame to strategy)
+# BacktestDataFeed  (lightweight — serves bars + external series to strategy)
 # ══════════════════════════════════════════════════════════════════════════════
 
 
@@ -266,34 +355,44 @@ class BacktestDataFeed:
     Minimal DataFeed shim for backtesting.
 
     Serves the current bar from the engine's replay loop.
-    Strategies that call feed.get_latest("AAPL") get the current bar.
+    Also serves sidecar data (e.g. VIX) via get_external().
 
-    TODO (Sprint 4.5+): Single-symbol limitation.
-    BacktestEngine is constructed with one symbol. get_latest() returns None
-    for any other symbol. Strategies that check a second symbol for confirmation
-    (e.g., SPY as a market filter) will silently receive None for that symbol
-    during backtesting, making results incomparable to live performance.
-    Fix: extend BacktestEngine to accept a dict of {symbol: DataFrame} and
-    maintain one BacktestDataFeed per symbol.
+    External series are injected by BacktestEngine via _set_external() before
+    the replay loop. Strategies call feed.get_external("VIX", bar_date) to
+    retrieve the value for a given date.
     """
 
     def __init__(self, symbol: str) -> None:
         self._symbol = symbol.upper()
         self._current_bar: Optional[Bar] = None
+        # key → {date → float}; populated by engine from external_data kwarg
+        self._external: Dict[str, Dict[date, float]] = {}
 
     def _set_bar(self, bar: Bar) -> None:
         self._current_bar = bar
+
+    def _set_external(self, key: str, data: Dict[date, float]) -> None:
+        """Inject a date-keyed external series (e.g. {"VIX": {date(2020,1,2): 15.3, ...}})."""
+        self._external[key] = data
 
     def get_latest(self, symbol: str) -> Optional[Bar]:
         if symbol.upper() == self._symbol:
             return self._current_bar
         return None
 
+    def get_external(self, key: str, d: date) -> Optional[float]:
+        """Return the value for key on date d, or None if unavailable."""
+        series = self._external.get(key)
+        if series is None:
+            return None
+        d_key = d.date() if hasattr(d, "date") else d
+        return series.get(d_key)
+
     def is_live(self, symbol: str) -> bool:
-        return False  # backtests are never live
+        return False
 
     def subscribe(self, symbol: str, callback) -> None:
-        pass  # no streaming in backtest — strategy pulls via get_latest()
+        pass
 
     def unsubscribe(self, symbol: str) -> None:
         pass
@@ -359,13 +458,17 @@ class BacktestEngine:
         initial_capital: Starting cash in USD.
         commission:      Flat fee per trade in USD (default $1.00).
         strategy_kwargs: Extra keyword arguments passed to strategy.__init__.
+        external_data:   Optional dict of {key: pd.Series} for sidecar data
+                         (e.g. {"VIX": vix_series}). Series must be date-indexed.
+                         Accessible to the strategy via feed.get_external(key, date).
 
     Example:
         engine = BacktestEngine(
-            strategy_class=MyStrategy,
-            data=df,
-            symbol="AAPL",
-            initial_capital=100_000,
+            strategy_class=RSI2MR_SPY,
+            data=spy_df,
+            symbol="SPY",
+            initial_capital=50_000,
+            external_data={"VIX": vix_series},
         )
         result = engine.run()
         result.print_summary()
@@ -379,6 +482,7 @@ class BacktestEngine:
         initial_capital: float = 100_000.0,
         commission: float = 1.0,
         strategy_kwargs: Optional[Dict] = None,
+        external_data: Optional[Dict[str, pd.Series]] = None,
     ) -> None:
         self.strategy_class = strategy_class
         self.data = data.copy()
@@ -386,6 +490,7 @@ class BacktestEngine:
         self.initial_capital = initial_capital
         self.commission = commission
         self.strategy_kwargs = strategy_kwargs or {}
+        self.external_data = external_data or {}
 
         if data.empty:
             raise ValueError("data DataFrame is empty — nothing to backtest.")
@@ -416,12 +521,20 @@ class BacktestEngine:
         mock_om = MockOrderManager(portfolio)
         data_feed = BacktestDataFeed(self.symbol)
 
+        # Inject external series (e.g. VIX) into feed
+        for key, series in self.external_data.items():
+            ext_dict: Dict[date, float] = {}
+            for ts, val in series.items():
+                d = ts.date() if hasattr(ts, "date") else ts
+                ext_dict[d] = float(val)
+            data_feed._set_external(key, ext_dict)
+            logger.debug("Backtest: external series %r injected (%d points)", key, len(ext_dict))
+
         # Instantiate strategy with mock components.
         # feed and symbol are passed explicitly — BaseStrategy.__init__ declares
-        # them as named parameters so they are always available, no hasattr guessing.
+        # them as named parameters so they are always available.
         # client=None is safe: strategies must use self.feed, not client.get_market_price(),
-        # during a backtest. risk_manager=None means safe_place_order() skips risk checks —
-        # this is intentional for backtesting (risk rules would block many test trades).
+        # during a backtest. risk_manager=None means safe_place_order() skips risk checks.
         strategy = self.strategy_class(
             client=None,
             order_manager=mock_om,
@@ -469,7 +582,7 @@ class BacktestEngine:
                     volume=int(nr.volume),
                 )
 
-            # Update prices so risk/exposure checks are current
+            # Update prices so equity checks are current
             portfolio.update_prices({self.symbol: current_bar.close})
 
             # Advance bar — fills pending orders at this bar's open

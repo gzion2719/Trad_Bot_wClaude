@@ -30,15 +30,44 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot running on VPS (paper account, SMA crossover on QQQ). Dashboard Phase 4 fully deployed and verified. GC-3 console security review complete (PRs #119/#120 merged). B-10 (`reqAllOpenOrdersAsync` inside `_do_sync()`) shipped + deployed 2026-05-07 — pending nightly confirmation that no exit-code 1 fires at 00:02 UTC. **ROADMAP 4.8 Phase A done in this worktree 2026-05-07** (multi-strategy runner): new `config/strategies.REGISTRY` + `runtime/StrategyRunner` with per-strategy `RiskManager`, per-strategy scheduler thread (DailyAt or Interval), fills routed via `OrderResult.strategy_name`. SMACrossover-QQQ is the only registered strategy — parity-with-old-wiring shipping for one trading day before Phase B (adding a second strategy) in a future session.
+**Phase 6 — paper trading.** Bot running on VPS (paper account, SMA crossover on QQQ). Dashboard Phase 4 fully deployed and verified. B-10 confirmed stable. **ROADMAP 4.6 done 2026-05-08** (this worktree, PR #147): RSI2-MR SPY mean-reversion strategy implemented, backtested (2006-2025: 67 trades, 59.7% win, Sharpe 0.34, DD -8.5%), reviewed, and CR fixes applied. Strategy is NOT yet registered in `config/strategies.py` REGISTRY — it ships as standalone code; Phase B (register + deploy) is the next session task.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 **Immediate next steps:**
-1. **Merge B-10 PRs and deploy to VPS** — feature → develop → main → `git pull && systemctl restart tradebot`. Verify tonight ~00:00 UTC: `journalctl -u tradebot --since "2026-05-07 23:50" --until "2026-05-08 00:15"` should show `Sync complete` and no crash.
-2. **Bug A (deferred follow-up)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'" (likely a sync ib_insync call after `connectAsync`, e.g. `_set_market_data_type`). Bot self-heals via attempt 6 + systemd, so not urgent. Track separately.
-3. **GC-4 — TLS for the dashboard** so the popup works without the `ssh -L 8080:...` tunnel (Caddy/nginx + tailscale-cert).
-4. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
+1. **Merge PR #147** (this worktree branch `claude/condescending-spence-e8b05c`) → develop → main. PR link: https://github.com/gzion2719/Trad_Bot_wClaude/compare/develop...claude/condescending-spence-e8b05c
+2. **4.8 Phase B** — add RSI2-MR to `config/strategies.py` REGISTRY (symbol=SPY, DailyAt(16,10), vix sidecar), deploy to VPS paper account alongside SMA Crossover. Verify both strategies log on startup.
+3. **Bug A (deferred)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'". Bot self-heals via attempt 6 + systemd. Not urgent.
+4. **GC-4 — TLS for the dashboard** (Caddy/nginx + tailscale-cert).
+5. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
+
+### What was done this session (2026-05-08 — RSI2-MR strategy, ROADMAP 4.6)
+
+**RSI2-MR SPY mean-reversion strategy — full implementation cycle (commit `55cb168`, PR #147):**
+
+New files:
+- `strategies/rsi2_mr.py` — RSI2MR_SPY strategy: entry (RSI(2)≤10 + SMA(200) regime gate + VIX≤35), bracket orders (GTC STP + LMT), 8-bar time stop, RSI(2)≥70 exit, circuit-breaker (5 consecutive losses → halt until next month), state persistence to `data/rsi2_mr_state.json`, 6 tunable params at spec ceiling.
+- `strategies/_indicators.py` — `sma()`, `rsi_wilder()`, `atr_wilder()` with Wilder smoothing.
+- `data/vix_feed.py` — `VIXFeed` (backtest date-keyed + live yfinance); `load_vix_series()` factory.
+- `config/calendars/fomc.py` — `is_fomc_day()` from hardcoded FOMC dates.
+- `config/calendars/market_calendar.py` — `is_russell_rebalance_window()`, `is_pre_long_holiday_closure()`, `next_trading_day()`.
+- `tests/test_rsi2_mr.py` — 45 tests (Sections A–F): indicator unit tests, calendar tests, feed external-series tests, bracket simulator tests, strategy logic tests, full integration tests. All 45 pass.
+
+Modified files:
+- `backtester/engine.py` — bracket simulator (STP gap-through, LMT no-slippage, GTC persistence, triggered-but-INACTIVE orders discarded not re-queued), external sidecar series (`external_data: Dict[str, pd.Series]`), `current_equity()` on MockOrderManager.
+- `models/order.py` — `backtest_slippage_bps` field on `OrderRequest`.
+- `runtime/strategy_runner.py` — `_make_trade_log_hook` passes `strategy.params`.
+- `tests/test_multi_strategy_runner.py` — fixed `_FakeTradeLog.record()` kwarg.
+- `requirements.txt` — no new deps (exchange-calendars already present).
+
+**Baseline backtest 2006-2025** ($50k equity, $1 commission): 67 completed round-trips, 59.7% win rate, Sharpe 0.34, max DD -8.5%, profit factor 1.48, mean R-multiple +0.16.
+
+**CR findings (20 issues) and fixes applied:**
+- CRITICAL: `avg_fill_price or` → `if avg_fill_price is not None` in `on_fill(BUY)`.
+- CRITICAL: `_exit()` fallback price uses `_entry_price` not 0.0 on cold restart.
+- CRITICAL: Exception path in entry no longer zeros stop/target (live broker race — on_fill may still arrive).
+- HIGH: `_bars_held` incremented *before* `_check_exits` (was off-by-one — held 9 bars instead of 8).
+- MEDIUM: `_get_vix` unreachable branch removed; test_fi08 state-file isolated; `external_data` key normalized to lowercase `"vix"` throughout.
 
 ### What was done last session (2026-05-02, dashboard Phase 2 + weekend-aware stale threshold) — RECONSTRUCTED
 
