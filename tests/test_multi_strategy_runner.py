@@ -427,3 +427,25 @@ def test_ms10_strategy_name_cleanup_on_fill_and_cancel():
     assert 100 not in om._strategy_name_by_order_id
     assert 101 not in om._strategy_name_by_order_id
     assert om._strategy_name_by_order_id == {}
+
+
+# ── MS-11: real REGISTRY smoke test ───────────────────────────────────────────
+
+
+def test_ms11_real_registry_builds_cleanly():
+    """The REGISTRY in config/strategies.py constructs cleanly via StrategyRunner.
+
+    Catches constructor-signature drift between a registered strategy and
+    its `StrategyConfig.params` BEFORE VPS deploy. build() does not call
+    on_start(), so no yfinance / broker side-effects.
+    """
+    from config.strategies import REGISTRY
+
+    runner, _, _ = _make_runner(configs=list(REGISTRY))
+    runner.build()
+    assert len(runner.handles) == len(REGISTRY)
+    names = [h.config.name for h in runner.handles]
+    assert len(set(names)) == len(names), "REGISTRY has duplicate strategy names"
+    # Each strategy got its own independent RiskManager instance.
+    rms = [h.risk_manager for h in runner.handles]
+    assert len(set(id(rm) for rm in rms)) == len(rms)

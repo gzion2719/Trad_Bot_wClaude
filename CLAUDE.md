@@ -30,13 +30,13 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot running on VPS (paper account, SMA crossover on QQQ). Dashboard Phase 4 fully deployed and verified. B-10 confirmed stable. **ROADMAP 4.6 done 2026-05-08** (this worktree, PR #147): RSI2-MR SPY mean-reversion strategy implemented, backtested (2006-2025: 67 trades, 59.7% win, Sharpe 0.34, DD -8.5%), reviewed, and CR fixes applied. Strategy is NOT yet registered in `config/strategies.py` REGISTRY — it ships as standalone code; Phase B (register + deploy) is the next session task.
+**Phase 6 — paper trading.** Bot running on VPS (paper account). Dashboard Phase 4 fully deployed. B-10 confirmed stable. **ROADMAP 4.8 Phase B done 2026-05-09**: RSI2MR-SPY registered in `config/strategies.py` REGISTRY (symbol=SPY, DailyAt(16,10), all default params). VIX sidecar is self-managed by the strategy — no StrategyRunner changes were needed. PR pending: deploy to VPS so both strategies start on next restart.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 **Immediate next steps:**
-1. **Merge PR #147** (this worktree branch `claude/condescending-spence-e8b05c`) → develop → main. PR link: https://github.com/gzion2719/Trad_Bot_wClaude/compare/develop...claude/condescending-spence-e8b05c
-2. **4.8 Phase B** — add RSI2-MR to `config/strategies.py` REGISTRY (symbol=SPY, DailyAt(16,10), vix sidecar), deploy to VPS paper account alongside SMA Crossover. Verify both strategies log on startup.
+1. **Merge this PR** → develop → main, then deploy to VPS: `cd /opt/tradebot && git pull origin main && systemctl restart tradebot`. Verify startup logs show both `Strategy started: SMACrossover-QQQ` and `Strategy started: RSI2MR-SPY`.
+2. **Verify today's 20:10 UTC tick** — `journalctl -u tradebot --since '2026-05-09 20:05' --until '2026-05-09 20:20'` — should show both strategies downloading bars.
 3. **Bug A (deferred)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'". Bot self-heals via attempt 6 + systemd. Not urgent.
 4. **GC-4 — TLS for the dashboard** (Caddy/nginx + tailscale-cert).
 5. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
