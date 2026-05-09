@@ -123,7 +123,7 @@ class StrategyRunner:
             # Per-strategy fill hooks. Both filter on strategy_name so a fill
             # from strategy A never bumps strategy B's bookkeeping.
             self.om.on_fill(self._make_risk_fill_hook(cfg.name, rm))
-            self.om.on_fill(self._make_trade_log_hook(cfg.name))
+            self.om.on_fill(self._make_trade_log_hook(cfg.name, strategy))
 
             handle = StrategyHandle(cfg, strategy, rm)
             handle.thread = self._build_scheduler_thread(handle)
@@ -137,12 +137,15 @@ class StrategyRunner:
 
         return _hook
 
-    def _make_trade_log_hook(self, strategy_name: str) -> Callable[[OrderResult], None]:
+    def _make_trade_log_hook(
+        self, strategy_name: str, strategy: "BaseStrategy"
+    ) -> Callable[[OrderResult], None]:
         log = self.trade_log
 
         def _hook(result: OrderResult) -> None:
             if result.strategy_name == strategy_name:
-                log.record(result, strategy_name=strategy_name)
+                params = strategy.params if hasattr(strategy, "params") else None
+                log.record(result, strategy_name=strategy_name, strategy_params=params)
 
         return _hook
 

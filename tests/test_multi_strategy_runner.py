@@ -45,7 +45,7 @@ class _FakeTradeLog:
     def __init__(self) -> None:
         self.rows: list[tuple[OrderResult, str]] = []
 
-    def record(self, result: OrderResult, strategy_name: str) -> None:
+    def record(self, result: OrderResult, strategy_name: str, strategy_params=None) -> None:
         self.rows.append((result, strategy_name))
 
 
