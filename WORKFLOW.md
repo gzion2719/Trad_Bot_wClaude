@@ -301,6 +301,32 @@ Example (2026-05-09): `test_fi02_time_stop_produces_sell` only checked `len(sell
 
 ---
 
+## Schema migration durability rule
+
+When a `_load_state` (or any `_load_*` for a persisted file) detects an old schema version and rewrites in-memory fields to migration defaults, **immediately call the matching `_save_*` inside the same load call** so the new schema lands on disk before the next operation. Do not rely on a downstream save trigger (next ratchet, next fill, next shutdown) to durably commit the migration — those triggers can be hours or days away, and a crash in between will re-fire the migration warning every restart.
+
+Audit checklist:
+1. Is there an `if loaded_version < CURRENT_VERSION:` reset block in any `_load_*`?
+2. Does that block end with a `self._save_*()` call (or equivalent fsync-then-rename helper)?
+3. Add a test that writes a v(N-1) file, calls `_load_*`, then reads the file back and asserts the on-disk schema matches CURRENT_VERSION.
+
+Example (2026-05-10): MS-B's RSI2-MR `_load_state` migrated v1 → v2 by resetting `strategy_peak_equity` and `circuit_breaker_until` in memory. The new `partial_fill_halt` field and `schema_version: 2` only landed on disk on the next save trigger — but with no peak advance and no fills scheduled, the file stayed v1 across the post-deploy restart. Caught by `cat /opt/tradebot/data/rsi2_mr_state.json` as part of standard VPS deploy verification, fixed by adding `self._save_state()` to the migration block plus `test_msb_17_v1_to_v2_migration_persists_eagerly`.
+
+---
+
+## "Pre-existing" deferral rule
+
+Before deferring a code-review finding as "pre-existing — not introduced by this PR," answer this question explicitly: **does this PR make a previously stable invariant load-bearing for new code?** If yes, the finding belongs in this PR even if the underlying defect already existed.
+
+Triggers that turn a pre-existing defect into in-scope:
+- A new function reads a field that was previously only written.
+- A new flag depends on integrity of state another flow can corrupt.
+- A new computation builds on values that another code path can silently zero.
+
+Example (2026-05-10): MS-B's `_get_strategy_attributed_equity` started reading `_position_shares` and `_entry_price` for the unrealized term. A partial-SELL bug (pre-existing in `on_fill(SELL)`) silently zeroed both fields. I deferred the partial-fill audit as "pre-existing → MS-K"; the user pushed back correctly because MS-B made those fields newly load-bearing. The fix (MS-K guard) shipped in the same PR.
+
+---
+
 ## JS rate-limit gate rule
 
 When adding a polling gate that references multiple fetch functions (e.g. `_onAcctTab ? [fetchAccount(), fetchEquity()] : []`), the comment **must name the specific endpoint(s) that are rate-limited**, not the functions. Gate comments that name functions imply all named functions are rate-limited — reviewers will not re-check each endpoint's backend definition.
