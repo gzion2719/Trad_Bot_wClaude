@@ -854,6 +854,116 @@ def test_msb_11_state_migration_resets_v1_peak_and_cb(tmp_path):
     assert strategy._circuit_breaker_until is None
 
 
+def _make_sell_result(filled: float, order_id: int = 999, avg_price: float = 410.0):
+    """Construct a FILLED-status SELL OrderResult for partial-fill tests."""
+    from models.order import OrderStatus
+
+    return OrderResult(
+        order_id=order_id,
+        symbol="SPY",
+        action="SELL",
+        quantity=100.0,
+        order_type="MKT",
+        tif="GTC",
+        status=OrderStatus.FILLED,
+        filled=filled,
+        remaining=max(0.0, 100.0 - filled),
+        avg_fill_price=avg_price,
+        limit_price=None,
+        stop_price=None,
+    )
+
+
+def _ready_in_position(strategy, shares: int = 100, entry: float = 400.0):
+    """Place a strategy in a steady in_position state for SELL-handling tests."""
+    strategy._in_position = True
+    strategy._position_shares = shares
+    strategy._entry_price = entry
+    strategy._stop_price = entry * 0.97
+    strategy._target_price = entry * 1.09
+
+
+def test_msb_13_partial_sell_trips_halt_and_cb():
+    """Partial SELL (filled < position) must trip _partial_fill_halt + CB without
+    zeroing position state or stamping cost_basis."""
+    from datetime import date as _date, timedelta as _td
+
+    strategy = _make_live_strategy(capital=50_000.0)
+    _ready_in_position(strategy, shares=100, entry=400.0)
+    # Patch ntfy alert so the test does not hit the network.
+    with patch.object(strategy, "_fire_circuit_breaker_alert"):
+        sell = _make_sell_result(filled=50.0)
+        strategy.on_fill(sell)
+
+    assert strategy._partial_fill_halt is True
+    assert strategy._circuit_breaker_until is not None
+    # CB lands on the 1st of next month.
+    today = _date.today()
+    expected = (today.replace(day=1) + _td(days=32)).replace(day=1)
+    assert strategy._circuit_breaker_until == expected
+    # State preserved for operator triage.
+    assert strategy._in_position is True
+    assert strategy._position_shares == 100
+    assert strategy._entry_price == approx(400.0)
+    # cost_basis intentionally NOT stamped on the SELL — TradeLog will record
+    # the row with realized_pnl=NULL, signalling reconcile-needed.
+    assert sell.cost_basis is None
+
+
+def test_msb_14_full_sell_unaffected_positive_control():
+    """Full SELL (filled == position) must take the normal cleanup path."""
+    strategy = _make_live_strategy(capital=50_000.0)
+    _ready_in_position(strategy, shares=100, entry=400.0)
+    sell = _make_sell_result(filled=100.0, avg_price=410.0)
+    strategy.on_fill(sell)
+
+    assert strategy._partial_fill_halt is False
+    assert strategy._in_position is False
+    assert strategy._position_shares == 0
+    # Full SELL stamps cost_basis from _entry_price (MS-A1).
+    assert sell.cost_basis == approx(400.0)
+
+
+def test_msb_15_halted_strategy_does_not_exit_dangling_position():
+    """Regression: with _partial_fill_halt=True and a dangling position,
+    on_tick must NOT call _exit and must NOT place new orders."""
+    strategy, om, *_ = _make_strategy(capital=50_000.0)
+    _ready_in_position(strategy, shares=100, entry=400.0)
+    strategy._partial_fill_halt = True
+    # Pre-fill closes/dates so the warmup gate is past — if on_tick fell
+    # through to _check_exits it would absolutely fire (RSI=0 once filled).
+    strategy._closes = [400.0] * 260
+    strategy._highs = [402.0] * 260
+    strategy._lows = [398.0] * 260
+    strategy._bar_dates = [date(2014, 1, 2)] * 260
+    strategy._bar_index = 260
+    strategy._bars_held = strategy._TIME_STOP_BARS + 1  # would force time-stop
+
+    with (
+        _PATCH_FOMC,
+        _PATCH_RUSSELL,
+        _PATCH_HOLIDAY,
+        patch.object(strategy, "_exit") as exit_spy,
+        patch.object(strategy, "safe_place_order") as place_spy,
+    ):
+        strategy.on_tick()
+
+    assert exit_spy.call_count == 0
+    assert place_spy.call_count == 0
+
+
+def test_msb_16_partial_halt_persists_across_restart(tmp_path):
+    """Save state with _partial_fill_halt=True; reload into a fresh strategy."""
+    state_path = tmp_path / "rsi2_mr_state.json"
+    s1, *_ = _make_strategy(capital=50_000.0, state_file_path=state_path)
+    s1._partial_fill_halt = True
+    s1._save_state()
+
+    s2, *_ = _make_strategy(capital=50_000.0, state_file_path=state_path)
+    s2._load_state()
+    assert s2._partial_fill_halt is True
+
+
 def test_msb_12_state_migration_idempotent_on_v2(tmp_path):
     """v2 state file is loaded as-is — no reset on the second deploy."""
     import json as _json

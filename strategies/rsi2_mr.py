@@ -163,6 +163,14 @@ class RSI2MR_SPY(BaseStrategy):
         self._strategy_peak_equity: float = initial_capital
         self._circuit_breaker_until: Optional[date] = None
 
+        # MS-K guard: set True on partial-SELL detection. Independent from the
+        # circuit breaker because the existing CB only blocks new entries —
+        # this flag also blocks `_check_exits` so a dangling broker position
+        # cannot trigger a fresh SELL for stale `_position_shares` (which
+        # would naked-short whatever didn't fill on the original SELL).
+        # Operator must clear via manual reconcile.
+        self._partial_fill_halt: bool = False
+
         # Pending entry guard (between signal and fill)
         self._entry_pending: bool = False
 
@@ -253,6 +261,38 @@ class RSI2MR_SPY(BaseStrategy):
             self._place_bracket_orders()
 
         elif result.action == OrderAction.SELL.value:
+            # MS-K guard: detect partial SELL (FILLED status arrived but the
+            # filled qty fell short of our position — IB cancelled the
+            # remainder of a partial in low liquidity, or a bracket leg
+            # rejected). Float-tolerant compare so 99.999 shares vs 100 isn't
+            # treated as partial. On detection: trip a dedicated halt flag,
+            # also trip the CB, fire ntfy, and EARLY-RETURN — do NOT zero
+            # state, do NOT stamp cost_basis, do NOT cancel brackets. The
+            # operator owns reconcile.
+            if self._position_shares > 0 and (result.filled + 0.5) < self._position_shares:
+                logger.error(
+                    "%s: PARTIAL SELL DETECTED order_id=%s filled=%.4f of "
+                    "position=%d. Halting strategy (entries + exits) until "
+                    "manual reconcile clears _partial_fill_halt.",
+                    self.name,
+                    result.order_id,
+                    result.filled,
+                    self._position_shares,
+                )
+                self._partial_fill_halt = True
+                # Defense-in-depth: trip CB so even if the halt flag is
+                # cleared without restoring state, new entries are blocked
+                # until the 1st of next month. Same idiom as
+                # _update_circuit_breaker.
+                today = date.today()
+                next_month = today.replace(day=1) + timedelta(days=32)
+                self._circuit_breaker_until = next_month.replace(day=1)
+                self._fire_circuit_breaker_alert(
+                    f"partial SELL fill {result.filled:.4f}/{self._position_shares}"
+                )
+                self._save_state()
+                return
+
             fill_price = result.avg_fill_price or 0.0
 
             # MS-A1: stamp cost_basis on the SELL OrderResult so TradeLog.record()
@@ -296,6 +336,11 @@ class RSI2MR_SPY(BaseStrategy):
         if self.reconnect and not self.reconnect.wait_for_connection(timeout=60):
             return
         if self.risk_manager and self.risk_manager.is_halted():
+            return
+        # MS-K guard: a prior partial SELL left dangling broker shares; both
+        # entries AND exits are suspended until manual reconcile clears the
+        # flag. Bracket orders (if any) remain live broker-side.
+        if self._partial_fill_halt:
             return
 
         # ── Advance bar data ──────────────────────────────────────────────────
@@ -807,6 +852,9 @@ class RSI2MR_SPY(BaseStrategy):
                 # between BUY fill and SELL fill.
                 "entry_price": self._entry_price,
                 "in_position": self._in_position,
+                # MS-K: partial-fill halt must survive restart so the operator
+                # has full investigation context after a bot bounce.
+                "partial_fill_halt": self._partial_fill_halt,
             }
             self._state_file_path.parent.mkdir(parents=True, exist_ok=True)
             self._state_file_path.write_text(json.dumps(state, indent=2))
@@ -857,6 +905,9 @@ class RSI2MR_SPY(BaseStrategy):
                 ep = state.get("entry_price", 0.0)
                 if ep:
                     self._entry_price = float(ep)
+            # MS-K: restore partial-fill halt — operator needs the same
+            # investigation context after a bot bounce.
+            self._partial_fill_halt = bool(state.get("partial_fill_halt", False))
             logger.info(
                 "%s: loaded state — consecutive_losses=%d peak_equity=%.2f cb_until=%s "
                 "entry_price=%.2f",
