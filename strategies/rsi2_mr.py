@@ -58,10 +58,11 @@ _WARMUP_BARS = 240
 # Persistent state file path (relative to project root)
 _DEFAULT_STATE_FILE = Path(__file__).parent.parent / "data" / "rsi2_mr_state.json"
 # State schema version — bumped when on-disk fields gain new semantics.
-# v2 (MS-B): strategy_peak_equity and circuit_breaker_until persisted under
-# v1 used the contaminated account-wide NetLiquidation as the equity proxy,
-# so a one-shot reset of those two fields is performed when v1 (or missing)
-# state is loaded.
+# v2 (MS-B): strategy_peak_equity is now sourced from
+# `_get_strategy_attributed_equity()` (initial_capital + own realized P&L +
+# unrealized) instead of account-wide NetLiquidation. v1 files persisted the
+# contaminated NetLiq value, so a one-shot reset of `strategy_peak_equity`
+# and `circuit_breaker_until` is performed when v1 (or missing) state loads.
 _STATE_SCHEMA_VERSION: int = 2
 
 
@@ -666,15 +667,21 @@ class RSI2MR_SPY(BaseStrategy):
         Returns ``None`` if live equity cannot be computed (e.g. no TradeLog
         wired yet AND we need a fresh signal of broker-side liquidity loss).
         """
-        # Backtest path: single-strategy, no contamination — reuse account equity.
+        # Backtest path: single-strategy today, no contamination — reuse
+        # account equity. TODO(multi-strategy-backtest): if BacktestEngine
+        # ever supports running N strategies against one MockOrderManager,
+        # this branch re-introduces the bug being fixed in MS-B.
         if self.client is None:
             return self._get_equity()
 
-        # Live path: need a TradeLog to query own realized P&L.
+        # Live path: need a TradeLog to query own realized P&L. In production
+        # `StrategyRunner.build()` always wires `_trade_log`, so this branch is
+        # a defensive fallback for tests / future single-instance call sites.
         if self._trade_log is None or self._strategy_name is None:
-            # No way to attribute — fall back to initial_capital so the ratchet
-            # cannot drift up on another strategy's gains. This is conservative:
-            # the worst case is the CB never fires; it cannot fire spuriously.
+            # No way to attribute realized P&L — return the static
+            # initial_capital. Peak ratchet stays at initial_capital and a
+            # drawdown to ≤92% of initial WILL fire the 8% CB. Not strictly
+            # conservative; just isolated from cross-strategy contamination.
             return self._initial_capital
 
         try:
@@ -824,7 +831,11 @@ class RSI2MR_SPY(BaseStrategy):
             # as the equity proxy, so the persisted peak/CB are contaminated.
             # Reset both fields once; the next on_tick will ratchet from
             # initial_capital using the new strategy-attributed equity.
-            schema_version = int(state.get("schema_version", 1))
+            # Defensive parse: explicit `null` or non-int → treat as v1 so the
+            # migration still fires (rather than crashing into the bare except
+            # below and silently re-resetting on the next save).
+            _raw_version = state.get("schema_version")
+            schema_version = int(_raw_version) if isinstance(_raw_version, int) else 1
             if schema_version < _STATE_SCHEMA_VERSION:
                 logger.warning(
                     "%s: state file schema v%d → v%d migration — resetting "

@@ -27,7 +27,8 @@ logs/
 
 # Runtime telemetry
 data/health.txt
-data/*.json
+data/*_state.json
+data/account_snapshot.json
 data/equity_history_*.jsonl
 
 # IDE
