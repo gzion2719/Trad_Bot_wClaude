@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any, Optional
 
 from broker.ibkr_client import IBKRClient
 from broker.order_manager import OrderManager
@@ -66,6 +67,13 @@ class BaseStrategy(ABC):
         # Set by StrategyRunner.build() in multi-strategy mode. None for
         # single-strategy / backtest paths — fills then carry strategy_name=None.
         self._strategy_name: str | None = None
+
+        # MS-B: set by StrategyRunner.build() so strategies can query their
+        # own attributed realized P&L (TradeLog.realized_pnl_since) instead
+        # of the account-wide NetLiquidation. None in backtest paths — the
+        # backtest is single-strategy so account-equity == strategy-equity.
+        # Typed as Any to avoid a circular import with data.trade_log.
+        self._trade_log: Optional[Any] = None
 
         # Auto-wire fill events to this strategy's on_fill() method.
         # In multi-strategy mode the OrderManager broadcasts every fill to

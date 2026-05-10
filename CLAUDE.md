@@ -30,17 +30,17 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot running on VPS (paper account, both strategies confirmed live as of 2026-05-09 13:25 UTC). Dashboard Phase 4 fully deployed. B-10 confirmed stable. **ROADMAP 4.8 Phase B done 2026-05-09**: RSI2MR-SPY registered in REGISTRY alongside SMACrossover-QQQ. **MS-A done 2026-05-09 (A1 + A2)**: strategies stamp `OrderResult.cost_basis` on SELL from `_entry_price`; per-strategy JSON state survives restarts; PnLPoller queries TradeLog per strategy (replaces account-level RealizedPnL feed); each RiskManager has its own `strategy_name` + sticky `_halted_today` flag cleared only by 9:30 ET reset; `check()` and `is_halted()` both honor sticky; initial sync refresh on startup; ET-trading-day cutoff is DST-safe; index `idx_trades_strategy_filled` added. The bug-of-record (one strategy halting all others when account total breaches any cap) is fixed and asserted in tests. PR pending.
+**Phase 6 — paper trading.** Bot running on VPS (paper account, both strategies confirmed live as of 2026-05-09 16:05 UTC, PID 128261). Dashboard Phase 4 fully deployed. B-10 confirmed stable. MS-A1+A2 + MS-D shipped and verified live on VPS. **MS-B done 2026-05-10 (PR pending)**: `RSI2MR_SPY._get_strategy_attributed_equity()` returns `initial_capital + own realized P&L (TradeLog) + unrealized on open position`, used at the two circuit-breaker sites (peak ratchet + 8% drawdown trip). Position sizing still uses broker NetLiq (Decision B is independent caps, not separate equity bases). State schema bumped to v2 with one-shot reset of contaminated `strategy_peak_equity`/`circuit_breaker_until` on first load — VPS state file `data/rsi2_mr_state.json` will auto-migrate on next deploy.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 **Immediate next steps:**
-1. **Merge MS-A1+A2 PR** → develop → main, then deploy to VPS: `cd /opt/tradebot && git pull origin main && systemctl restart tradebot`. Verify startup logs show "PnL poller started — per-strategy daily loss ceiling is now ACTIVE" and "Initial per-strategy P&L refresh complete (cutoff=...)".
-2. **MS-D (P0)** — add `REGISTRY.build()` ConfigError on shared symbols. Precondition for MS-A1's `avg_cost` fallback safety. ~5-line guard.
-4. **Verify today's 20:10 UTC tick** — `journalctl -u tradebot --since '2026-05-09 20:05' --until '2026-05-09 20:20'` — should show both strategies downloading bars.
-5. **Bug A (deferred)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'". Bot self-heals via attempt 6 + systemd. Not urgent.
-6. **GC-4 — TLS for the dashboard** (Caddy/nginx + tailscale-cert).
-7. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
+1. **Merge MS-B PR** → develop → main, then deploy to VPS: `cd /opt/tradebot && sudo git pull origin main && sudo systemctl restart tradebot`. Verify startup log shows the migration warning if state was contaminated: `state file schema v1 → v2 migration — resetting strategy_peak_equity (...) and clearing circuit_breaker_until (...)`.
+2. **AccountSnapshotPoller traceback noise (MS-I, P3)** — cosmetic; tracebacks during reconnect windows look alarming in journalctl despite the `non-fatal` warning line. Easy fix in `data/account_snapshot.py:237`.
+3. **MS-C** — yfinance hardening (silent skip on outage). HIGH priority but lower than MS-B.
+4. **Bug A (deferred)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'". Bot self-heals via attempt 6 + systemd. Not urgent.
+5. **GC-4 — TLS for the dashboard** (Caddy/nginx + tailscale-cert).
+6. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
 
 ### What was done this session (2026-05-08 — RSI2-MR strategy, ROADMAP 4.6)
 

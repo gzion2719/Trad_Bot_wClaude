@@ -3,6 +3,17 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-10 — MS-B + MS-K: strategy-attributed equity + partial-fill guard (PR pending)
+
+- Verified MS-D live on VPS (PID 128261, restarted 16:05 UTC May 9; per-strategy `[SMACrossover-QQQ]` / `[RSI2MR-SPY]` log tags + "per-strategy daily loss ceiling is now ACTIVE" confirm MS-A2 also live). 4 nightly tracebacks at 23:59 UTC turned out to be benign `AccountSnapshotPoller` noise during IBC AutoRestartTime — logged as MS-I.
+- MS-B: `RSI2MR_SPY._get_strategy_attributed_equity()` returns `initial_capital + own realized P&L (TradeLog) + unrealized on open position`, used at the two CB sites (peak ratchet, 8% drawdown trip). Position sizing still uses broker NetLiq. `BaseStrategy._trade_log` injected by `StrategyRunner.build()`. State schema bumped to v2 with one-shot reset of contaminated `strategy_peak_equity` / `circuit_breaker_until` on first load.
+- MS-K (in same PR after user pushed back on the defer): trip-on-detect guard for partial SELL. New `_partial_fill_halt` flag — independent from CB because the existing CB only halts entries; this flag also halts exits so a dangling broker position cannot fire `_exit()` and naked-short. Float-tolerant compare `(result.filled + 0.5) < _position_shares`. Persisted in v2 state. Pre-implementation CR caught dead-code `is_filled` gate, dangling-position exit fire, float-tolerance, missing regression test — all addressed.
+- 16 new tests `test_msb_01..16`; 250 pass (49 broker-skipped); ruff/black/mypy clean. Two unbiased CR passes per feature (pre-plan + post-impl) per the new SESSION_PROTOCOL.md sub-rule.
+- **Process improvement:** none codified this session — existing rules held. Notable: I initially deferred MS-K as "pre-existing" → user correctly pushed back since MS-B made the unrealized term load-bearing on the very fields a partial SELL would zero. Lesson absorbed but not yet codifiable as a rule (every "defer as pre-existing" decision now needs a "does THIS PR make it newly load-bearing?" check — too situational for a hard rule yet).
+- **Next session:** Merge MS-B+MS-K PR → develop → main; VPS deploy and watch for the v1→v2 migration log line. Then MS-C (yfinance hardening) or MS-I (AccountSnapshotPoller noise).
+
+---
+
 ## 2026-05-09 — MS-D: shared-symbol guard at module load (PR pending)
 
 - Implemented `config.strategies.validate_registry()` (public): raises `ConfigError` at module load on empty registry, blank/duplicate names, or shared symbols (case-insensitive). `StrategyRunner._validate_registry()` delegates to it — single source of truth. All prior `ValueError` raises unified to `ConfigError`.

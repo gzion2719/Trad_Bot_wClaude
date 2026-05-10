@@ -615,7 +615,8 @@ def test_em04_circuit_breaker_equity_drawdown():
     strategy, *_ = _make_strategy(capital=50_000.0)
     strategy._strategy_peak_equity = 50_000.0
     # Simulate equity at 45000 (10% down from peak — exceeds 8% threshold)
-    with patch.object(strategy, "_get_equity", return_value=45_000.0):
+    # MS-B: drawdown branch now reads from _get_strategy_attributed_equity.
+    with patch.object(strategy, "_get_strategy_attributed_equity", return_value=45_000.0):
         strategy._update_circuit_breaker(-0.5)
     assert strategy._circuit_breaker_until is not None
 
@@ -641,6 +642,349 @@ def test_em06_get_vix_via_feed_external():
     feed._set_external("vix", {date(2015, 1, 14): 22.5})
     result = strategy._get_vix(date(2015, 1, 14))
     assert result == approx(22.5)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Section MS-B — strategy-attributed equity (circuit breaker isolation)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class _FakeAccountClient:
+    """Minimal stand-in for IBKRClient: only get_account_summary is exercised."""
+
+    class _Tag:
+        def __init__(self, tag, value):
+            self.tag = tag
+            self.value = value
+
+    def __init__(self, net_liquidation: float):
+        self._nl = net_liquidation
+
+    def get_account_summary(self):
+        return [self._Tag("NetLiquidation", str(self._nl))]
+
+
+class _FakeTradeLog:
+    """In-memory TradeLog stub for MS-B tests."""
+
+    def __init__(self, realized_pnl_by_strategy: dict | None = None):
+        self._pnl = realized_pnl_by_strategy or {}
+
+    def realized_pnl_since(self, strategy_name: str, cutoff_iso: str) -> float:
+        return float(self._pnl.get(strategy_name, 0.0))
+
+
+def _make_live_strategy(
+    capital: float = 50_000.0,
+    net_liquidation: float = 50_000.0,
+    realized_by_strategy: dict | None = None,
+    strategy_name: str | None = "RSI2MR-SPY",
+):
+    """Build an RSI2MR_SPY in 'live' mode (client is not None) for MS-B tests."""
+    from data.vix_feed import VIXFeed
+    from strategies.rsi2_mr import RSI2MR_SPY
+
+    client = _FakeAccountClient(net_liquidation=net_liquidation)
+    p = BacktestPortfolio(initial_capital=capital, commission=0.0)
+    om = MockOrderManager(p)
+    feed = BacktestDataFeed("SPY")
+    vix_dates = pd.bdate_range("2010-01-01", periods=400)
+    vix_feed = VIXFeed(series=pd.Series(20.0, index=vix_dates))
+
+    strategy = RSI2MR_SPY(
+        client=client,
+        order_manager=om,
+        risk_manager=None,
+        reconnect=None,
+        feed=feed,
+        symbol="SPY",
+        initial_capital=capital,
+        vix_feed=vix_feed,
+    )
+    # Mirror StrategyRunner.build() injection.
+    strategy._strategy_name = strategy_name
+    strategy._trade_log = _FakeTradeLog(realized_by_strategy)
+    # Test isolation: client != None would normally enable disk persistence on
+    # the default `data/rsi2_mr_state.json` path (prod state file). Force off
+    # so tests cannot pollute production state.
+    strategy._persist_state = False
+    return strategy
+
+
+def test_msb_01_attributed_equity_no_history_returns_initial_capital():
+    """No fills logged → attributed equity == initial_capital, regardless of NetLiq."""
+    strategy = _make_live_strategy(capital=50_000.0, net_liquidation=120_000.0)
+    assert strategy._get_strategy_attributed_equity() == approx(50_000.0)
+
+
+def test_msb_02_attributed_equity_includes_own_realized_pnl_only():
+    """Strategy A's gains ratchet only A's equity; B's equity is unaffected."""
+    # Account NetLiq is 80k (other strategies up 30k). Only RSI2MR has +500 realized.
+    strategy = _make_live_strategy(
+        capital=50_000.0,
+        net_liquidation=80_000.0,
+        realized_by_strategy={"RSI2MR-SPY": 500.0, "SMACrossover-QQQ": 29_500.0},
+    )
+    # RSI2MR sees only its own +500 → 50,500 (NOT 80k from account NetLiq).
+    assert strategy._get_strategy_attributed_equity() == approx(50_500.0)
+
+
+def test_msb_03_attributed_equity_includes_unrealized_on_open_position():
+    """Open position with mark-to-market loss reduces attributed equity."""
+    strategy = _make_live_strategy(capital=50_000.0, net_liquidation=50_000.0)
+    strategy._in_position = True
+    strategy._position_shares = 100
+    strategy._entry_price = 400.0
+    strategy._closes = [395.0]  # $5 unrealized loss × 100 shares = -$500
+    assert strategy._get_strategy_attributed_equity() == approx(49_500.0)
+
+
+def test_msb_04_peak_ratchet_isolates_from_other_strategy_gains():
+    """
+    Bug-of-record: another strategy's gains must NOT raise RSI2MR's peak equity,
+    so a later RSI2MR-only loss cannot fire the 8% drawdown trip spuriously.
+    """
+    # Step 1: SMA gains $20k, RSI2MR realized $0. Account NetLiq = 70k.
+    strategy = _make_live_strategy(
+        capital=50_000.0,
+        net_liquidation=70_000.0,
+        realized_by_strategy={"RSI2MR-SPY": 0.0, "SMACrossover-QQQ": 20_000.0},
+    )
+    # Manually invoke the ratchet branch logic.
+    se = strategy._get_strategy_attributed_equity()
+    if se is not None and se > strategy._strategy_peak_equity:
+        strategy._strategy_peak_equity = se
+    # Peak stays at initial_capital (50k) — NOT raised to 70k.
+    assert strategy._strategy_peak_equity == approx(50_000.0)
+
+
+def test_msb_05_drawdown_trip_uses_strategy_equity_not_account():
+    """
+    Account NetLiq down 10% (well past 8%) but RSI2MR is flat → CB does NOT fire.
+    Pre-MS-B, this would fire spuriously.
+    """
+    strategy = _make_live_strategy(
+        capital=50_000.0,
+        net_liquidation=45_000.0,  # account down 10%
+        realized_by_strategy={"RSI2MR-SPY": 0.0, "SMACrossover-QQQ": -5_000.0},
+    )
+    strategy._strategy_peak_equity = 50_000.0
+    strategy._update_circuit_breaker(-0.5)  # one losing trade (not 5 in a row)
+    assert strategy._circuit_breaker_until is None
+
+
+def test_msb_06_drawdown_trip_fires_on_strategy_own_loss():
+    """RSI2MR's own realized losses trip the 8% drawdown CB."""
+    strategy = _make_live_strategy(
+        capital=50_000.0,
+        net_liquidation=50_000.0,
+        realized_by_strategy={"RSI2MR-SPY": -5_000.0},  # -10% own
+    )
+    strategy._strategy_peak_equity = 50_000.0
+    strategy._update_circuit_breaker(-0.5)
+    assert strategy._circuit_breaker_until is not None
+
+
+def test_msb_07_no_trade_log_falls_back_to_initial_capital():
+    """Missing TradeLog (mis-wired) → conservative fallback to initial_capital."""
+    strategy = _make_live_strategy(capital=50_000.0, net_liquidation=99_999.0)
+    strategy._trade_log = None
+    assert strategy._get_strategy_attributed_equity() == approx(50_000.0)
+
+
+def test_msb_08_backtest_path_uses_account_equity_unchanged():
+    """In backtest (client is None), attributed equity == _get_equity (no contamination)."""
+    strategy, om, *_ = _make_strategy(capital=50_000.0)
+    # MockOrderManager equity == cash (no positions).
+    assert strategy._get_strategy_attributed_equity() == approx(strategy._get_equity())
+
+
+def test_msb_09_peak_ratchets_on_own_realized_gain():
+    """Positive case: own realized P&L raises strategy_peak_equity (does NOT stay flat)."""
+    strategy = _make_live_strategy(
+        capital=50_000.0,
+        net_liquidation=50_000.0,
+        realized_by_strategy={"RSI2MR-SPY": 7_500.0},
+    )
+    # Apply the ratchet branch from on_tick.
+    se = strategy._get_strategy_attributed_equity()
+    assert se == approx(57_500.0)
+    if se is not None and se > strategy._strategy_peak_equity:
+        strategy._strategy_peak_equity = se
+    assert strategy._strategy_peak_equity == approx(57_500.0)
+
+
+def test_msb_10_realized_pnl_fetch_failure_falls_back_to_initial_capital():
+    """If TradeLog.realized_pnl_since raises, fall back conservatively to initial_capital."""
+
+    class _BrokenTradeLog:
+        def realized_pnl_since(self, *a, **kw):
+            raise RuntimeError("DB locked")
+
+    strategy = _make_live_strategy(capital=50_000.0, net_liquidation=99_999.0)
+    strategy._trade_log = _BrokenTradeLog()
+    assert strategy._get_strategy_attributed_equity() == approx(50_000.0)
+
+
+def test_msb_11_state_migration_resets_v1_peak_and_cb(tmp_path):
+    """
+    Pre-MS-B (v1 / no schema_version) state files used contaminated NetLiq peak
+    AND can carry an active circuit_breaker_until. Loading must reset both.
+    """
+    import json as _json
+
+    state_path = tmp_path / "rsi2_mr_state.json"
+    # Write a synthetic v1 state file (no schema_version, contaminated values).
+    state_path.write_text(
+        _json.dumps(
+            {
+                "consecutive_losses": 0,
+                "strategy_peak_equity": 80_000.0,  # contaminated by other strategy
+                "circuit_breaker_until": "2099-12-31",  # would halt RSI2MR
+                "in_position": False,
+                "entry_price": 0.0,
+            }
+        )
+    )
+
+    strategy, *_ = _make_strategy(capital=50_000.0, state_file_path=state_path)
+    # _make_strategy invokes on_start() which calls _load_state(). Migration
+    # should have reset the contaminated peak and cleared the CB.
+    assert strategy._strategy_peak_equity == approx(50_000.0)
+    assert strategy._circuit_breaker_until is None
+
+
+def _make_sell_result(filled: float, order_id: int = 999, avg_price: float = 410.0):
+    """Construct a FILLED-status SELL OrderResult for partial-fill tests."""
+    from models.order import OrderStatus
+
+    return OrderResult(
+        order_id=order_id,
+        symbol="SPY",
+        action="SELL",
+        quantity=100.0,
+        order_type="MKT",
+        tif="GTC",
+        status=OrderStatus.FILLED,
+        filled=filled,
+        remaining=max(0.0, 100.0 - filled),
+        avg_fill_price=avg_price,
+        limit_price=None,
+        stop_price=None,
+    )
+
+
+def _ready_in_position(strategy, shares: int = 100, entry: float = 400.0):
+    """Place a strategy in a steady in_position state for SELL-handling tests."""
+    strategy._in_position = True
+    strategy._position_shares = shares
+    strategy._entry_price = entry
+    strategy._stop_price = entry * 0.97
+    strategy._target_price = entry * 1.09
+
+
+def test_msb_13_partial_sell_trips_halt_and_cb():
+    """Partial SELL (filled < position) must trip _partial_fill_halt + CB without
+    zeroing position state or stamping cost_basis."""
+    from datetime import date as _date, timedelta as _td
+
+    strategy = _make_live_strategy(capital=50_000.0)
+    _ready_in_position(strategy, shares=100, entry=400.0)
+    # Patch ntfy alert so the test does not hit the network.
+    with patch.object(strategy, "_fire_circuit_breaker_alert"):
+        sell = _make_sell_result(filled=50.0)
+        strategy.on_fill(sell)
+
+    assert strategy._partial_fill_halt is True
+    assert strategy._circuit_breaker_until is not None
+    # CB lands on the 1st of next month.
+    today = _date.today()
+    expected = (today.replace(day=1) + _td(days=32)).replace(day=1)
+    assert strategy._circuit_breaker_until == expected
+    # State preserved for operator triage.
+    assert strategy._in_position is True
+    assert strategy._position_shares == 100
+    assert strategy._entry_price == approx(400.0)
+    # cost_basis intentionally NOT stamped on the SELL — TradeLog will record
+    # the row with realized_pnl=NULL, signalling reconcile-needed.
+    assert sell.cost_basis is None
+
+
+def test_msb_14_full_sell_unaffected_positive_control():
+    """Full SELL (filled == position) must take the normal cleanup path."""
+    strategy = _make_live_strategy(capital=50_000.0)
+    _ready_in_position(strategy, shares=100, entry=400.0)
+    sell = _make_sell_result(filled=100.0, avg_price=410.0)
+    strategy.on_fill(sell)
+
+    assert strategy._partial_fill_halt is False
+    assert strategy._in_position is False
+    assert strategy._position_shares == 0
+    # Full SELL stamps cost_basis from _entry_price (MS-A1).
+    assert sell.cost_basis == approx(400.0)
+
+
+def test_msb_15_halted_strategy_does_not_exit_dangling_position():
+    """Regression: with _partial_fill_halt=True and a dangling position,
+    on_tick must NOT call _exit and must NOT place new orders."""
+    strategy, om, *_ = _make_strategy(capital=50_000.0)
+    _ready_in_position(strategy, shares=100, entry=400.0)
+    strategy._partial_fill_halt = True
+    # Pre-fill closes/dates so the warmup gate is past — if on_tick fell
+    # through to _check_exits it would absolutely fire (RSI=0 once filled).
+    strategy._closes = [400.0] * 260
+    strategy._highs = [402.0] * 260
+    strategy._lows = [398.0] * 260
+    strategy._bar_dates = [date(2014, 1, 2)] * 260
+    strategy._bar_index = 260
+    strategy._bars_held = strategy._TIME_STOP_BARS + 1  # would force time-stop
+
+    with (
+        _PATCH_FOMC,
+        _PATCH_RUSSELL,
+        _PATCH_HOLIDAY,
+        patch.object(strategy, "_exit") as exit_spy,
+        patch.object(strategy, "safe_place_order") as place_spy,
+    ):
+        strategy.on_tick()
+
+    assert exit_spy.call_count == 0
+    assert place_spy.call_count == 0
+
+
+def test_msb_16_partial_halt_persists_across_restart(tmp_path):
+    """Save state with _partial_fill_halt=True; reload into a fresh strategy."""
+    state_path = tmp_path / "rsi2_mr_state.json"
+    s1, *_ = _make_strategy(capital=50_000.0, state_file_path=state_path)
+    s1._partial_fill_halt = True
+    s1._save_state()
+
+    s2, *_ = _make_strategy(capital=50_000.0, state_file_path=state_path)
+    s2._load_state()
+    assert s2._partial_fill_halt is True
+
+
+def test_msb_12_state_migration_idempotent_on_v2(tmp_path):
+    """v2 state file is loaded as-is — no reset on the second deploy."""
+    import json as _json
+
+    state_path = tmp_path / "rsi2_mr_state.json"
+    state_path.write_text(
+        _json.dumps(
+            {
+                "schema_version": 2,
+                "consecutive_losses": 0,
+                "strategy_peak_equity": 55_000.0,  # legitimate post-MS-B peak
+                "circuit_breaker_until": None,
+                "in_position": False,
+                "entry_price": 0.0,
+            }
+        )
+    )
+
+    strategy, *_ = _make_strategy(capital=50_000.0, state_file_path=state_path)
+    # No migration: the legit v2 peak survives.
+    assert strategy._strategy_peak_equity == approx(55_000.0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
