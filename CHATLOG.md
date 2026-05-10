@@ -3,6 +3,17 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-10 — MS-B: strategy-attributed equity for RSI2MR circuit breaker (PR pending)
+
+- Verified MS-D live on VPS (PID 128261, restarted 16:05 UTC May 9; both strategies started cleanly; per-strategy `[SMACrossover-QQQ]` / `[RSI2MR-SPY]` log tags + "per-strategy daily loss ceiling is now ACTIVE" confirm MS-A2 also live). 4 nightly tracebacks at 23:59 UTC turned out to be benign — `AccountSnapshotPoller` logging `ConnectionError('Not connected')` with `exc_info` during the IBC AutoRestartTime window; logged as MS-I (P3 cosmetic) and Bug A still self-heals.
+- MS-B implemented: new `RSI2MR_SPY._get_strategy_attributed_equity()` returns `initial_capital + own realized P&L (TradeLog) + unrealized on open position`; used at the two CB sites (peak ratchet in `on_tick`, drawdown trip in `_update_circuit_breaker`). Position sizing still uses broker NetLiq via `_get_equity()` — Decision B is independent caps, not separate equity bases. `BaseStrategy._trade_log` injected by `StrategyRunner.build()` mirroring the `_strategy_name` pattern.
+- Unbiased CR found H1 (state file migration), L2 (test isolation breaking prod state), L4 (coverage gaps). Fix pass: state schema bumped to v2 with one-shot reset of contaminated `strategy_peak_equity`/`circuit_breaker_until` on first load; `_make_live_strategy` sets `_persist_state=False`; added 4 more tests (positive ratchet, exception fallback, v1→v2 migration, v2 idempotent).
+- 12 new tests `test_msb_01..12`; 246 pass overall (49 broker-skipped in CI mode); ruff/black/mypy clean.
+- **Process improvement:** none codified this session — existing rules held (mandatory CR ran without prompt, CR-to-fix transition rule applied with restated plan, state-schema-version pattern is reusable but not yet generalizable as a rule).
+- **Next session:** Merge MS-B PR → develop → main; VPS deploy and confirm migration log line `state file schema v1 → v2 migration — resetting strategy_peak_equity ... and clearing circuit_breaker_until ...` (or its absence if state was already clean). Then MS-C (yfinance hardening) or MS-I (AccountSnapshotPoller noise).
+
+---
+
 ## 2026-05-09 — MS-D: shared-symbol guard at module load (PR pending)
 
 - Implemented `config.strategies.validate_registry()` (public): raises `ConfigError` at module load on empty registry, blank/duplicate names, or shared symbols (case-insensitive). `StrategyRunner._validate_registry()` delegates to it — single source of truth. All prior `ValueError` raises unified to `ConfigError`.

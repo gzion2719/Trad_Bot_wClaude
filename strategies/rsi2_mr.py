@@ -57,6 +57,12 @@ _LIVE_HISTORY_DAYS = 400
 _WARMUP_BARS = 240
 # Persistent state file path (relative to project root)
 _DEFAULT_STATE_FILE = Path(__file__).parent.parent / "data" / "rsi2_mr_state.json"
+# State schema version — bumped when on-disk fields gain new semantics.
+# v2 (MS-B): strategy_peak_equity and circuit_breaker_until persisted under
+# v1 used the contaminated account-wide NetLiquidation as the equity proxy,
+# so a one-shot reset of those two fields is performed when v1 (or missing)
+# state is loaded.
+_STATE_SCHEMA_VERSION: int = 2
 
 
 class RSI2MR_SPY(BaseStrategy):
@@ -328,9 +334,13 @@ class RSI2MR_SPY(BaseStrategy):
         today = self._bar_dates[-1] if self._bar_dates else date.today()
 
         # ── Update circuit-breaker equity check ───────────────────────────────
+        # Account-wide equity (drives position sizing + non-None gate below).
         current_equity = self._get_equity()
-        if current_equity is not None and current_equity > self._strategy_peak_equity:
-            self._strategy_peak_equity = current_equity
+        # MS-B: strategy-attributed equity drives the circuit-breaker ratchet
+        # so another strategy's gains cannot inflate this strategy's peak.
+        strategy_equity = self._get_strategy_attributed_equity()
+        if strategy_equity is not None and strategy_equity > self._strategy_peak_equity:
+            self._strategy_peak_equity = strategy_equity
             self._save_state()
 
         # ── If in position: check exits FIRST (spec §1.5) ─────────────────────
@@ -575,8 +585,9 @@ class RSI2MR_SPY(BaseStrategy):
         else:
             self._consecutive_losses = 0
 
-        # Check equity drawdown
-        current_equity = self._get_equity()
+        # MS-B: drawdown is measured against strategy-attributed equity so
+        # another strategy's losses cannot trip RSI2MR's circuit breaker.
+        current_equity = self._get_strategy_attributed_equity()
         cb_fired = False
         reason = ""
         if self._consecutive_losses >= self._CB_MAX_LOSSES:
@@ -639,6 +650,51 @@ class RSI2MR_SPY(BaseStrategy):
         if self.om is not None and hasattr(self.om, "current_equity"):
             return self.om.current_equity()
         return self._initial_capital
+
+    def _get_strategy_attributed_equity(self) -> Optional[float]:
+        """
+        MS-B: equity attributed to THIS strategy only.
+
+        Live: ``initial_capital + sum(realized P&L for this strategy) +
+        unrealized P&L on the currently open position``. Used by the
+        circuit-breaker peak-equity ratchet and 8% drawdown trip so another
+        strategy's losses cannot fire RSI2MR's circuit breaker.
+
+        Backtest: falls back to ``_get_equity()`` (single-strategy backtest →
+        account equity == strategy equity, so no contamination).
+
+        Returns ``None`` if live equity cannot be computed (e.g. no TradeLog
+        wired yet AND we need a fresh signal of broker-side liquidity loss).
+        """
+        # Backtest path: single-strategy, no contamination — reuse account equity.
+        if self.client is None:
+            return self._get_equity()
+
+        # Live path: need a TradeLog to query own realized P&L.
+        if self._trade_log is None or self._strategy_name is None:
+            # No way to attribute — fall back to initial_capital so the ratchet
+            # cannot drift up on another strategy's gains. This is conservative:
+            # the worst case is the CB never fires; it cannot fire spuriously.
+            return self._initial_capital
+
+        try:
+            # Lexical compare against the epoch yields "all-time" realized P&L.
+            realized = self._trade_log.realized_pnl_since(
+                self._strategy_name, "1970-01-01T00:00:00+00:00"
+            )
+        except Exception as exc:
+            logger.warning("%s: realized-pnl fetch failed: %s", self.name, exc)
+            return self._initial_capital
+
+        unrealized = 0.0
+        if self._in_position and self._position_shares > 0 and self._closes:
+            # NOTE: live `_closes[-1]` is the previous daily close (yfinance is
+            # refreshed inside on_tick at 16:10 ET). Between ticks this mark is
+            # hours stale; with an 8% CB threshold the lag is acceptable.
+            current_close = self._closes[-1]
+            unrealized = (current_close - self._entry_price) * self._position_shares
+
+        return self._initial_capital + realized + unrealized
 
     def _get_vix(self, today: date) -> Optional[float]:
         """Backtest: from feed external series. Live: from VIXFeed."""
@@ -734,6 +790,7 @@ class RSI2MR_SPY(BaseStrategy):
             return  # backtest path with default state file — skip disk I/O
         try:
             state = {
+                "schema_version": _STATE_SCHEMA_VERSION,
                 "consecutive_losses": self._consecutive_losses,
                 "strategy_peak_equity": self._strategy_peak_equity,
                 "circuit_breaker_until": (
@@ -763,6 +820,26 @@ class RSI2MR_SPY(BaseStrategy):
             cb_until = state.get("circuit_breaker_until")
             if cb_until:
                 self._circuit_breaker_until = date.fromisoformat(cb_until)
+            # MS-B migration: pre-v2 state files used account-wide NetLiquidation
+            # as the equity proxy, so the persisted peak/CB are contaminated.
+            # Reset both fields once; the next on_tick will ratchet from
+            # initial_capital using the new strategy-attributed equity.
+            schema_version = int(state.get("schema_version", 1))
+            if schema_version < _STATE_SCHEMA_VERSION:
+                logger.warning(
+                    "%s: state file schema v%d → v%d migration — resetting "
+                    "strategy_peak_equity (%.2f → %.2f) and clearing "
+                    "circuit_breaker_until (%s → None). Pre-MS-B values used "
+                    "account-wide NetLiquidation and were unsafe.",
+                    self.name,
+                    schema_version,
+                    _STATE_SCHEMA_VERSION,
+                    self._strategy_peak_equity,
+                    self._initial_capital,
+                    self._circuit_breaker_until,
+                )
+                self._strategy_peak_equity = self._initial_capital
+                self._circuit_breaker_until = None
             # MS-A1: recover entry price across restarts (only if state says we
             # are in position — keeps the pre-MS-A1 default-None path clean).
             if state.get("in_position"):
