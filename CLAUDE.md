@@ -30,15 +30,15 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot running on VPS (paper account, both strategies confirmed live as of 2026-05-09 16:05 UTC, PID 128261). Dashboard Phase 4 fully deployed. B-10 confirmed stable. MS-A1+A2 + MS-D shipped and verified live on VPS. **MS-B done 2026-05-10 (PR pending)**: `RSI2MR_SPY._get_strategy_attributed_equity()` returns `initial_capital + own realized P&L (TradeLog) + unrealized on open position`, used at the two circuit-breaker sites (peak ratchet + 8% drawdown trip). Position sizing still uses broker NetLiq (Decision B is independent caps, not separate equity bases). State schema bumped to v2 with one-shot reset of contaminated `strategy_peak_equity`/`circuit_breaker_until` on first load — VPS state file `data/rsi2_mr_state.json` will auto-migrate on next deploy.
+**Phase 6 — paper trading.** Bot running on VPS (paper account, both strategies live; latest restart 2026-05-10 ~07:00 UTC after eager-save deploy). Dashboard Phase 4 fully deployed. B-10 confirmed stable. **MS-A1+A2, MS-D, MS-B, MS-K, eager-save migration** all shipped and verified on VPS. State file confirmed at `schema_version: 2` with `partial_fill_halt: false`. The MS-B circuit breaker now reads strategy-attributed equity (`initial_capital + own realized P&L + unrealized`); a partial-SELL trips `_partial_fill_halt` which halts both entries and exits until manual reconcile.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 **Immediate next steps:**
-1. **Merge MS-B PR** → develop → main, then deploy to VPS: `cd /opt/tradebot && sudo git pull origin main && sudo systemctl restart tradebot`. Verify startup log shows the migration warning if state was contaminated: `state file schema v1 → v2 migration — resetting strategy_peak_equity (...) and clearing circuit_breaker_until (...)`.
-2. **AccountSnapshotPoller traceback noise (MS-I, P3)** — cosmetic; tracebacks during reconnect windows look alarming in journalctl despite the `non-fatal` warning line. Easy fix in `data/account_snapshot.py:237`.
-3. **MS-C** — yfinance hardening (silent skip on outage). HIGH priority but lower than MS-B.
-4. **Bug A (deferred)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'". Bot self-heals via attempt 6 + systemd. Not urgent.
+1. **MS-C (P1)** — yfinance hardening: silent skip on outage + IBKR `reqHistoricalData` fallback or ntfy alert on N consecutive `_refresh_history` failures.
+2. **MS-I (P3 cosmetic)** — `AccountSnapshotPoller` traceback noise during reconnect windows: drop `exc_info=True` for `ConnectionError('Not connected')` in `data/account_snapshot.py:237`.
+3. **Bug A (deferred)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'". Bot self-heals via attempt 6 + systemd. Not urgent.
+4. **MS-J (P2)** — non-atomic state-file write (`Path.write_text` can leave a truncated file mid-process-kill); fix with `tmp + os.replace`.
 5. **GC-4 — TLS for the dashboard** (Caddy/nginx + tailscale-cert).
 6. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
 
