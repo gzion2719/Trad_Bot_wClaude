@@ -125,6 +125,10 @@ class StrategyRunner:
             # Tag the strategy so safe_place_order() stamps every OrderRequest
             # with this name → OrderManager → OrderResult.strategy_name.
             strategy._strategy_name = cfg.name
+            # MS-B: hand the strategy a reference to TradeLog so it can compute
+            # its own attributed equity (initial_capital + own realized P&L)
+            # instead of account-wide NetLiquidation.
+            strategy._trade_log = self.trade_log
 
             # Per-strategy fill hooks. Both filter on strategy_name so a fill
             # from strategy A never bumps strategy B's bookkeeping.
