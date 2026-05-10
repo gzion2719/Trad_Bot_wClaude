@@ -964,6 +964,34 @@ def test_msb_16_partial_halt_persists_across_restart(tmp_path):
     assert s2._partial_fill_halt is True
 
 
+def test_msb_17_v1_to_v2_migration_persists_eagerly(tmp_path):
+    """Migration on load must immediately write the v2 schema to disk so a
+    crash before the next save trigger does not re-fire the warning on the
+    next start (and so new v2 fields like partial_fill_halt land on disk)."""
+    import json as _json
+
+    state_path = tmp_path / "rsi2_mr_state.json"
+    # Synthetic v1 file (no schema_version, no partial_fill_halt).
+    state_path.write_text(
+        _json.dumps(
+            {
+                "consecutive_losses": 0,
+                "strategy_peak_equity": 50_000.0,
+                "circuit_breaker_until": None,
+                "entry_price": 0.0,
+                "in_position": False,
+            }
+        )
+    )
+
+    _make_strategy(capital=50_000.0, state_file_path=state_path)
+
+    # File must now be v2: schema_version present and new field persisted.
+    persisted = _json.loads(state_path.read_text())
+    assert persisted.get("schema_version") == 2
+    assert persisted.get("partial_fill_halt") is False
+
+
 def test_msb_12_state_migration_idempotent_on_v2(tmp_path):
     """v2 state file is loaded as-is — no reset on the second deploy."""
     import json as _json

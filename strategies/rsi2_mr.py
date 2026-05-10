@@ -899,6 +899,13 @@ class RSI2MR_SPY(BaseStrategy):
                 )
                 self._strategy_peak_equity = self._initial_capital
                 self._circuit_breaker_until = None
+                # Eager-save so the v2 schema (and new fields like
+                # `partial_fill_halt`) lands on disk immediately. Otherwise
+                # the next save trigger could be days away (no ratchet
+                # advance, no fills) and a crash in between would re-fire
+                # the migration warning on the next start. Idempotent
+                # against itself: re-saving v2 → v2 is a no-op.
+                self._save_state()
             # MS-A1: recover entry price across restarts (only if state says we
             # are in position — keeps the pre-MS-A1 default-None path clean).
             if state.get("in_position"):
