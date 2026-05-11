@@ -3,6 +3,17 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-11 — MS-C + MS-J: yfinance alerting and atomic state-file write (both shipped)
+
+- MS-C: ntfy alert on persistent `_refresh_history` failures with asymmetric thresholds — 1 failure when held (exit checks are blind), 2 when flat. One alert per outage; in-memory counter + latch reset on success. Deferred IBKR fallback to MS-C2 (design item: yfinance `auto_adjust=True` vs IBKR `TRADES` unadjusted would corrupt SMA(200) across splits). 8 tests `test_msc_01..08`. Shipped in `feature/ms-c-yfinance-alerting` → PRs #169/#170 (merged + deployed; both strategies confirmed restarted at 17:19:30 UTC).
+- MS-J: `_save_state` now atomic via `tmp + os.replace`. Closes the silent-peak-reset path where SIGKILL / OneDrive race mid-write truncated the JSON file, `_load_state` reverted to defaults, and the next save persisted those defaults. 3 tests `test_msj_01..03`. `feature/ms-j-atomic-state-write` pushed; PRs pending.
+- Two-pass CR per feature (pre-plan + post-impl); plan CR raised the held/flat threshold asymmetry adopted in MS-C, post-impl CR cleared MS-J with only LOW/MEDIUM tail risks (captured as MS-J2/MS-J3).
+- MS-C3 BACKLOG entry was added under a wrong premise (claimed VIX failures were silent); `data/vix_feed.py:108 _fire_stale_alert` already exists. Re-scoped to P3 with smaller follow-up gaps on a chore branch (`fc02173`).
+- **Process improvement:** WORKFLOW.md gains "CR-finding-to-BACKLOG grounding rule" — when a CR finding proposes a new BACKLOG item, read the referenced source file before writing the entry. CR agents inherit unverified claims; one chore branch was needed to correct MS-C3.
+- **Next session:** Merge MS-J + the MS-C3 chore PR; deploy MS-J on VPS. Then MS-I (cosmetic traceback noise in `data/account_snapshot.py:237`) or MS-C2 (IBKR fallback — design item, needs `ADJUSTED_LAST` vs `TRADES` resolution).
+
+---
+
 ## 2026-05-10 — MS-B + MS-K + eager-save: strategy-attributed equity, partial-fill guard, durable migration (deployed)
 
 - MS-B + MS-K shipped in PR #168 (merged develop → main, deployed 06:55 UTC). MS-B: `RSI2MR_SPY._get_strategy_attributed_equity()` returns `initial_capital + own realized P&L + unrealized` at the two CB sites; position sizing still uses broker NetLiq; state schema v2 with one-shot reset of contaminated peak/CB. MS-K: `_partial_fill_halt` flag halts both entries AND exits on partial-SELL detection (the existing CB only halts entries — would have naked-shorted dangling shares). Float-tolerant compare; persisted in v2 state.

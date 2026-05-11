@@ -327,6 +327,16 @@ Example (2026-05-10): MS-B's `_get_strategy_attributed_equity` started reading `
 
 ---
 
+## CR-finding-to-BACKLOG grounding rule
+
+When a CR agent's finding proposes adding a new BACKLOG entry, **read the referenced source file before writing the entry description**. CR agents reason from the prompt you gave them; they do not independently open files. If your prompt contained an unverified claim ("X is silent", "Y is unhandled"), that claim survives into the CR finding, into the BACKLOG entry, and into the next session's "Next session:" planning — at no point did anyone actually check the code.
+
+Cheap check, big payoff: a 5-second `Read` confirms the premise before a future session acts on it.
+
+Example (2026-05-11): MS-C plan CR raised H2 — "VIX feed silent-failure gap is real" — and I added MS-C3 to BACKLOG describing it as "VIXFeed.get_latest_close() failures silently return None". Reading `data/vix_feed.py` later in the same session showed `_fire_stale_alert` already POSTs to ntfy on stale/absent cache. Cost: one extra chore branch to correct the description (commit `fc02173`). A pre-write `Read` would have caught it free.
+
+---
+
 ## JS rate-limit gate rule
 
 When adding a polling gate that references multiple fetch functions (e.g. `_onAcctTab ? [fetchAccount(), fetchEquity()] : []`), the comment **must name the specific endpoint(s) that are rate-limited**, not the functions. Gate comments that name functions imply all named functions are rate-limited — reviewers will not re-check each endpoint's backend definition.
