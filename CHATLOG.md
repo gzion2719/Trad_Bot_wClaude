@@ -3,6 +3,17 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-11 — MS-I + MS-C3 shipped: snapshot-poller noise fix + VIX fetch-failure alerting
+
+- MS-I: `AccountSnapshotPoller.run()` now classifies `(ConnectionError, TimeoutError)` as a single-line WARNING ("capture skipped"); other exceptions keep the full traceback. CR caught the missing `TimeoutError` (from `fut.result(timeout=10)` if main loop is wedged). 3 new tests `test_as11..13`. Branch `feature/ms-i-account-snapshot-connection-noise`.
+- MS-C3: `VIXFeed.get_latest_close()` now tracks consecutive fetch failures, fires a fetch-failure ntfy alert at threshold=2 with an independent cooldown from the stale-cache alert (CR fix — shared cooldown would have silenced the more serious "entry blocked" signal), logs an INFO "yfinance fetch recovered after N failures" line, and treats yfinance returning an empty DataFrame as a failure instead of silent fallthrough. 9 new tests `test_msc3_01..09`. Branch `feature/ms-c3-vix-feed-alerting`.
+- Both deployed to VPS in one pull at 19:22:35 UTC; confirmed via `grep "capture skipped"` and `grep _FETCH_FAILURE_ALERT_THRESHOLD` on `/opt/tradebot`.
+- Two CR passes (one per feature) both raised CRITICAL/HIGH findings before any code — TimeoutError gap and shared-cooldown silencing. Plan→CR→revise→go rhythm earned its keep.
+- **Process improvement:** WORKFLOW.md gains "Verify before asking" rule — don't ask the user procedural questions (deploy state, merge state) you can answer with a grep. Birthed by my asking "did MS-I deploy in this pull?" when one grep would have answered it.
+- **Next session:** MS-C2 (P2 design — IBKR `reqHistoricalData` fallback for `_refresh_history`; `auto_adjust=True` vs `ADJUSTED_LAST` vs unadjusted `TRADES` needs resolution before coding) or GC-4 (TLS for the dashboard).
+
+---
+
 ## 2026-05-11 — MS-C + MS-J: yfinance alerting and atomic state-file write (both shipped)
 
 - MS-C: ntfy alert on persistent `_refresh_history` failures with asymmetric thresholds — 1 failure when held (exit checks are blind), 2 when flat. One alert per outage; in-memory counter + latch reset on success. Deferred IBKR fallback to MS-C2 (design item: yfinance `auto_adjust=True` vs IBKR `TRADES` unadjusted would corrupt SMA(200) across splits). 8 tests `test_msc_01..08`. Shipped in `feature/ms-c-yfinance-alerting` → PRs #169/#170 (merged + deployed; both strategies confirmed restarted at 17:19:30 UTC).
