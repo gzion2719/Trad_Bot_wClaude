@@ -235,6 +235,14 @@ class AccountSnapshotPoller(threading.Thread):
         while not self._stop_event.is_set():
             try:
                 self._capture_and_write()
+            except (ConnectionError, TimeoutError) as exc:
+                # Expected during IBKR reconnect windows; bot self-heals. Drop
+                # the traceback to avoid multi-line noise every interval for
+                # the duration of an outage. Dashboard staleness on
+                # account_snapshot.json already covers prolonged outages.
+                logger.warning(
+                    "AccountSnapshotPoller: capture skipped (IBKR not connected): %s", exc
+                )
             except Exception as exc:
                 logger.warning(
                     "AccountSnapshotPoller: capture error (non-fatal): %s", exc, exc_info=True
