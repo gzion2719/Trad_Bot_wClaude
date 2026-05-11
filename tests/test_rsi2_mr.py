@@ -1016,6 +1016,71 @@ def test_msb_12_state_migration_idempotent_on_v2(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Section MS-J — atomic state-file write (tmp + os.replace)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def test_msj_01_save_leaves_no_tmp_file_on_success(tmp_path):
+    """After a normal _save_state, the sibling .tmp file must not linger."""
+    state_path = tmp_path / "rsi2_mr_state.json"
+    strategy, *_ = _make_strategy(state_file_path=state_path)
+    strategy._consecutive_losses = 2
+    strategy._save_state()
+
+    assert state_path.exists()
+    tmp_sibling = state_path.with_suffix(state_path.suffix + ".tmp")
+    assert not tmp_sibling.exists(), "tmp file should be renamed-away, not left behind"
+    # Confirm the main file is intact JSON
+    import json as _json
+
+    payload = _json.loads(state_path.read_text())
+    assert payload["consecutive_losses"] == 2
+
+
+def test_msj_02_truncated_main_file_does_not_corrupt_next_save(tmp_path):
+    """Simulate a process kill mid-write under the OLD non-atomic code: a
+    truncated main file. With the MS-J fix, the next _save_state writes the
+    full state atomically (via tmp+rename) and yields valid JSON, NOT a
+    silent fallback to defaults."""
+    import json as _json
+
+    state_path = tmp_path / "rsi2_mr_state.json"
+    state_path.write_text('{"schema_version": 2, "consecutive_loss')  # truncated
+
+    strategy, *_ = _make_strategy(state_file_path=state_path)
+    strategy._consecutive_losses = 7
+    strategy._strategy_peak_equity = 55_000.0
+    strategy._save_state()
+
+    payload = _json.loads(state_path.read_text())
+    assert payload["consecutive_losses"] == 7
+    assert payload["strategy_peak_equity"] == 55_000.0
+    # And no orphan tmp
+    assert not state_path.with_suffix(state_path.suffix + ".tmp").exists()
+
+
+def test_msj_03_orphan_tmp_from_crashed_prior_save_is_overwritten(tmp_path):
+    """If a prior process died AFTER tmp.write_text but BEFORE os.replace,
+    a stale .tmp file lingers. The next _save_state must overwrite it cleanly
+    and still produce an intact main file."""
+    import json as _json
+
+    state_path = tmp_path / "rsi2_mr_state.json"
+    tmp_sibling = state_path.with_suffix(state_path.suffix + ".tmp")
+    # Pretend a prior crash left behind a stale (garbage) tmp file
+    tmp_sibling.write_text("garbage from a previous run")
+
+    strategy, *_ = _make_strategy(state_file_path=state_path)
+    strategy._consecutive_losses = 3
+    strategy._save_state()
+
+    assert state_path.exists()
+    assert not tmp_sibling.exists()  # consumed by os.replace
+    payload = _json.loads(state_path.read_text())
+    assert payload["consecutive_losses"] == 3
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Section MS-C — yfinance hardening: persistent _refresh_history alerting
 # ══════════════════════════════════════════════════════════════════════════════
 

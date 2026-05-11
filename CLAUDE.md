@@ -30,7 +30,7 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot running on VPS (paper account, both strategies live; latest restart 2026-05-10 ~07:00 UTC after eager-save deploy). Dashboard Phase 4 fully deployed. B-10 confirmed stable. **MS-A1+A2, MS-D, MS-B, MS-K, eager-save migration, MS-C (yfinance alerting)** all shipped. State file confirmed at `schema_version: 2` with `partial_fill_halt: false`. The MS-B circuit breaker reads strategy-attributed equity; a partial-SELL trips `_partial_fill_halt` (halts entries + exits until manual reconcile). MS-C adds ntfy alerts on persistent `_refresh_history` failures with asymmetric thresholds (1 failure when held, 2 when flat); in-memory counter, one alert per outage, rearms on recovery.
+**Phase 6 — paper trading.** Bot running on VPS (paper account, both strategies live; MS-C deployed 2026-05-11). Dashboard Phase 4 fully deployed. B-10 confirmed stable. **MS-A1+A2, MS-D, MS-B, MS-K, eager-save migration, MS-C (yfinance alerting), MS-J (atomic state write)** all shipped. State schema is v2 with `partial_fill_halt` persistence. MS-B circuit breaker reads strategy-attributed equity; partial-SELL trips `_partial_fill_halt`. MS-C ntfy-alerts persistent `_refresh_history` failures with asymmetric thresholds (1 held / 2 flat). MS-J writes state atomically via `tmp + os.replace` so a SIGKILL / OneDrive race mid-write can no longer truncate the state file and silently reset a ratcheted peak.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
