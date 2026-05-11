@@ -954,7 +954,18 @@ class RSI2MR_SPY(BaseStrategy):
                 "partial_fill_halt": self._partial_fill_halt,
             }
             self._state_file_path.parent.mkdir(parents=True, exist_ok=True)
-            self._state_file_path.write_text(json.dumps(state, indent=2))
+            # MS-J: atomic write — `Path.write_text` is not atomic. A
+            # process kill (SIGKILL, OOM, host crash, OneDrive sync race on
+            # the dev box) mid-write can leave a truncated JSON file. The
+            # next `_load_state` then trips the bare-except below, silently
+            # reverts to defaults, and the next save persists those
+            # defaults — silently RESETTING a real ratcheted peak / CB
+            # state. Fix: write to a sibling `.tmp` and `os.replace` for
+            # an atomic same-filesystem swap (POSIX rename; Win32
+            # MoveFileEx).
+            tmp_path = self._state_file_path.with_suffix(self._state_file_path.suffix + ".tmp")
+            tmp_path.write_text(json.dumps(state, indent=2))
+            os.replace(tmp_path, self._state_file_path)
         except Exception as exc:
             logger.warning("%s: could not save state: %s", self.name, exc)
 
