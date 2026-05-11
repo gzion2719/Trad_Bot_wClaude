@@ -30,18 +30,15 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot running on VPS (paper account, both strategies live; MS-C deployed 2026-05-11). Dashboard Phase 4 fully deployed. B-10 confirmed stable. **MS-A1+A2, MS-D, MS-B, MS-K, eager-save migration, MS-C (yfinance alerting), MS-J (atomic state write)** all shipped. State schema is v2 with `partial_fill_halt` persistence. MS-B circuit breaker reads strategy-attributed equity; partial-SELL trips `_partial_fill_halt`. MS-C ntfy-alerts persistent `_refresh_history` failures with asymmetric thresholds (1 held / 2 flat). MS-J writes state atomically via `tmp + os.replace` so a SIGKILL / OneDrive race mid-write can no longer truncate the state file and silently reset a ratcheted peak.
+**Phase 6 — paper trading.** Bot running on VPS (paper account, both strategies live; MS-I + MS-C3 deployed 2026-05-11 19:22 UTC). Dashboard Phase 4 fully deployed. B-10 confirmed stable. **MS-A1+A2, MS-D, MS-B, MS-K, eager-save migration, MS-C, MS-J, MS-I, MS-C3** all shipped. State schema is v2 with `partial_fill_halt` persistence. MS-I silences `AccountSnapshotPoller` traceback noise during IBKR reconnect windows — `(ConnectionError, TimeoutError)` log as a single-line WARNING; real bugs keep the full traceback. MS-C3 adds consecutive-failure alerting to `VIXFeed.get_latest_close()` (threshold=2) with split stale/fetch-failure ntfy cooldowns so a transient fetch alert cannot silence the more serious "entry blocked" stale-cache alert; treats empty-DataFrame as a failure (was silent fallthrough).
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 **Immediate next steps:**
 1. **MS-C2 (P2)** — IBKR `reqHistoricalData` fallback for `_refresh_history`. Design item — auto_adjust vs unadjusted-TRADES needs resolution (or `ADJUSTED_LAST`) before implementing.
-2. **MS-C3 (P2)** — VIX feed alerting (mirror MS-C ntfy pattern on `VIXFeed.get_latest_close()` failures).
-3. **MS-I (P3 cosmetic)** — `AccountSnapshotPoller` traceback noise during reconnect windows: drop `exc_info=True` for `ConnectionError('Not connected')` in `data/account_snapshot.py:237`.
-3. **Bug A (deferred)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'". Bot self-heals via attempt 6 + systemd. Not urgent.
-4. **MS-J (P2)** — non-atomic state-file write (`Path.write_text` can leave a truncated file mid-process-kill); fix with `tmp + os.replace`.
-5. **GC-4 — TLS for the dashboard** (Caddy/nginx + tailscale-cert).
-6. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
+2. **Bug A (deferred)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'". Bot self-heals via attempt 6 + systemd. Not urgent.
+3. **GC-4 — TLS for the dashboard** (Caddy/nginx + tailscale-cert).
+4. **Paper trading monitoring** — `TradeLog.daily_summary()` daily (ROADMAP 6.1, 6.2).
 
 ### What was done this session (2026-05-08 — RSI2-MR strategy, ROADMAP 4.6)
 
