@@ -1,4 +1,4 @@
-"""Account snapshot tests (AS-01..AS-10) — no live IB connection needed."""
+"""Account snapshot tests (AS-01..AS-13) — no live IB connection needed."""
 
 from __future__ import annotations
 
@@ -289,3 +289,86 @@ def test_as10_downsample_buckets_when_above_max():
     # t values are monotone non-decreasing (bucket first.t is always the earliest)
     ts = [p["t"] for p in result]
     assert ts == sorted(ts), "timestamps in downsampled output must be monotone non-decreasing"
+
+
+# ── MS-I: connection-error log noise tests ────────────────────────────────────
+
+
+def _run_poller_until(client, tmp_path, *, min_calls: int = 1, deadline_s: float = 2.0):
+    """Start poller with the given client, wait until min_calls reached or deadline, stop."""
+    p = AccountSnapshotPoller(client, tmp_path, interval=0.05)
+    p.start()
+    deadline = time.monotonic() + deadline_s
+    while client.call_count < min_calls and time.monotonic() < deadline:
+        time.sleep(0.02)
+    p.stop()
+    p.join(timeout=2)
+    return p
+
+
+class _RaisingClient:
+    """Stub client whose summary fetch raises a configurable exception."""
+
+    account = "STUB-ACCT"
+
+    def __init__(self, exc_factory):
+        self._exc_factory = exc_factory
+        self.call_count = 0
+
+    def get_account_summary_threadsafe(self) -> list:
+        self.call_count += 1
+        raise self._exc_factory()
+
+    def get_positions_threadsafe(self) -> list:
+        return []
+
+
+def test_as11_connection_error_logged_without_traceback(tmp_path, caplog):
+    """ConnectionError from IBKR (reconnect window) logs WARNING without exc_info."""
+    import logging
+
+    client = _RaisingClient(lambda: ConnectionError("Not connected"))
+    with caplog.at_level(logging.WARNING, logger="data.account_snapshot"):
+        _run_poller_until(client, tmp_path)
+
+    skipped = [r for r in caplog.records if "capture skipped" in r.message]
+    assert skipped, "expected at least one 'capture skipped' WARNING"
+    for r in skipped:
+        assert r.exc_info is None, "ConnectionError must NOT carry a traceback"
+    assert not any(
+        "capture error" in r.message for r in caplog.records
+    ), "ConnectionError must not fall through to the loud 'capture error' branch"
+
+
+def test_as12_timeout_error_logged_without_traceback(tmp_path, caplog):
+    """TimeoutError (wedged main loop during reconnect) is also a quiet WARNING."""
+    import logging
+
+    client = _RaisingClient(lambda: TimeoutError("future timed out"))
+    with caplog.at_level(logging.WARNING, logger="data.account_snapshot"):
+        _run_poller_until(client, tmp_path)
+
+    skipped = [r for r in caplog.records if "capture skipped" in r.message]
+    assert skipped, "expected at least one 'capture skipped' WARNING for TimeoutError"
+    for r in skipped:
+        assert r.exc_info is None, "TimeoutError must NOT carry a traceback"
+
+
+def test_as13_other_exception_keeps_traceback(tmp_path, caplog):
+    """Non-connection exceptions still log WARNING with full exc_info (real bugs)."""
+    import logging
+
+    client = _RaisingClient(lambda: RuntimeError("oops"))
+    with caplog.at_level(logging.WARNING, logger="data.account_snapshot"):
+        _run_poller_until(client, tmp_path)
+
+    errors = [r for r in caplog.records if "capture error" in r.message]
+    assert errors, "expected at least one 'capture error' WARNING for RuntimeError"
+    for r in errors:
+        assert r.exc_info is not None, "non-connection exception must carry a traceback"
+        assert (
+            isinstance(r.exc_info, tuple) and len(r.exc_info) == 3
+        ), "exc_info must be a 3-tuple (type, value, traceback)"
+    assert not any(
+        "capture skipped" in r.message for r in caplog.records
+    ), "RuntimeError must not fall into the quiet 'capture skipped' branch"
