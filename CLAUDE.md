@@ -30,13 +30,14 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot running on VPS (paper account, both strategies live; latest restart 2026-05-10 ~07:00 UTC after eager-save deploy). Dashboard Phase 4 fully deployed. B-10 confirmed stable. **MS-A1+A2, MS-D, MS-B, MS-K, eager-save migration** all shipped and verified on VPS. State file confirmed at `schema_version: 2` with `partial_fill_halt: false`. The MS-B circuit breaker now reads strategy-attributed equity (`initial_capital + own realized P&L + unrealized`); a partial-SELL trips `_partial_fill_halt` which halts both entries and exits until manual reconcile.
+**Phase 6 — paper trading.** Bot running on VPS (paper account, both strategies live; latest restart 2026-05-10 ~07:00 UTC after eager-save deploy). Dashboard Phase 4 fully deployed. B-10 confirmed stable. **MS-A1+A2, MS-D, MS-B, MS-K, eager-save migration, MS-C (yfinance alerting)** all shipped. State file confirmed at `schema_version: 2` with `partial_fill_halt: false`. The MS-B circuit breaker reads strategy-attributed equity; a partial-SELL trips `_partial_fill_halt` (halts entries + exits until manual reconcile). MS-C adds ntfy alerts on persistent `_refresh_history` failures with asymmetric thresholds (1 failure when held, 2 when flat); in-memory counter, one alert per outage, rearms on recovery.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 **Immediate next steps:**
-1. **MS-C (P1)** — yfinance hardening: silent skip on outage + IBKR `reqHistoricalData` fallback or ntfy alert on N consecutive `_refresh_history` failures.
-2. **MS-I (P3 cosmetic)** — `AccountSnapshotPoller` traceback noise during reconnect windows: drop `exc_info=True` for `ConnectionError('Not connected')` in `data/account_snapshot.py:237`.
+1. **MS-C2 (P2)** — IBKR `reqHistoricalData` fallback for `_refresh_history`. Design item — auto_adjust vs unadjusted-TRADES needs resolution (or `ADJUSTED_LAST`) before implementing.
+2. **MS-C3 (P2)** — VIX feed alerting (mirror MS-C ntfy pattern on `VIXFeed.get_latest_close()` failures).
+3. **MS-I (P3 cosmetic)** — `AccountSnapshotPoller` traceback noise during reconnect windows: drop `exc_info=True` for `ConnectionError('Not connected')` in `data/account_snapshot.py:237`.
 3. **Bug A (deferred)** — `connect()` post-handshake fails on attempt 5 with "no current event loop in thread 'ReconnectManager'". Bot self-heals via attempt 6 + systemd. Not urgent.
 4. **MS-J (P2)** — non-atomic state-file write (`Path.write_text` can leave a truncated file mid-process-kill); fix with `tmp + os.replace`.
 5. **GC-4 — TLS for the dashboard** (Caddy/nginx + tailscale-cert).

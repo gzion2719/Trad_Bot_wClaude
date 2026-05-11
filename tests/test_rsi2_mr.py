@@ -1016,6 +1016,191 @@ def test_msb_12_state_migration_idempotent_on_v2(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Section MS-C — yfinance hardening: persistent _refresh_history alerting
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _patch_refresh_to_raise(strategy, exc=RuntimeError("yfinance boom")):
+    """Force `_refresh_history` to take the exception path by patching the
+    HistoricalDataLoader call site at import time inside the method."""
+    return patch(
+        "data.historical.HistoricalDataLoader.load_yfinance",
+        side_effect=exc,
+    )
+
+
+def _patch_refresh_to_succeed(strategy):
+    """Force `_refresh_history` to take the success path with valid OHLC data."""
+    n = 250
+    dates = pd.bdate_range("2024-01-01", periods=n)
+    df = pd.DataFrame(
+        {
+            "close": [400.0] * n,
+            "high": [401.0] * n,
+            "low": [399.0] * n,
+        },
+        index=dates,
+    )
+    return patch(
+        "data.historical.HistoricalDataLoader.load_yfinance",
+        return_value=df,
+    )
+
+
+def test_msc_01_flat_one_failure_no_alert(monkeypatch):
+    """Flat strategy: a single _refresh_history failure does NOT fire ntfy
+    (threshold=2 for flat). Counter increments to 1."""
+    monkeypatch.setenv("NTFY_TOPIC", "test-topic")
+    strategy, *_ = _make_strategy()
+    assert not strategy._in_position
+
+    with _patch_refresh_to_raise(strategy):
+        with patch("urllib.request.urlopen") as mock_post:
+            ok = strategy._refresh_history()
+
+    assert ok is False
+    assert strategy._refresh_history_failures == 1
+    assert strategy._refresh_history_alert_fired is False
+    mock_post.assert_not_called()
+
+
+def test_msc_02_flat_crossing_fires_once_no_refire(monkeypatch):
+    """Flat strategy: 2nd failure fires ntfy once; further failures do NOT
+    re-fire (one alert per outage)."""
+    monkeypatch.setenv("NTFY_TOPIC", "test-topic")
+    strategy, *_ = _make_strategy()
+
+    with _patch_refresh_to_raise(strategy):
+        with patch("urllib.request.urlopen") as mock_post:
+            strategy._refresh_history()  # 1 — no alert
+            strategy._refresh_history()  # 2 — fires
+            strategy._refresh_history()  # 3 — no refire
+            strategy._refresh_history()  # 4 — no refire
+
+    assert strategy._refresh_history_failures == 4
+    assert strategy._refresh_history_alert_fired is True
+    assert mock_post.call_count == 1
+
+
+def test_msc_03_in_position_first_failure_fires(monkeypatch):
+    """Held strategy: threshold=1 — alert fires on the FIRST failure because
+    exit checks are blind during the outage."""
+    monkeypatch.setenv("NTFY_TOPIC", "test-topic")
+    strategy, *_ = _make_strategy()
+    strategy._in_position = True
+
+    with _patch_refresh_to_raise(strategy):
+        with patch("urllib.request.urlopen") as mock_post:
+            strategy._refresh_history()
+
+    assert strategy._refresh_history_failures == 1
+    assert strategy._refresh_history_alert_fired is True
+    assert mock_post.call_count == 1
+
+
+def test_msc_04_success_resets_counter_and_logs_recovery(monkeypatch, caplog):
+    """A success after one or more failures resets the counter and the
+    alert-fired latch, and emits a recovery log line."""
+    import logging as _logging
+
+    monkeypatch.setenv("NTFY_TOPIC", "test-topic")
+    strategy, *_ = _make_strategy()
+
+    with _patch_refresh_to_raise(strategy):
+        with patch("urllib.request.urlopen"):
+            strategy._refresh_history()
+            strategy._refresh_history()  # threshold crossed, alert fired
+
+    assert strategy._refresh_history_alert_fired is True
+
+    caplog.set_level(_logging.INFO, logger="strategies.rsi2_mr")
+    with _patch_refresh_to_succeed(strategy):
+        ok = strategy._refresh_history()
+
+    assert ok is True
+    assert strategy._refresh_history_failures == 0
+    assert strategy._refresh_history_alert_fired is False
+    assert any("recovered after" in rec.getMessage() for rec in caplog.records)
+
+
+def test_msc_05_rearm_after_recovery_fires_again(monkeypatch):
+    """After recovery, a fresh outage MUST be able to fire a new alert
+    (counter and latch both rearm)."""
+    monkeypatch.setenv("NTFY_TOPIC", "test-topic")
+    strategy, *_ = _make_strategy()
+
+    with _patch_refresh_to_raise(strategy):
+        with patch("urllib.request.urlopen") as mock_post:
+            strategy._refresh_history()
+            strategy._refresh_history()  # alert 1
+            assert mock_post.call_count == 1
+
+    with _patch_refresh_to_succeed(strategy):
+        strategy._refresh_history()  # recovery
+
+    with _patch_refresh_to_raise(strategy):
+        with patch("urllib.request.urlopen") as mock_post:
+            strategy._refresh_history()
+            strategy._refresh_history()  # alert 2 — rearmed
+
+    assert mock_post.call_count == 1
+
+
+def test_msc_07_no_ntfy_topic_silent_no_op(monkeypatch):
+    """If NTFY_TOPIC is unset the alert helper returns early without ever
+    calling urlopen. Production default if the env var is forgotten."""
+    monkeypatch.delenv("NTFY_TOPIC", raising=False)
+    strategy, *_ = _make_strategy()
+
+    with _patch_refresh_to_raise(strategy):
+        with patch("urllib.request.urlopen") as mock_post:
+            strategy._refresh_history()
+            strategy._refresh_history()  # threshold crossed — alert path taken
+
+    # Latch still flips so we don't spin on the env-var check.
+    assert strategy._refresh_history_alert_fired is True
+    mock_post.assert_not_called()
+
+
+def test_msc_08_counter_not_persisted_to_state_file(tmp_path):
+    """MS-C counter and latch are explicitly in-memory. Guard against a future
+    state-schema bump silently persisting them."""
+    import json as _json
+
+    state_path = tmp_path / "rsi2_mr_state.json"
+    strategy, *_ = _make_strategy(state_file_path=state_path)
+    strategy._refresh_history_failures = 5
+    strategy._refresh_history_alert_fired = True
+    strategy._save_state()
+
+    on_disk = _json.loads(state_path.read_text())
+    assert "refresh_history_failures" not in on_disk
+    assert "_refresh_history_failures" not in on_disk
+    assert "refresh_history_alert_fired" not in on_disk
+    assert "_refresh_history_alert_fired" not in on_disk
+
+
+def test_msc_06_ntfy_post_failure_does_not_break_counter(monkeypatch):
+    """If the ntfy POST itself raises (network partition), the counter must
+    still increment correctly and the alert-fired latch must still latch —
+    we got our one shot, no point retrying every tick."""
+    monkeypatch.setenv("NTFY_TOPIC", "test-topic")
+    strategy, *_ = _make_strategy()
+
+    with _patch_refresh_to_raise(strategy):
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=OSError("connection refused"),
+        ):
+            strategy._refresh_history()
+            strategy._refresh_history()  # threshold crossed; POST fails silently
+            strategy._refresh_history()
+
+    assert strategy._refresh_history_failures == 3
+    assert strategy._refresh_history_alert_fired is True
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Section F — Full BacktestEngine integration tests
 # ══════════════════════════════════════════════════════════════════════════════
 
