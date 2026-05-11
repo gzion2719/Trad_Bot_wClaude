@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 
 _STALE_THRESHOLD_HOURS = 24
 _NTFY_COOLDOWN_HOURS = 24  # fire at most one ntfy per day for VIX staleness
+_FETCH_FAILURE_ALERT_THRESHOLD = 2
+# Threshold rationale: VIXFeed.get_latest_close() is called once per RSI2MR
+# tick (DailyAt 16:10 ET). Failures only gate NEW entries — exits don't read
+# VIX. Threshold=2 ≈ 48h of consecutive failures, comparable to the existing
+# 24h stale-cache window but catches sustained intermittent flakiness when
+# cache happens to be fresh. Threshold=1 would alert on every transient
+# yfinance hiccup. No held/flat asymmetry needed here (unlike MS-C in
+# strategies/rsi2_mr.py) because VIX outage never blocks an exit.
 
 
 class VIXFeed:
@@ -35,7 +43,21 @@ class VIXFeed:
         self._series: Optional[pd.Series] = series
         self._cached_value: Optional[float] = None
         self._cached_at: Optional[datetime] = None
-        self._last_ntfy_at: Optional[datetime] = None  # rate-limit alerts
+        # In-memory cooldowns: a restart during a multi-day outage resets
+        # both and may re-fire on first failure post-restart. Acceptable
+        # tradeoff mirroring MS-C in strategies/rsi2_mr.py; persisting is
+        # tracked as MS-C3-persist in BACKLOG. The two cooldowns are
+        # SEPARATE so a transient fetch-failure alert can never silence the
+        # later (more serious) stale-cache alert that signals entry is
+        # actually blocked.
+        self._last_ntfy_at_stale: Optional[datetime] = None
+        self._last_ntfy_at_fetch_failure: Optional[datetime] = None
+        # Consecutive-failure tracking (mirrors MS-C `_refresh_history_failures`
+        # in strategies/rsi2_mr.py). Counter increments on every fetch
+        # exception OR empty-DataFrame return; resets on a successful fetch
+        # that updates the cache. Latch ensures one alert per outage.
+        self._consecutive_failures: int = 0
+        self._fetch_failure_alert_fired: bool = False
 
     # ── Backtest mode ─────────────────────────────────────────────────────────
 
@@ -72,7 +94,10 @@ class VIXFeed:
         """
         now = datetime.now(timezone.utc)
 
-        # Try a fresh fetch
+        # Try a fresh fetch. Treat both raised exceptions AND empty-DataFrame
+        # returns as failures so the operator is alerted on the "yfinance
+        # reachable but returned nothing" mode (otherwise invisible).
+        fetch_exc_str: Optional[str] = None
         try:
             import yfinance as yf
 
@@ -81,9 +106,32 @@ class VIXFeed:
                 val = float(df["Close"].dropna().iloc[-1])
                 self._cached_value = val
                 self._cached_at = now
+                if self._consecutive_failures > 0:
+                    logger.info(
+                        "VIXFeed: yfinance fetch recovered after %d consecutive failures",
+                        self._consecutive_failures,
+                    )
+                self._consecutive_failures = 0
+                self._fetch_failure_alert_fired = False
                 return val
+            fetch_exc_str = "yfinance returned empty DataFrame"
+            logger.warning("VIXFeed: %s", fetch_exc_str)
         except Exception as exc:
+            fetch_exc_str = str(exc)
             logger.warning("VIXFeed: yfinance fetch failed: %s", exc)
+
+        # We failed (raised exception OR empty df). Bookkeep + maybe alert.
+        self._consecutive_failures += 1
+        if (
+            not self._fetch_failure_alert_fired
+            and self._consecutive_failures >= _FETCH_FAILURE_ALERT_THRESHOLD
+        ):
+            self._fetch_failure_alert_fired = True
+            self._fire_fetch_failure_alert(
+                now=now,
+                consecutive=self._consecutive_failures,
+                last_exc_str=fetch_exc_str or "unknown",
+            )
 
         # Fall back to cached if fresh enough
         if self._cached_value is not None and self._cached_at is not None:
@@ -106,12 +154,16 @@ class VIXFeed:
         return None
 
     def _fire_stale_alert(self, now: datetime) -> None:
-        """Fire ntfy alert at most once per _NTFY_COOLDOWN_HOURS."""
-        if self._last_ntfy_at is not None:
-            hours_since = (now - self._last_ntfy_at).total_seconds() / 3600
+        """Fire stale-cache ntfy alert at most once per _NTFY_COOLDOWN_HOURS.
+
+        Independent of `_fire_fetch_failure_alert` so a transient fetch-failure
+        alert cannot silence this (more serious) entry-blocked signal.
+        """
+        if self._last_ntfy_at_stale is not None:
+            hours_since = (now - self._last_ntfy_at_stale).total_seconds() / 3600
             if hours_since < _NTFY_COOLDOWN_HOURS:
                 return
-        self._last_ntfy_at = now
+        self._last_ntfy_at_stale = now
         try:
             topic = os.environ.get("NTFY_TOPIC", "")
             if not topic:
@@ -122,6 +174,38 @@ class VIXFeed:
                 f"https://ntfy.sh/{topic}",
                 data=b"RSI2MR: VIX data stale/unavailable -- entry blocked until resolved",
                 headers={"Title": "TradeBot VIX alert", "Priority": "high"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=5)
+        except Exception as exc:
+            logger.debug("VIXFeed: ntfy alert failed (non-critical): %s", exc)
+
+    def _fire_fetch_failure_alert(self, now: datetime, consecutive: int, last_exc_str: str) -> None:
+        """Fire fetch-failure ntfy alert when consecutive failures cross the
+        threshold. Uses an independent cooldown from `_fire_stale_alert` so the
+        two distinct signals (yfinance flaky vs. cache exhausted) never silence
+        each other. Mirrors `_fire_history_failure_alert` in
+        strategies/rsi2_mr.py.
+        """
+        if self._last_ntfy_at_fetch_failure is not None:
+            hours_since = (now - self._last_ntfy_at_fetch_failure).total_seconds() / 3600
+            if hours_since < _NTFY_COOLDOWN_HOURS:
+                return
+        self._last_ntfy_at_fetch_failure = now
+        try:
+            topic = os.environ.get("NTFY_TOPIC", "")
+            if not topic:
+                return
+            import urllib.request
+
+            msg = (
+                f"RSI2MR VIX feed failing ({consecutive} consecutive yfinance "
+                f"failures) -- last error: {last_exc_str}"
+            )
+            req = urllib.request.Request(
+                f"https://ntfy.sh/{topic}",
+                data=msg.encode(),
+                headers={"Title": "TradeBot VIX outage", "Priority": "high"},
                 method="POST",
             )
             urllib.request.urlopen(req, timeout=5)
