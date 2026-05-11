@@ -65,6 +65,12 @@ _DEFAULT_STATE_FILE = Path(__file__).parent.parent / "data" / "rsi2_mr_state.jso
 # and `circuit_breaker_until` is performed when v1 (or missing) state loads.
 _STATE_SCHEMA_VERSION: int = 2
 
+# MS-C: ntfy alert thresholds for persistent yfinance/_refresh_history failures.
+# Asymmetric on position state — a held position is blind to time-stop and
+# RSI(2)≥70 exit checks while history refresh is broken, so we page faster.
+_REFRESH_HISTORY_ALERT_THRESHOLD_FLAT: int = 2
+_REFRESH_HISTORY_ALERT_THRESHOLD_HELD: int = 1
+
 
 class RSI2MR_SPY(BaseStrategy):
     """
@@ -176,6 +182,18 @@ class RSI2MR_SPY(BaseStrategy):
 
         # VIX at signal time (stored for slippage computation and logging)
         self._vix_at_signal: Optional[float] = None
+
+        # MS-C: consecutive `_refresh_history` failure counter for ntfy alerting.
+        # In-memory by design — NOT persisted to the state file. Rationale: a
+        # bot restart during a real outage resets the counter, which at worst
+        # produces a duplicate ntfy alert on the next failure (better than a
+        # missed alert from a stale persisted value, and avoids bumping the
+        # state schema to v3 for a transient counter). One alert fires when
+        # the counter crosses the threshold; subsequent failures past the
+        # threshold do NOT re-fire (avoids spam). On the next success the
+        # counter resets, rearming the alert for the next outage.
+        self._refresh_history_failures: int = 0
+        self._refresh_history_alert_fired: bool = False
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -758,7 +776,15 @@ class RSI2MR_SPY(BaseStrategy):
         return None
 
     def _refresh_history(self) -> bool:
-        """Fetch last N days of SPY adjusted-close history from yfinance (live only)."""
+        """Fetch last N days of SPY adjusted-close history from yfinance (live only).
+
+        NOTE: IBKR `reqHistoricalData` is NOT a safe drop-in fallback here.
+        yfinance returns split/dividend-adjusted closes (auto_adjust=True), while
+        IBKR `what_to_show="TRADES"` returns unadjusted prices. Mixing them
+        mid-session would silently corrupt SMA(200) and RSI(2) across any
+        split. A real IBKR fallback (MS-C2, BACKLOG) needs a normalization
+        pass or `what_to_show="ADJUSTED_LAST"` — design before implementing.
+        """
         from data.historical import HistoricalDataLoader
         from datetime import datetime as dt
 
@@ -770,10 +796,81 @@ class RSI2MR_SPY(BaseStrategy):
             self._highs = list(df["high"].astype(float))
             self._lows = list(df["low"].astype(float))
             self._bar_dates = [idx.date() if hasattr(idx, "date") else idx for idx in df.index]
-            return True
         except Exception as exc:
-            logger.warning("%s: history refresh failed — skipping tick: %s", self.name, exc)
+            self._refresh_history_failures += 1
+            logger.warning(
+                "%s: history refresh failed (consecutive=%d) — skipping tick: %s",
+                self.name,
+                self._refresh_history_failures,
+                exc,
+            )
+            # Threshold is asymmetric: held positions page faster than flat
+            # ones because exit checks (time-stop, RSI≥70) are blind during
+            # the outage. One alert per outage; resets on recovery.
+            #
+            # Latch caveat: if the strategy flips flat→held mid-outage (only
+            # possible via restart + `_reconcile_position` during the outage,
+            # since a new entry requires a successful refresh) the existing
+            # latch suppresses a "tier upgrade" re-fire. Acceptable today —
+            # the original alert already paged the operator; the more
+            # urgent state is visible in journalctl. Revisit if cross-tier
+            # re-firing becomes worth the extra state.
+            threshold = (
+                _REFRESH_HISTORY_ALERT_THRESHOLD_HELD
+                if self._in_position
+                else _REFRESH_HISTORY_ALERT_THRESHOLD_FLAT
+            )
+            if (
+                not self._refresh_history_alert_fired
+                and self._refresh_history_failures >= threshold
+            ):
+                self._refresh_history_alert_fired = True
+                self._fire_history_failure_alert(
+                    consecutive=self._refresh_history_failures,
+                    last_exc_str=str(exc),
+                )
             return False
+
+        # Success path: log recovery if we had been failing, then reset.
+        # The "≈ N daily ticks" parenthetical duplicates the failure count
+        # because the live tick cadence is 1/day (DailyAt(16,10)); if that
+        # cadence ever changes this line should be reworked.
+        if self._refresh_history_failures > 0:
+            logger.info(
+                "%s: history refresh recovered after %d consecutive failures (≈ %d daily ticks)",
+                self.name,
+                self._refresh_history_failures,
+                self._refresh_history_failures,
+            )
+        self._refresh_history_failures = 0
+        self._refresh_history_alert_fired = False
+        return True
+
+    def _fire_history_failure_alert(self, consecutive: int, last_exc_str: str) -> None:
+        """Page on persistent yfinance/_refresh_history outage. Mirrors
+        `_fire_circuit_breaker_alert` — swallows POST failures silently so a
+        broken ntfy endpoint never propagates into the tick loop.
+        """
+        try:
+            topic = os.environ.get("NTFY_TOPIC", "")
+            if not topic:
+                return
+            import urllib.request
+
+            held = "HELD" if self._in_position else "flat"
+            msg = (
+                f"RSI2MR history refresh failing ({consecutive} consecutive, "
+                f"{held}) — last error: {last_exc_str}"
+            )
+            req = urllib.request.Request(
+                f"https://ntfy.sh/{topic}",
+                data=msg.encode(),
+                headers={"Title": "TradeBot history outage", "Priority": "high"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=5)
+        except Exception as exc:
+            logger.debug("%s: ntfy alert failed (non-critical): %s", self.name, exc)
 
     def _reconcile_position(self) -> None:
         """On startup, check if we hold a position from before this session."""
