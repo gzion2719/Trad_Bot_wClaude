@@ -221,6 +221,14 @@ Example (2026-05-02): dashboard "stale liveness" alarm chased a phantom BarSched
 
 ---
 
+## "Verify before asking" rule
+
+Don't ask the user procedural questions you can answer with a grep, a one-line check, or by reading a file. If the question is "is X deployed?", "did PR #N merge?", "is the new code on disk?" — run the check yourself first. Only ask the user for things they uniquely know (intent, preferences, real-world state the bot can't see). Asking the user for facts they have no way to verify is friction and reads as deflection.
+
+Example (2026-05-11): after a VPS `git pull` that picked up two open PRs, I asked the user "did the MS-I PR get merged in the same pull?" — they correctly pushed back that they couldn't possibly know. The right move was `grep -n "capture skipped" /opt/tradebot/data/account_snapshot.py` first, then report the answer.
+
+---
+
 ## ib_insync sync-vs-async rule (inside threadsafe coroutines)
 
 When wrapping ib_insync calls in `asyncio.run_coroutine_threadsafe`, every call inside the coroutine MUST use the `*Async` variant. Sync ib_insync wrappers (e.g. `reqAllOpenOrders`, `accountSummary`, `qualifyContracts`) internally call `loop.run_until_complete()` via `IB._run()`. Inside an awaiting coroutine the loop is already running, so `_run()` raises `RuntimeError("This event loop is already running")` — exactly the failure mode the threadsafe routing was meant to prevent.
