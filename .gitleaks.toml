@@ -10,4 +10,7 @@ regexes = [
   # docs/ROADMAP.md Phase 3 key-deliverables line — slash-separated component
   # names push Shannon entropy over 3.5; false positive (not a credential).
   "Feed/IBKRFeed/BarScheduler",
+  # scripts/yfinance_outage_report.py filename + BACKLOG mention — snake_case
+  # identifier of 22 chars pushes Shannon entropy ≈ 3.7; false positive.
+  "yfinance_outage_report",
 ]
