@@ -38,6 +38,11 @@ def _run_journalctl(days: int) -> str:
                 since,
                 "--no-pager",
                 "--output=short-iso",
+                # Pre-filter on the journald side so we read ~60 lines per
+                # month instead of millions. The two log lines we parse both
+                # contain the literal phrase "history refresh".
+                "--grep",
+                "history refresh",
             ],
             capture_output=True,
             text=True,
