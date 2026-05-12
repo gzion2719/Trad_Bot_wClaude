@@ -46,14 +46,19 @@ def _run_journalctl(days: int) -> str:
             ],
             capture_output=True,
             text=True,
-            check=True,
+            check=False,
             timeout=60,
         )
     except FileNotFoundError:
         sys.exit("error: journalctl not found — run this on the VPS, not the dev PC")
-    except subprocess.CalledProcessError as exc:
-        sys.exit(f"error: journalctl exited {exc.returncode}: {exc.stderr.strip()}")
-    return result.stdout
+    # journalctl --grep returns exit code 1 when zero lines match (grep
+    # semantics). That is the *expected* state when yfinance is healthy,
+    # so we treat exit 1 with empty stdout as success-with-no-matches.
+    if result.returncode == 0:
+        return result.stdout
+    if result.returncode == 1 and not result.stdout.strip():
+        return ""
+    sys.exit(f"error: journalctl exited {result.returncode}: {result.stderr.strip()}")
 
 
 def _parse_iso_ts(line: str) -> datetime | None:
