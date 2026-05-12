@@ -51,13 +51,14 @@ def _run_journalctl(days: int) -> str:
         )
     except FileNotFoundError:
         sys.exit("error: journalctl not found — run this on the VPS, not the dev PC")
-    # journalctl --grep returns exit code 1 when zero lines match (grep
-    # semantics). That is the *expected* state when yfinance is healthy,
-    # so we treat exit 1 with empty stdout as success-with-no-matches.
-    if result.returncode == 0:
+    # journalctl --grep exits 1 when zero lines match (grep semantics).
+    # That's the expected state when yfinance is healthy. journalctl also
+    # prints a "-- No entries --" banner on stdout in that case, so we
+    # cannot distinguish "no matches" from "real error" by stdout-emptiness.
+    # The downstream parser silently skips any line that doesn't start with
+    # an ISO timestamp, so returning the banner is harmless.
+    if result.returncode in (0, 1):
         return result.stdout
-    if result.returncode == 1 and not result.stdout.strip():
-        return ""
     sys.exit(f"error: journalctl exited {result.returncode}: {result.stderr.strip()}")
 
 
