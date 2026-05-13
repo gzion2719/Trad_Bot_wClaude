@@ -121,6 +121,40 @@
     </div>
 
     <div class="strat-warn" id="strat-legacy-warn" hidden></div>
+
+    <div class="strat-history-card">
+      <div class="strat-history-toolbar">
+        <label class="strat-history-pagesize">
+          Page size
+          <select id="strat-history-pagesize" aria-label="Rows per page">
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+            <option value="500">500</option>
+          </select>
+        </label>
+        <div class="strat-history-status" id="strat-history-status" aria-live="polite">—</div>
+      </div>
+      <table id="strat-history" aria-busy="false">
+        <thead>
+          <tr>
+            <th>Time</th><th>Side</th><th class="num">Qty</th>
+            <th class="num">Price</th><th class="num">Cost basis</th>
+            <th class="num">Realized P&amp;L</th><th class="num">R-multiple</th>
+            <th>Params</th>
+          </tr>
+        </thead>
+        <tbody id="strat-history-body">
+          <!-- colspan="8" must equal _STRAT_HISTORY_COLS.length in dashboard.js — locked by test_ds69. -->
+          <tr><td colspan="8" class="muted-center">—</td></tr>
+        </tbody>
+      </table>
+      <div class="strat-history-pager">
+        <button class="btn" id="strat-history-prev" type="button" disabled>Prev</button>
+        <span class="strat-history-page" id="strat-history-page">Page 1 of 1</span>
+        <button class="btn" id="strat-history-next" type="button" disabled>Next</button>
+      </div>
+    </div>
   </div>
 </section>
 

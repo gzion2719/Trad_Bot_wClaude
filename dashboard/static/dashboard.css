@@ -353,3 +353,63 @@ body[data-tab="strats"] > .kpi-strip { display: none; }
   padding: 0.3rem 0.6rem;
   background: rgba(210, 153, 34, 0.08);
 }
+
+/* Per-strategy history table */
+.strat-history-card { margin-top: 0.5rem; }
+.strat-history-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.4rem 0;
+}
+.strat-history-pagesize {
+  font-size: 0.8rem;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.strat-history-pagesize select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.2rem 0.4rem;
+  font: inherit;
+  font-size: 0.8rem;
+}
+.strat-history-status {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+#strat-history { table-layout: auto; }
+#strat-history[aria-busy="true"] tbody { opacity: 0.5; }
+#strat-history td.params {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--muted);
+  max-width: 24rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strat-history-pager {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+}
+.strat-history-page {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 7rem;
+  text-align: center;
+}
+.strat-history-pager .btn[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
