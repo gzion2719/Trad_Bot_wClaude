@@ -14,6 +14,7 @@
 <div class="tabs" role="tablist" aria-label="Dashboard sections">
   <button class="tab" role="tab" id="tab-mc" aria-selected="true" aria-controls="panel-mc" tabindex="0">Mission Control</button>
   <button class="tab" role="tab" id="tab-acct" aria-selected="false" aria-controls="panel-acct" tabindex="-1">IBKR Account</button>
+  <button class="tab" role="tab" id="tab-strats" aria-selected="false" aria-controls="panel-strats" tabindex="-1">Strategies</button>
 </div>
 
 <div class="kpi-strip" id="kpi-strip">
@@ -93,6 +94,34 @@
     </tbody>
   </table>
 </div>
+</section>
+
+<section id="panel-strats" role="tabpanel" aria-labelledby="tab-strats" hidden>
+  <div class="strat-shell">
+    <div class="strat-subheader" id="strat-subheader">
+      <div class="strat-title" id="strat-title">—</div>
+      <div class="strat-meta" id="strat-meta">—</div>
+    </div>
+
+    <div class="strat-tabs" role="tablist" aria-orientation="horizontal" aria-label="Registered strategies" id="strat-tablist">
+      <div class="strat-empty" id="strat-empty" hidden>No strategies registered.</div>
+    </div>
+
+    <div class="strat-error-pill" id="strat-error" hidden></div>
+
+    <div class="kpi-strip strat-kpis" id="strat-kpi-strip" aria-live="polite">
+      <div class="kpi"><div class="kpi-label">Total fills</div><div class="kpi-value" id="strat-kpi-total-fills">—</div></div>
+      <div class="kpi"><div class="kpi-label">Closed trades</div><div class="kpi-value" id="strat-kpi-closed">—</div></div>
+      <div class="kpi"><div class="kpi-label">Win rate</div><div class="kpi-value" id="strat-kpi-win-rate">—</div></div>
+      <div class="kpi"><div class="kpi-label">Realized P&amp;L (lifetime)</div><div class="kpi-value" id="strat-kpi-pnl-life">—</div></div>
+      <div class="kpi"><div class="kpi-label">Realized P&amp;L (today)</div><div class="kpi-value" id="strat-kpi-pnl-today">—</div></div>
+      <div class="kpi"><div class="kpi-label">Profit factor</div><div class="kpi-value" id="strat-kpi-pf">—</div></div>
+      <div class="kpi"><div class="kpi-label">Avg R-multiple</div><div class="kpi-value" id="strat-kpi-avg-r">—</div></div>
+      <div class="kpi"><div class="kpi-label">Last fill</div><div class="kpi-value" id="strat-kpi-last-fill">—</div></div>
+    </div>
+
+    <div class="strat-warn" id="strat-legacy-warn" hidden></div>
+  </div>
 </section>
 
 <section id="panel-acct" role="tabpanel" aria-labelledby="tab-acct" hidden>

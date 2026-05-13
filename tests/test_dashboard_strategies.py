@@ -417,3 +417,57 @@ def test_ds41_registry_entry_with_no_fills_returns_clean_summary(fresh_trade_log
     assert out["total_fills"] == 0
     assert out["realized_pnl_lifetime"] is None
     assert out["legacy_null_basis_sells"] == 0
+
+
+# ── DS-27: URL-drift tripwire ──────────────────────────────────────────────
+
+
+def test_ds27_dashboard_js_fetch_urls_match_routes():
+    """Every fetch(`/api/...`) in dashboard.js maps to a registered FastAPI route.
+
+    Catches URL drift like the 2026-05-04 `console/lock/release` typo where the
+    JS called a non-existent route, the .catch swallowed the 404, and the
+    side effect (lock release) silently never fired.
+
+    The normalization step lets a JS template literal like
+    `/api/strategies/${enc}/summary` match the FastAPI declaration
+    `/api/strategies/{name}/summary` — both collapse to `/api/strategies/{P}/summary`.
+    """
+    import re
+
+    js_path = Path(__file__).resolve().parent.parent / "dashboard" / "static" / "dashboard.js"
+    js_text = js_path.read_text(encoding="utf-8")
+
+    # Match the URL inside fetch(...) or _fetchJSON(...). The first argument
+    # is a string ("...") or template literal (`...`). Capture /api/... up
+    # to the first closing quote/backtick, query separator, or whitespace.
+    pattern = r"""(?:fetch|_fetchJSON)\s*\(\s*[`"'](/api/[^`"'?\s]+)"""
+    js_urls: set[str] = set()
+    for m in re.finditer(pattern, js_text):
+        url = m.group(1)
+        # Collapse ${...} interpolations to a stable placeholder so the
+        # match against FastAPI's {name} routes is shape-equal.
+        url = re.sub(r"\$\{[^}]+\}", "{P}", url)
+        js_urls.add(url)
+
+    # Collect every registered FastAPI route path under /api/...
+    server_paths: set[str] = set()
+    for r in dashboard_app.app.routes:
+        path = getattr(r, "path", None)
+        if not path or not path.startswith("/api/"):
+            continue
+        server_paths.add(re.sub(r"\{[^}]+\}", "{P}", path))
+
+    missing = js_urls - server_paths
+    assert not missing, (
+        "dashboard.js fetches URLs not registered in FastAPI app: "
+        f"{sorted(missing)}. Either the JS URL has drifted from the route "
+        "declaration or a new endpoint is missing on the server."
+    )
+
+    # Sanity: we should have actually found URLs. If the regex broke, the
+    # test would silently pass with an empty js_urls set.
+    assert len(js_urls) >= 5, (
+        f"Found suspiciously few JS fetch URLs ({len(js_urls)}) — check the "
+        "regex in test_ds27 against dashboard.js."
+    )
