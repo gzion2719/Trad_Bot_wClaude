@@ -83,6 +83,8 @@ For anything touching production code, architecture, or deployment: the critique
 
 **Pre-implementation CR sub-rule:** if the user's focus request includes "unbiased review", "CR the plan", or "subagent review", spawn the CR agent as PART of Step 7 — before presenting the revised plan to the user. Do not present the plan, wait for "go", then spawn the CR. The CR is the last bullet of Step 7; the revised plan that comes out of it is what the user approves.
 
+**Verify-before-finalize sub-rule:** a plan section titled "pre-coding verification" or "open assumptions to check after go" is a smell. If the plan holds N "verify later" assumptions, **answer them with greps/reads BEFORE presenting the plan** for approval — a 30-second `Read` or `Grep` is always cheaper than re-planning when the assumption turns out wrong. Example (2026-05-15): a Session 3b plan held three deferred verifications (cookie `SameSite`, `real_r_multiple` schema presence, `csv.writer(None)` behaviour); the second-opinion agent resolved all three in one pass, but only after one full re-plan cycle had already burned. Today's rule: if the plan would benefit from a "pre-coding verification checklist," do the checklist now and bake the answers into the plan, not into a future blocker.
+
 Wait for "go" before proceeding.
 
 ---
