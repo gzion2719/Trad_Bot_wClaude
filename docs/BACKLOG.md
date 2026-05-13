@@ -18,6 +18,7 @@ For sprint-by-sprint detail, see `TODO.md`. For the phased roadmap, see `docs/RO
 | DB-X6 | P3 | Restore `StrategyConfig` frozen-ness via `@dataclass(frozen=True, slots=True)`. Was lost when we switched from `@dataclass(frozen=True)` to a `__slots__` class to support dual constructor shapes. No active code mutates the object; defensive only. |
 | DB-X7 | P2 | Decide breakeven-trade semantics for win-rate. Today `realized_pnl == 0` is excluded from both wins and losses (silent). Pick one: count as loss (conservative), bucket separately, or document the exclusion. Decision drives the docstring + tests + UI label. |
 | DB-X8 | P3 | Replace OFFSET pagination with keyset pagination in `/api/strategies/{name}/fills` if fill volume ever exceeds the 10k offset cap. SQLite OFFSET is O(N) — keyset (`WHERE id < last_id`) is O(log N). |
+| DB-X9 | P3 | Parallel `+inf` bug in `backtester/metrics.py:193 summary()` — `metrics["profit_factor"] = round(_pf, 3)` keeps `+inf` unchanged for only-wins backtests. Currently console-printed only (the printer at L209 special-cases `isinf`), so the JSON-wire bug doesn't surface. If a future endpoint ever serializes a backtest summary dict, it will hit the same FastAPI `+inf → null` silent conversion fixed for `_round_profit_factor` on 2026-05-13. Mirror the string-sentinel fix when that endpoint lands. |
 
 ---
 

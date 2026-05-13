@@ -5,7 +5,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from data.trade_log import TradeLog
+from data.trade_log import TradeLog, _round_profit_factor
 from models.order import OrderResult, OrderStatus
 
 
@@ -111,3 +111,35 @@ def test_tl05_unfilled_order_not_recorded():
         assert log.count() == 0
     finally:
         _close_log(log, path)
+
+
+# ── _round_profit_factor — sentinel contract (TL-PF-01..05) ─────────────────
+
+
+def test_tl_pf_01_none_passthrough():
+    assert _round_profit_factor(None) is None
+
+
+def test_tl_pf_02_finite_float_rounded_to_3dp():
+    assert _round_profit_factor(1.23456) == 1.235
+    assert _round_profit_factor(0.0) == 0.0
+    assert _round_profit_factor(-2.5) == -2.5
+
+
+def test_tl_pf_03_positive_inf_to_string_sentinel():
+    """+inf → "Infinity" — FastAPI's encoder would drop float('inf') to null."""
+    assert _round_profit_factor(float("inf")) == "Infinity"
+
+
+def test_tl_pf_04_negative_inf_to_string_sentinel():
+    """-inf → "-Infinity" — forward-defensive; producer cannot reach today."""
+    assert _round_profit_factor(float("-inf")) == "-Infinity"
+
+
+def test_tl_pf_05_nan_to_none():
+    """nan → None — forward-defensive; producer cannot reach today.
+
+    nan as a JSON-wire value is also rejected by FastAPI's default encoder,
+    and None renders cleanly as "—" in the dashboard.
+    """
+    assert _round_profit_factor(float("nan")) is None
