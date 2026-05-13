@@ -21,6 +21,7 @@ Never expose publicly without TLS. Tailscale provides transport encryption.
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import os
 import secrets
@@ -46,6 +47,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from config.strategy_metadata import (
+    STRATEGY_METADATA,
+    DailyAt,
+    Interval,
+    StrategyMetadata,
+    get_metadata,
+)
 from dashboard.console_auth import (
     ConsoleSessionLock,
     StepUpStore,
@@ -267,6 +275,159 @@ def api_today(_: None = Depends(_require_session)) -> Dict[str, Any]:
 def api_recent_fills(limit: int = 20, _: None = Depends(_require_session)) -> List[Dict[str, Any]]:
     limit = max(1, min(limit, 200))
     return _trade_log.get_history(limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# Per-strategy endpoints (Session 1)
+# ---------------------------------------------------------------------------
+
+# 30s TTL cache for /api/strategies/{name}/summary.
+# Keyed on (name, last_fill_id) — any new fill changes last_fill_id and
+# invalidates the entry instantly. The TTL only absorbs the idle-polling case
+# (no new fills for 30s of 5s polls → cache serves 5/6 requests).
+_SUMMARY_CACHE_TTL_SECONDS = 30.0
+_summary_cache: Dict[str, Dict[str, Any]] = {}
+_summary_cache_lock = threading.Lock()
+
+
+def _schedule_to_dict(schedule: Any) -> Dict[str, Any]:
+    """Serialize a Schedule (DailyAt | Interval) for JSON output."""
+    if isinstance(schedule, DailyAt):
+        return {
+            "kind": "DailyAt",
+            "hour": schedule.hour,
+            "minute": schedule.minute,
+            "tz": schedule.tz,
+        }
+    if isinstance(schedule, Interval):
+        return {"kind": "Interval", "seconds": schedule.seconds}
+    return {"kind": "unknown"}
+
+
+def _metadata_to_dict(meta: StrategyMetadata) -> Dict[str, Any]:
+    """Serialize a StrategyMetadata for JSON output."""
+    caps = meta.risk_caps
+    return {
+        "name": meta.name,
+        "symbol": meta.symbol,
+        "schedule": _schedule_to_dict(meta.schedule),
+        "risk_caps": {
+            "max_order_value": caps.max_order_value,
+            "max_position_value": caps.max_position_value,
+            "max_daily_loss": caps.max_daily_loss,
+            "max_open_orders": caps.max_open_orders,
+            "max_risk_per_trade_pct": caps.max_risk_per_trade_pct,
+            "min_reward_risk_ratio": caps.min_reward_risk_ratio,
+        },
+        "params": dict(meta.params),
+        "state_file_path": meta.state_file_path,
+    }
+
+
+def _resolve_strategy(name: str) -> StrategyMetadata:
+    """FastAPI dependency: 404 if `name` is not a registered strategy.
+
+    Path-traversal safe: `name` is looked up against STRATEGY_METADATA by
+    exact match. URL-decoded slashes / dots / mixed case all 404 because
+    they don't equal any registered name. Used by every per-strategy
+    endpoint so the path component is never used to build a file path.
+    """
+    meta = get_metadata(name)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"strategy {name!r} not registered")
+    return meta
+
+
+def _last_fill_id() -> int:
+    """Return MAX(id) FROM trades, or 0 when empty. Cheap and indexed."""
+    with _trade_log.connection() as conn:
+        row = conn.execute("SELECT COALESCE(MAX(id), 0) FROM trades").fetchone()
+    return int(row[0]) if row else 0
+
+
+@app.get("/api/strategies")
+def api_strategies(_: None = Depends(_require_session)) -> List[Dict[str, Any]]:
+    """List every registered strategy with metadata. Read-only."""
+    return [_metadata_to_dict(m) for m in STRATEGY_METADATA]
+
+
+@app.get("/api/strategies/{name}/summary")
+def api_strategy_summary(
+    meta: StrategyMetadata = Depends(_resolve_strategy),
+    _: None = Depends(_require_session),
+) -> Dict[str, Any]:
+    """Aggregate lifetime + today KPIs for one strategy. 30s TTL cache.
+
+    Cache key includes MAX(id) FROM trades so a fresh fill invalidates the
+    entry immediately; the TTL only absorbs idle polls.
+    """
+    last_id = _last_fill_id()
+    now = time.monotonic()
+    with _summary_cache_lock:
+        entry = _summary_cache.get(meta.name)
+        if entry is not None and entry["last_id"] == last_id and entry["expires_at"] > now:
+            return entry["payload"]
+
+    lifetime = _trade_log.lifetime_summary(meta.name)
+    today_pnl = _trade_log.realized_pnl_today(meta.name)
+    payload: Dict[str, Any] = {
+        **lifetime,
+        "realized_pnl_today": today_pnl,
+        "symbol": meta.symbol,
+        "schedule": _schedule_to_dict(meta.schedule),
+    }
+    with _summary_cache_lock:
+        _summary_cache[meta.name] = {
+            "last_id": last_id,
+            "expires_at": now + _SUMMARY_CACHE_TTL_SECONDS,
+            "payload": payload,
+        }
+    return payload
+
+
+@app.get("/api/strategies/{name}/fills")
+def api_strategy_fills(
+    limit: int = 50,
+    offset: int = 0,
+    meta: StrategyMetadata = Depends(_resolve_strategy),
+    _: None = Depends(_require_session),
+) -> Dict[str, Any]:
+    """Paginated fills for one strategy. `strategy_params` JSON parsed server-side.
+
+    Returns {"fills": [...], "total": N, "limit": L, "offset": O}.
+    """
+    limit = max(1, min(limit, 500))
+    # OFFSET pagination in SQLite is O(N) — the engine walks the index and
+    # discards `offset` rows before returning any. 10k is ~5 years of expected
+    # fill volume at one fill/day. Above that, callers should switch to keyset
+    # pagination (BACKLOG DB-X8). Capping here also kills the trivial DoS of
+    # an authenticated client sending `?offset=10^9`.
+    offset = max(0, min(offset, 10_000))
+
+    with _trade_log.connection(row_factory=True) as conn:
+        total_row = conn.execute(
+            "SELECT COUNT(*) FROM trades WHERE strategy_name = ?",
+            (meta.name,),
+        ).fetchone()
+        total = int(total_row[0]) if total_row else 0
+
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE strategy_name = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+            (meta.name, limit, offset),
+        ).fetchall()
+
+    fills: List[Dict[str, Any]] = []
+    for r in rows:
+        d = dict(r)
+        raw = d.get("strategy_params")
+        if raw:
+            try:
+                d["strategy_params"] = json.loads(raw)
+            except (TypeError, ValueError):
+                d["strategy_params"] = None
+        fills.append(d)
+
+    return {"fills": fills, "total": total, "limit": limit, "offset": offset}
 
 
 # ---------------------------------------------------------------------------

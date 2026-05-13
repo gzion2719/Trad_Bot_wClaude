@@ -10,9 +10,14 @@ For sprint-by-sprint detail, see `TODO.md`. For the phased roadmap, see `docs/RO
 | # | Priority | Item |
 |---|----------|------|
 | DB-P4-1 | P1 | Account balance card — live NetLiquidation + UnrealizedPnL from `/api/system` (extend backend to query `client.get_account_summary()`) + equity curve graph |
-| DB-P4-2 | P1 | Recent fills filtered per strategy — add `strategy_name` column to fills table; allow switching strategy in the UI (prep for multi-strategy) |
-| DB-P4-3 | P2 | Per-strategy analytics card — W/L ratio, total realized P&L, unrealized P&L, Sharpe, max drawdown, profit factor + equity curve graph per strategy |
+| DB-P4-2 | ✅ | DONE 2026-05-12 (Session 1): Strategy column added to Recent fills table on Mission Control. |
+| DB-P4-3 | ▶ | IN PROGRESS — Session 1 of 3 done 2026-05-12: backend endpoints `/api/strategies`, `/api/strategies/{name}/summary`, `/api/strategies/{name}/fills` shipped. Session 2: Strategies top-tab + secondary tabs + KPI strip + paginated history table + CSV stream. Session 3: Realized-P&L-history chart + Live-state card. |
 | DB-P4-4 | P2 | UI redesign — rethink card layout, typography, and color system for a more professional look; consider sidebar nav for multi-strategy view |
+| DB-X4 | P3 | Per-strategy cache key for `/api/strategies/{name}/summary`. Today cache is keyed on global `MAX(id) FROM trades`, so any strategy's fill busts all caches. Negligible with 2 strategies; revisit when N≥5 or fill volume grows. |
+| DB-X5 | P2 | End-to-end auth-failure tests for dashboard endpoints. Current tests call route functions directly, bypassing `_require_session`. Build a shared `TestClient` fixture in Session 2 and retrofit; until then, a regression that drops `Depends(_require_session)` would not be caught. |
+| DB-X6 | P3 | Restore `StrategyConfig` frozen-ness via `@dataclass(frozen=True, slots=True)`. Was lost when we switched from `@dataclass(frozen=True)` to a `__slots__` class to support dual constructor shapes. No active code mutates the object; defensive only. |
+| DB-X7 | P2 | Decide breakeven-trade semantics for win-rate. Today `realized_pnl == 0` is excluded from both wins and losses (silent). Pick one: count as loss (conservative), bucket separately, or document the exclusion. Decision drives the docstring + tests + UI label. |
+| DB-X8 | P3 | Replace OFFSET pagination with keyset pagination in `/api/strategies/{name}/fills` if fill volume ever exceeds the 10k offset cap. SQLite OFFSET is O(N) — keyset (`WHERE id < last_id`) is O(log N). |
 
 ---
 
