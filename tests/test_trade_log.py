@@ -1,7 +1,6 @@
 """Section 16: Trade log tests — no IBKR connection needed."""
 
 import gc
-import math
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -144,5 +143,3 @@ def test_tl_pf_05_nan_to_none():
     and None renders cleanly as "—" in the dashboard.
     """
     assert _round_profit_factor(float("nan")) is None
-    # sanity: nan does not equal itself, so verify via the helper's behavior
-    assert not math.isnan(_round_profit_factor(float("nan")) or 0.0)

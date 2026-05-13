@@ -497,6 +497,7 @@ def test_ds28_profit_factor_infinity_survives_json_response(fresh_trade_log):
         *_mkfill(2, "SMACrossover-QQQ", action="SELL", qty=10, price=110, cost_basis=100)[:2]
     )
 
+    prior_token = os.environ.get("DASHBOARD_TOKEN")
     os.environ["DASHBOARD_TOKEN"] = "pf-infinity-test-secret"
     with dashboard_app._rate_lock:
         dashboard_app._rate_state.clear()
@@ -515,6 +516,9 @@ def test_ds28_profit_factor_infinity_survives_json_response(fresh_trade_log):
         # against an alternative encoder reintroducing JSON5-style Infinity.
         assert '"profit_factor":"Infinity"' in r.text.replace(" ", "")
     finally:
-        os.environ.pop("DASHBOARD_TOKEN", None)
+        if prior_token is None:
+            os.environ.pop("DASHBOARD_TOKEN", None)
+        else:
+            os.environ["DASHBOARD_TOKEN"] = prior_token
         with dashboard_app._rate_lock:
             dashboard_app._rate_state.clear()
