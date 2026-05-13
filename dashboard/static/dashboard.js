@@ -464,10 +464,12 @@ function _fmtRMultiple(v) {
 
 function _fmtProfitFactor(v) {
   if (v == null) return "—";
-  // FastAPI's default encoder rejects float('inf'), but the JS-side handles
-  // BOTH the Number Infinity literal (if an alternative encoder lands) and
-  // the string "Infinity" sentinel (current best-effort if the endpoint
-  // 500s and a future fix uses a string). Either way → "∞".
+  // The server emits the string sentinel "Infinity" (or "-Infinity") when the
+  // raw value is non-finite — FastAPI's default JSON encoder converts
+  // float('inf') to null on the wire, so the helper at
+  // data/trade_log.py:_round_profit_factor swaps to a string before return.
+  // The Number Infinity literal is handled too in case a non-default encoder
+  // ever lands. Either way → "∞".
   if (v === Infinity || v === "Infinity") return "∞";
   if (typeof v === "number" && !isFinite(v)) return "∞";
   if (typeof v === "number") return v.toFixed(2);

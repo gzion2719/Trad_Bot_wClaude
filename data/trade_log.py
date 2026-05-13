@@ -23,7 +23,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional, Union
 
 from models.order import OrderResult
 
@@ -32,12 +32,28 @@ logger = logging.getLogger(__name__)
 _DEFAULT_DB = Path(__file__).parent.parent / "data" / "trades.db"
 
 
-def _round_profit_factor(pf: Optional[float]) -> Optional[float]:
-    """Round profit_factor for JSON output; leave None and +inf untouched."""
+def _round_profit_factor(pf: Optional[float]) -> Optional[Union[float, str]]:
+    """Round profit_factor for JSON output.
+
+    FastAPI's default JSONResponse silently converts non-finite floats
+    (`+inf`, `-inf`, `nan`) to `null` on the wire, which would render as
+    "—" in the dashboard — losing the only-wins ("∞") signal entirely.
+    Emit string sentinels for non-finite values; the dashboard renderer at
+    dashboard.js _fmtProfitFactor() string-compares for "Infinity".
+
+    Branches:
+      None           → None              (no data)
+      +inf           → "Infinity"        (only-wins; producer-reachable)
+      -inf           → "-Infinity"       (forward-defensive; producer cannot reach)
+      nan            → None              (forward-defensive; producer cannot reach)
+      finite float   → round(pf, 3)
+    """
     if pf is None:
         return None
+    if math.isnan(pf):
+        return None
     if math.isinf(pf):
-        return pf
+        return "Infinity" if pf > 0 else "-Infinity"
     return round(pf, 3)
 
 
@@ -336,8 +352,13 @@ class TradeLog:
             gross_profit:            SUM(realized_pnl) for winners. 0.0 if none.
             gross_loss:              ABS(SUM(realized_pnl)) for losers. 0.0 if none.
             win_rate:                wins / (wins + losses), or None when 0 closed.
-            profit_factor:           gross_profit / gross_loss, None when no losses
-                                     AND no wins; +inf when wins exist but no losses.
+            profit_factor:           gross_profit / gross_loss, None when no
+                                     losses AND no wins; the string "Infinity"
+                                     when wins exist but no losses (string
+                                     sentinel — FastAPI's default JSON encoder
+                                     converts float('inf') to null on the wire,
+                                     so the dashboard would render "—" instead
+                                     of "∞"; see _round_profit_factor).
             avg_r_multiple:          AVG(real_r_multiple) over non-NULL rows.
                                      None when no rows have real_r_multiple set.
             r_multiple_count:        Denominator for `avg_r_multiple`.
@@ -390,7 +411,10 @@ class TradeLog:
         win_rate = (wins / closed) if closed > 0 else None
         # profit_factor branches:
         #   no closed trades            → None (no data)
-        #   only winners (gross_loss=0) → +inf (formally undefined, render as "∞")
+        #   only winners (gross_loss=0) → +inf, rewritten to the string "Infinity"
+        #                                  by _round_profit_factor before going
+        #                                  on the wire (FastAPI's default encoder
+        #                                  turns float('inf') into null).
         #   only losers  (gross_profit=0) → None (NOT 0.0 — 0.00 in the UI is
         #                                  indistinguishable from "no data";
         #                                  None forces an explicit "—" render)
