@@ -122,6 +122,18 @@ Example (2026-05-02): Section 11 header said "no connection needed for most" so 
 
 ---
 
+## Multi-session UI feature slicing
+
+When splitting a UI feature into multiple sessions, every session must ship at least one user-visible artifact — not just backend plumbing. "Backend foundation now, UI later" sessions feel invisible to a non-engineer user even when the work is correct: the dashboard looks identical after deploy and the session feels like it didn't happen.
+
+If a session genuinely has no user-visible delta to ship, fold in the smallest UI shell — an empty tab labeled "Strategies — coming soon", a placeholder card with "0 fills yet", a status row that updates from a new endpoint. Anything beats a session that returns "no change" to the eye.
+
+When a pre-impl reviewer (CR agent or second-opinion agent) flags this risk and the team overrides it, record the override + outcome in that session's CHATLOG bullet so the trade-off accrues evidence across sessions.
+
+Example (2026-05-12, Dashboard Phase 5 Session 1): we shipped three new API endpoints + a single new "Strategy" column in Recent Fills. The endpoint surface was a real win (curl-verified, 30 tests). The second-opinion agent had warned: "an endpoint-only session feels invisible to a non-engineer user and may not feel like progress." We deferred the Strategies top-tab to Session 2 anyway, and after deploy the owner asked "where is the tab for each strategy?" — confirming the prediction. A 10-minute UI stub (empty tab populated from `/api/strategies`) would have made Session 1 visible.
+
+---
+
 ## Stacked PR rule (shared docs files)
 
 When opening **multiple feature branches in one session that all touch the same docs file** (most often `TODO.md`'s issue table or `CLAUDE.md`'s current-state header), expect a merge conflict on every PR after the first one lands on `develop`. Pick one of the two patterns up front:
