@@ -3,6 +3,18 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-14 — Profit-factor `+inf → null` wire-format fix shipped
+
+- Picked up the spawned task from the 2026-05-13 close: `data/trade_log.py:_round_profit_factor` now emits the string sentinel `"Infinity"` / `"-Infinity"` / `None` for non-finite floats; FastAPI's default JSONResponse was silently rewriting `float('inf')` to `null`, so the dashboard rendered `—` instead of `∞` for any only-wins strategy. Renderer at `dashboard.js:471` already accepted both forms, so no JS change needed beyond fixing a stale comment. Latent on VPS today; forward-defensive.
+- Pre-impl CR caught a CRITICAL the plan would have shipped broken — existing `test_ds18` asserted `math.isinf(out["profit_factor"])`, which TypeErrors on the new string sentinel; rewritten to assert `== "Infinity"`. CR also surfaced M-3 (direct-call tests bypass `JSONResponse` — added `test_ds28` TestClient round-trip that asserts both `r.json()` and the raw response text) and M-4 (lock `-inf`/`nan` contract via `test_tl_pf_01..05` direct unit tests).
+- Skipped the post-impl CR because `data/trade_log.py` isn't on the WORKFLOW.md mandatory-CR file-path list — user caught it. Post-impl CR ran clean overall (LOW-1 redundant nan assertion, LOW-2 non-restorative `DASHBOARD_TOKEN` pop); both folded into the same branch as commit `1d8e64b`. Codified the missing trigger in WORKFLOW.md: "pre-impl CR ran → post-impl CR also runs, regardless of file path."
+- Pre-push: ruff/black/mypy ✅, pytest 311 passed / 49 skipped / 5 deselected. Branch `feature/profit-factor-infinity-sentinel` pushed; PRs feature→develop and develop→main not yet opened.
+- Added `DB-X9` to BACKLOG for the parallel `+inf` bug in `backtester/metrics.py:193` (`round(inf, 3) == inf`) — currently console-only, but mirror this fix when a future endpoint serializes the dict.
+- **Process improvement:** WORKFLOW.md "Unbiased CR is mandatory" gains a second trigger clause — "any feature that took a pre-implementation CR also takes a post-implementation CR, independent of file path." Pre and post catch different classes of issue; one does not substitute for the other.
+- **Next session:** Open both PRs + VPS deploy; then Dashboard Phase 5 Session 3 (paginated history + CSV stream + DB-X5 auth fixture).
+
+---
+
 ## 2026-05-13 — Dashboard Phase 5 Session 2: Strategies tab (slim) shipped
 
 - Shipped the user-visible Strategies top tab + dynamic secondary tab strip + per-strategy KPI strip on top of Session 1's three endpoints. N-tab refactor (circular ArrowL/R + Home/End), sessionStorage with list validation, lazy `_initStrategyTabs` on first activation (the tab cannot fetch `/api/strategies` pre-login), 30s polling gated by `_onStratTab && document.visibilityState`, `aria-live` KPI region.
