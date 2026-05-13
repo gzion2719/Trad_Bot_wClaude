@@ -3,6 +3,18 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-12 — Dashboard Phase 5 Session 1: per-strategy API + metadata extraction
+
+- Shipped three new dashboard endpoints (`/api/strategies`, `/api/strategies/{name}/summary` with 30s TTL cache keyed on `(name, MAX(id))`, `/api/strategies/{name}/fills` with server-side `strategy_params` JSON parsing). `_resolve_strategy` dependency validates `{name}` against `STRATEGY_METADATA` → 404 on traversal/unknown. Added Strategy column to Mission Control Recent Fills.
+- Extracted `config/strategy_metadata.py` (Option B): `RiskCaps`/`DailyAt`/`Interval`/`Schedule` + new `StrategyMetadata` + `STRATEGY_METADATA` list. Dashboard imports class-free; bot still composes `REGISTRY` via `_STRATEGY_CLASSES` map (`config/strategies.py` re-exports moved types for back-compat). Sync-test asserts the metadata↔classes maps stay in lockstep.
+- `TradeLog` gains `lifetime_summary()`, `realized_pnl_today()`, and a public `connection()` context manager that sets `PRAGMA busy_timeout=5000` — latent SQLite-lock-bug fix surfaced by the post-impl CR (busy_timeout was missing everywhere, not just in the new code).
+- Two unbiased CR rounds: pre-impl CR caught CRITICALs (legacy NULL-basis fills must surface; `strategy_params` is TEXT needing parse) and HIGHs (path-traversal gate; metadata-only import); post-impl CR caught the busy_timeout gap, `profit_factor=0.0` UI ambiguity (now `None` on only-losses), unbounded `offset` (clamped 10k), cosmetic `import math`. 30 tests `test_ds01..26` cover empty DB, mixed fills, legacy NULL, avg-R denominator, cache busting, pagination, JSON parsing, comma-in-JSON, corrupt JSON, 8 traversal/SQL-meta payloads, sync invariant, REGISTRY-without-fills, only-losses PF, only-wins +inf, offset clamp, connection-helper pragmas.
+- Pre-flight on VPS: `trades.db` has zero rows — the legacy-NULL-basis surface is forward-defensive only. Branch on worktree `claude/practical-lalande-de3498`. Pre-push gate: ruff ✅, black ✅, mypy ✅ (14 errors all pre-existing — pandas/yfinance stubs + 3 test-mock typings), pytest 304 passed / 49 skipped.
+- **Process improvement:** WORKFLOW.md retains the CR-to-fix transition rule — followed it this session (presented findings + fix scope, waited for "go" before editing). Worked well: scope shrank from 6→4 fixes after the second CR round corrected my framing on WAL (database-level, not per-connection) and StrategyConfig frozen severity. No new rule needed; codified rhythm earned its keep again.
+- **Next session:** Dashboard Phase 5 **Session 2** — Strategies top-tab + secondary tabs from `/api/strategies` + KPI strip + paginated history table + streaming CSV export endpoint. Also build the shared `TestClient` auth-failure fixture (DB-X5) so the new and existing endpoints both get end-to-end auth coverage.
+
+---
+
 ## 2026-05-11 — MS-I + MS-C3 shipped: snapshot-poller noise fix + VIX fetch-failure alerting
 
 - MS-I: `AccountSnapshotPoller.run()` now classifies `(ConnectionError, TimeoutError)` as a single-line WARNING ("capture skipped"); other exceptions keep the full traceback. CR caught the missing `TimeoutError` (from `fut.result(timeout=10)` if main loop is wedged). 3 new tests `test_as11..13`. Branch `feature/ms-i-account-snapshot-connection-noise`.

@@ -78,11 +78,12 @@ async function fetchFills() {
   }
   const body = document.getElementById("fills-body");
   if (!fills.length) {
-    body.innerHTML = '<tr><td colspan="7" class="muted-center">no fills yet</td></tr>';
+    body.innerHTML = '<tr><td colspan="8" class="muted-center">no fills yet</td></tr>';
   } else {
     body.innerHTML = fills.map(f => `
       <tr>
         <td>${esc((f.filled_at || "").replace("T", " ").slice(0, 19))}</td>
+        <td>${f.strategy_name ? esc(f.strategy_name) : '<span class="muted">—</span>'}</td>
         <td>${esc(f.symbol)}</td>
         <td class="${f.action === "BUY" ? "ok" : "warn"}">${esc(f.action)}</td>
         <td class="num">${f.quantity}</td>

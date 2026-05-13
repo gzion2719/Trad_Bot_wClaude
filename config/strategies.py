@@ -10,6 +10,17 @@ Each `StrategyConfig` declares one strategy with:
 main.py iterates `REGISTRY` and hands it to `StrategyRunner`. Add a new
 strategy by appending one entry; do not modify main.py wiring.
 
+The non-code attributes (name/symbol/schedule/caps/params/state_file_path)
+are defined in `config/strategy_metadata.py` so the dashboard process can
+read them without importing any strategy class. `_STRATEGY_CLASSES` below
+binds each metadata entry to its concrete class — keeping the two maps in
+lockstep is enforced by `tests/test_multi_strategy_runner.py::test_ms_*`.
+
+Backward-compat: `RiskCaps`, `DailyAt`, `Interval`, `Schedule` are re-
+exported from this module so existing `from config.strategies import ...`
+imports keep working. New consumers should import the types directly from
+`config.strategy_metadata`.
+
 NOTE on `max_daily_loss` per strategy: the PnLPoller currently feeds every
 RiskManager the SAME account-level realized P&L (we don't yet attribute fills
 per strategy in live mode — see CLAUDE.md "Known limitations"). So the
@@ -22,62 +33,118 @@ strategies' losses, OR wait for per-strategy P&L attribution (BACKLOG).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Iterable, Type, Union
+from typing import Any, Iterable, Optional, Type
 
+from config.strategy_metadata import (
+    STRATEGY_METADATA,
+    DailyAt,
+    Interval,
+    RiskCaps,
+    Schedule,
+    StrategyMetadata,
+)
 from config.validator import ConfigError
 from strategies.base_strategy import BaseStrategy
 from strategies.rsi2_mr import RSI2MR_SPY
 from strategies.sma_crossover import SMACrossover
 
-
-@dataclass(frozen=True)
-class RiskCaps:
-    """Per-strategy RiskManager configuration. All caps are independent."""
-
-    max_order_value: float
-    max_position_value: float
-    max_daily_loss: float  # negative number; see module docstring
-    max_open_orders: int = 10
-    max_risk_per_trade_pct: float = 0.02
-    min_reward_risk_ratio: float = 3.0
-
-
-@dataclass(frozen=True)
-class DailyAt:
-    """Fire `on_tick()` once per day at a wall-clock time in the given tz."""
-
-    hour: int
-    minute: int
-    tz: str = "America/New_York"
+# Re-export moved types so `from config.strategies import RiskCaps, DailyAt, ...`
+# keeps working for existing callers (runtime.strategy_runner, tests).
+__all__ = [
+    "DailyAt",
+    "Interval",
+    "RiskCaps",
+    "Schedule",
+    "StrategyConfig",
+    "StrategyMetadata",
+    "REGISTRY",
+    "validate_registry",
+]
 
 
-@dataclass(frozen=True)
-class Interval:
-    """Fire `on_tick()` every `seconds`. Stops after 5 consecutive errors."""
-
-    seconds: int
-
-
-Schedule = Union[DailyAt, Interval]
-
-
-@dataclass(frozen=True)
 class StrategyConfig:
-    """One strategy entry in the registry."""
+    """One strategy entry in the registry.
 
-    name: str  # unique label used as strategy_name on fills / TradeLog
+    Composes a `StrategyMetadata` (the data) with a concrete strategy class
+    (the code). Accepts either:
+
+      StrategyConfig(metadata=meta, strategy_class=cls)       # new form
+      StrategyConfig(name=, strategy_class=, symbol=, params=,
+                     schedule=, risk_caps=, state_file_path=)  # legacy form
+
+    The legacy form is preserved for tests and any external caller that
+    builds configs in-line. New code should construct a `StrategyMetadata`
+    and pass it explicitly.
+    """
+
+    metadata: StrategyMetadata
     strategy_class: Type[BaseStrategy]
-    symbol: str
-    params: dict[str, Any] = field(default_factory=dict)
-    schedule: Schedule = field(default_factory=lambda: DailyAt(16, 10))
-    risk_caps: RiskCaps = field(
-        default_factory=lambda: RiskCaps(
-            max_order_value=120_000.0,
-            max_position_value=100_000.0,
-            max_daily_loss=-2_000.0,
+
+    __slots__ = ("metadata", "strategy_class")
+
+    def __init__(
+        self,
+        *,
+        metadata: Optional[StrategyMetadata] = None,
+        strategy_class: Type[BaseStrategy],
+        name: Optional[str] = None,
+        symbol: Optional[str] = None,
+        schedule: Optional[Schedule] = None,
+        risk_caps: Optional[RiskCaps] = None,
+        params: Optional[dict[str, Any]] = None,
+        state_file_path: Optional[str] = None,
+    ) -> None:
+        if metadata is None:
+            if name is None or symbol is None or schedule is None or risk_caps is None:
+                raise TypeError(
+                    "StrategyConfig requires either `metadata=` or "
+                    "(`name=`, `symbol=`, `schedule=`, `risk_caps=`)."
+                )
+            metadata = StrategyMetadata(
+                name=name,
+                symbol=symbol,
+                schedule=schedule,
+                risk_caps=risk_caps,
+                params=params or {},
+                state_file_path=state_file_path,
+            )
+        object.__setattr__(self, "metadata", metadata)
+        object.__setattr__(self, "strategy_class", strategy_class)
+
+    @property
+    def name(self) -> str:
+        return self.metadata.name
+
+    @property
+    def symbol(self) -> str:
+        return self.metadata.symbol
+
+    @property
+    def schedule(self) -> Schedule:
+        return self.metadata.schedule
+
+    @property
+    def risk_caps(self) -> RiskCaps:
+        return self.metadata.risk_caps
+
+    @property
+    def params(self) -> dict[str, Any]:
+        return self.metadata.params
+
+    def __repr__(self) -> str:
+        return (
+            f"StrategyConfig(name={self.name!r}, symbol={self.symbol!r}, "
+            f"strategy_class={self.strategy_class.__name__})"
         )
-    )
+
+
+# name -> strategy class. Updated in lockstep with STRATEGY_METADATA.
+# A sync test asserts every key in this map appears in STRATEGY_METADATA
+# and vice versa, so a half-added strategy fails at test time, not runtime.
+_STRATEGY_CLASSES: dict[str, Type[BaseStrategy]] = {
+    "SMACrossover-QQQ": SMACrossover,
+    "RSI2MR-SPY": RSI2MR_SPY,
+}
 
 
 def _normalize_symbol(symbol: str) -> str:
@@ -129,45 +196,32 @@ def validate_registry(configs: Iterable[StrategyConfig]) -> None:
         seen_symbols[key] = cfg.name
 
 
-REGISTRY: list[StrategyConfig] = [
-    StrategyConfig(
-        name="SMACrossover-QQQ",
-        strategy_class=SMACrossover,
-        symbol="QQQ",
-        params={"sma_fast": 10, "sma_slow": 30},
-        schedule=DailyAt(hour=16, minute=10),
-        risk_caps=RiskCaps(
-            max_order_value=120_000.0,
-            max_position_value=100_000.0,
-            max_daily_loss=-2_000.0,
-            max_open_orders=10,
-            max_risk_per_trade_pct=0.02,
-            min_reward_risk_ratio=3.0,
-        ),
-    ),
-    StrategyConfig(
-        name="RSI2MR-SPY",
-        strategy_class=RSI2MR_SPY,
-        symbol="SPY",
-        params={
-            "sma_period": 200,
-            "rsi_period": 2,
-            "rsi_oversold": 10.0,
-            "rsi_overbought": 70.0,
-            "vix_upper": 35.0,
-            "atr_multiplier": 1.5,
-        },
-        schedule=DailyAt(hour=16, minute=10),
-        risk_caps=RiskCaps(
-            max_order_value=120_000.0,
-            max_position_value=100_000.0,
-            max_daily_loss=-2_000.0,
-            max_open_orders=10,
-            max_risk_per_trade_pct=0.02,
-            min_reward_risk_ratio=3.0,
-        ),
-    ),
-]
+def _build_registry() -> list[StrategyConfig]:
+    """Compose StrategyConfigs from STRATEGY_METADATA + _STRATEGY_CLASSES.
+
+    Raises ConfigError if any metadata entry has no class binding (catches
+    the half-added-strategy failure mode at import time, not runtime).
+    """
+    built: list[StrategyConfig] = []
+    for meta in STRATEGY_METADATA:
+        klass = _STRATEGY_CLASSES.get(meta.name)
+        if klass is None:
+            raise ConfigError(
+                f"STRATEGY_METADATA has entry {meta.name!r} but no class binding "
+                f"in _STRATEGY_CLASSES. Add it to config/strategies.py."
+            )
+        built.append(StrategyConfig(metadata=meta, strategy_class=klass))
+    # Surface orphaned class bindings too (class added but metadata missing).
+    extra = set(_STRATEGY_CLASSES) - {m.name for m in STRATEGY_METADATA}
+    if extra:
+        raise ConfigError(
+            f"_STRATEGY_CLASSES has entries with no STRATEGY_METADATA: {sorted(extra)}. "
+            f"Add metadata in config/strategy_metadata.py."
+        )
+    return built
+
+
+REGISTRY: list[StrategyConfig] = _build_registry()
 
 
 # MS-D: validate at module load so any importer of REGISTRY (main.py, tests,
