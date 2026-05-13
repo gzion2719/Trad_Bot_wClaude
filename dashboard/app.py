@@ -104,7 +104,11 @@ def _stale_threshold_seconds() -> float:
 
 
 _STARTED_AT = datetime.now(timezone.utc).isoformat()
-_trade_log = TradeLog()
+# Read from the same DB the bot writes to. `main.py` pins `paper_trades.db`;
+# the dashboard had been using `TradeLog()` default (`trades.db`), which is why
+# every fill-derived surface (Recent Fills, per-strategy KPIs) showed empty on
+# the VPS. Live mode (Phase 7) will need this to become env-configurable.
+_trade_log = TradeLog(db_path=_ROOT / "data" / "paper_trades.db")
 
 
 # Strict CSP: no inline scripts/styles, no remote origins, no framing.

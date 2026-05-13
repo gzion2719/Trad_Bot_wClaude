@@ -24,6 +24,21 @@ let _infoAccount = null;
 // always-visible KPI strip and is a cheap snapshot-file read.
 let _onAcctTab = false;
 
+// Strategies tab state. `_onStratTab` gates polling of /api/strategies/{name}/summary
+// while the tab is hidden — the endpoint is NOT rate-limited (it has a 30s
+// server-side TTL cache keyed on MAX(id) FROM trades), but polling a hidden
+// tab is pure waste. `_stratTabsInited` flips after the lazy first activation
+// fetch completes — the tab cannot fetch /api/strategies pre-login (401),
+// so building the secondary tablist at DOMContentLoaded would leave it empty
+// on cold-load until reload.
+let _onStratTab = false;
+let _stratList = null;
+let _activeStrategy = null;
+let _lastStratFetch = 0;
+let _stratTabsInited = false;
+const _STRAT_POLL_MS = 30000;
+const _STRAT_STORAGE_KEY = "tradebot.activeStrategy";
+
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 
 async function _fetchJSON(path) {
@@ -418,56 +433,341 @@ function _initRangeChips() {
   });
 }
 
-// ── Tab handler ───────────────────────────────────────────────────────────────
+// ── Strategies tab ────────────────────────────────────────────────────────────
+//
+// Field names below are pinned against `data/trade_log.py:lifetime_summary()`
+// (verified at impl time, not retyped from memory). The /summary endpoint
+// returns every key from `lifetime_summary` plus `realized_pnl_today`,
+// `symbol`, and `schedule`.
 
-function _selectTab(tabId) {
-  const mc   = document.getElementById("tab-mc");
-  const acct = document.getElementById("tab-acct");
-  const panelMc   = document.getElementById("panel-mc");
-  const panelAcct = document.getElementById("panel-acct");
-  if (!mc || !acct || !panelMc || !panelAcct) return;
+function _fmtSchedule(sch) {
+  if (!sch || !sch.kind) return "—";
+  if (sch.kind === "DailyAt") {
+    const hh = String(sch.hour).padStart(2, "0");
+    const mm = String(sch.minute).padStart(2, "0");
+    const tz = sch.tz === "America/New_York" ? "ET" : (sch.tz || "");
+    return `Daily @ ${hh}:${mm} ${tz}`.trim();
+  }
+  if (sch.kind === "Interval") return `Every ${sch.seconds}s`;
+  return "—";
+}
 
-  const isAcct = tabId === "tab-acct";
+function _fmtWinRate(v) {
+  return v == null ? "—" : (v * 100).toFixed(1) + "%";
+}
 
-  mc.setAttribute("aria-selected", isAcct ? "false" : "true");
-  mc.setAttribute("tabindex", isAcct ? "-1" : "0");
-  acct.setAttribute("aria-selected", isAcct ? "true" : "false");
-  acct.setAttribute("tabindex", isAcct ? "0" : "-1");
+function _fmtRMultiple(v) {
+  if (v == null) return "—";
+  const sign = v >= 0 ? "+" : "";
+  return sign + v.toFixed(2) + "R";
+}
 
-  if (isAcct) {
-    _onAcctTab = true;
-    panelMc.setAttribute("hidden", "");
-    panelAcct.removeAttribute("hidden");
-    acct.focus();
-    // Fetch immediately so the tab feels live, not blank for up to 30s.
-    fetchAccount();
-    fetchEquity(daysFor(_currentRange));
+function _fmtProfitFactor(v) {
+  if (v == null) return "—";
+  // FastAPI's default encoder rejects float('inf'), but the JS-side handles
+  // BOTH the Number Infinity literal (if an alternative encoder lands) and
+  // the string "Infinity" sentinel (current best-effort if the endpoint
+  // 500s and a future fix uses a string). Either way → "∞".
+  if (v === Infinity || v === "Infinity") return "∞";
+  if (typeof v === "number" && !isFinite(v)) return "∞";
+  if (typeof v === "number") return v.toFixed(2);
+  return "—";
+}
+
+function _fmtRelTimeFromIso(iso) {
+  if (!iso) return "never";
+  // ISO timestamps from SQLite may be naive (no TZ suffix) — append Z to
+  // force UTC parsing and avoid silent cross-browser inconsistency.
+  let s = String(iso);
+  if (!/[Zz]$|[+-]\d{2}:?\d{2}$/.test(s)) s = s + "Z";
+  const t = Date.parse(s);
+  if (Number.isNaN(t)) return "—";
+  const ageSec = Math.max(0, (Date.now() - t) / 1000);
+  return fmtAge(ageSec) + " ago";
+}
+
+function _kpiClassForPnl(v) {
+  if (v == null) return "kpi-zero";
+  if (v > 0) return "kpi-positive";
+  if (v < 0) return "kpi-negative";
+  return "kpi-zero";
+}
+
+function _setStratError(msg) {
+  const pill = document.getElementById("strat-error");
+  if (!pill) return;
+  if (msg) {
+    pill.textContent = msg;
+    pill.removeAttribute("hidden");
   } else {
-    _onAcctTab = false;
-    panelAcct.setAttribute("hidden", "");
-    panelMc.removeAttribute("hidden");
-    mc.focus();
+    pill.textContent = "";
+    pill.setAttribute("hidden", "");
   }
 }
 
-function _initTabs() {
-  const mc   = document.getElementById("tab-mc");
-  const acct = document.getElementById("tab-acct");
-  if (!mc || !acct) return;
+function _setStratKpisStale() {
+  const ids = [
+    "strat-kpi-total-fills", "strat-kpi-closed", "strat-kpi-win-rate",
+    "strat-kpi-pnl-life", "strat-kpi-pnl-today", "strat-kpi-pf",
+    "strat-kpi-avg-r", "strat-kpi-last-fill",
+  ];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = "—";
+    el.className = "kpi-value kpi-stale";
+  });
+  const warn = document.getElementById("strat-legacy-warn");
+  if (warn) { warn.setAttribute("hidden", ""); warn.textContent = ""; }
+}
 
-  mc.addEventListener("click", () => _selectTab("tab-mc"));
-  acct.addEventListener("click", () => _selectTab("tab-acct"));
+function renderStrategySummary(payload) {
+  // Sub-header
+  const title = document.getElementById("strat-title");
+  const meta = document.getElementById("strat-meta");
+  if (title) title.textContent = payload.strategy_name || _activeStrategy || "—";
+  if (meta) {
+    const sym = payload.symbol ? esc(payload.symbol) : "—";
+    const sch = _fmtSchedule(payload.schedule);
+    meta.textContent = `${sym} • ${sch}`;
+  }
 
-  // Arrow key navigation between tabs
-  [mc, acct].forEach(btn => {
+  // KPIs
+  const setKpi = (id, text, cls) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.className = "kpi-value " + (cls || "");
+  };
+
+  setKpi("strat-kpi-total-fills", String(payload.total_fills ?? 0));
+  setKpi("strat-kpi-closed", String(payload.sells_with_basis ?? 0));
+  setKpi("strat-kpi-win-rate", _fmtWinRate(payload.win_rate),
+         payload.win_rate == null ? "kpi-zero" : "");
+  setKpi("strat-kpi-pnl-life",
+         payload.realized_pnl_lifetime != null ? fmtUSD.format(payload.realized_pnl_lifetime) : "—",
+         _kpiClassForPnl(payload.realized_pnl_lifetime));
+  setKpi("strat-kpi-pnl-today",
+         payload.realized_pnl_today != null ? fmtUSD.format(payload.realized_pnl_today) : "—",
+         _kpiClassForPnl(payload.realized_pnl_today));
+  setKpi("strat-kpi-pf", _fmtProfitFactor(payload.profit_factor),
+         payload.profit_factor == null ? "kpi-zero" : "");
+  setKpi("strat-kpi-avg-r", _fmtRMultiple(payload.avg_r_multiple),
+         payload.avg_r_multiple == null ? "kpi-zero" : "");
+  setKpi("strat-kpi-last-fill", _fmtRelTimeFromIso(payload.last_fill_at), "kpi-zero");
+
+  // Legacy NULL-basis warning row — only shown when > 0.
+  const warn = document.getElementById("strat-legacy-warn");
+  if (warn) {
+    const n = payload.legacy_null_basis_sells || 0;
+    if (n > 0) {
+      warn.textContent = `⚠ ${n} legacy fill(s) without cost basis — excluded from P&L aggregates`;
+      warn.removeAttribute("hidden");
+    } else {
+      warn.setAttribute("hidden", "");
+      warn.textContent = "";
+    }
+  }
+}
+
+async function fetchStrategies() {
+  // Pinned to dashboard/app.py @app.get("/api/strategies")
+  const list = await _fetchJSON("/api/strategies");
+  return list;  // may be null on 401/non-2xx (login overlay fires in _fetchJSON)
+}
+
+async function fetchStrategySummary(name) {
+  if (!name) return null;
+  // Pinned to dashboard/app.py @app.get("/api/strategies/{name}/summary")
+  const enc = encodeURIComponent(name);
+  const payload = await _fetchJSON(`/api/strategies/${enc}/summary`);
+  _lastStratFetch = Date.now();
+  if (!payload) {
+    _setStratKpisStale();
+    _setStratError("Could not load summary for " + name);
+    return null;
+  }
+  _setStratError("");
+  renderStrategySummary(payload);
+  return payload;
+}
+
+function _setActiveStrategy(name) {
+  // Validate against the cached list — a stale sessionStorage key from a
+  // renamed/deleted strategy must NOT silently activate.
+  const valid = (_stratList || []).some(s => s.name === name);
+  if (!valid) {
+    if (_stratList && _stratList.length) {
+      name = _stratList[0].name;
+    } else {
+      _activeStrategy = null;
+      return;
+    }
+  }
+  _activeStrategy = name;
+  try { sessionStorage.setItem(_STRAT_STORAGE_KEY, name); } catch (_) { /* private mode */ }
+
+  // Update aria-selected on the secondary tab strip
+  document.querySelectorAll("#strat-tablist .strat-tab").forEach(btn => {
+    const isMe = btn.getAttribute("data-strat") === name;
+    btn.setAttribute("aria-selected", isMe ? "true" : "false");
+    btn.setAttribute("tabindex", isMe ? "0" : "-1");
+  });
+
+  // Fetch summary for this strategy immediately
+  fetchStrategySummary(name);
+}
+
+function _renderStratTabs(list) {
+  const tablist = document.getElementById("strat-tablist");
+  const empty = document.getElementById("strat-empty");
+  if (!tablist) return;
+
+  // Clear any prior buttons but keep the empty-state placeholder element.
+  Array.from(tablist.querySelectorAll(".strat-tab")).forEach(b => b.remove());
+
+  if (!list || list.length === 0) {
+    if (empty) empty.removeAttribute("hidden");
+    _setStratKpisStale();
+    return;
+  }
+  if (empty) empty.setAttribute("hidden", "");
+
+  list.forEach((s, idx) => {
+    const btn = document.createElement("button");
+    btn.className = "strat-tab";
+    btn.setAttribute("role", "tab");
+    btn.setAttribute("data-strat", s.name);
+    btn.setAttribute("aria-selected", "false");
+    btn.setAttribute("tabindex", "-1");
+    btn.textContent = s.name;
+    btn.addEventListener("click", () => _setActiveStrategy(s.name));
     btn.addEventListener("keydown", e => {
-      if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-        const target = btn === mc ? "tab-acct" : "tab-mc";
-        _selectTab(target);
+      // Circular left/right + Home/End across the secondary strip
+      const buttons = Array.from(tablist.querySelectorAll(".strat-tab"));
+      const i = buttons.indexOf(btn);
+      let target = -1;
+      if (e.key === "ArrowRight") target = (i + 1) % buttons.length;
+      else if (e.key === "ArrowLeft") target = (i - 1 + buttons.length) % buttons.length;
+      else if (e.key === "Home") target = 0;
+      else if (e.key === "End") target = buttons.length - 1;
+      else if (e.key === "Enter" || e.key === " ") { btn.click(); e.preventDefault(); return; }
+      if (target >= 0) {
+        buttons[target].focus();
+        _setActiveStrategy(buttons[target].getAttribute("data-strat"));
         e.preventDefault();
       }
-      if (e.key === "Enter" || e.key === " ") {
-        btn.click();
+    });
+    tablist.appendChild(btn);
+    void idx;  // index reserved for future ordering work
+  });
+}
+
+async function _initStrategyTabs() {
+  // Must run AFTER login (the session cookie gate). Called lazily on first
+  // activation of #tab-strats, NOT at DOMContentLoaded — pre-login the
+  // /api/strategies endpoint 401s.
+  const list = await fetchStrategies();
+  if (!list) {
+    // 401 path: _fetchJSON already triggered the login overlay. Mark
+    // un-inited so the next activation retries.
+    _stratTabsInited = false;
+    return;
+  }
+  _stratList = list;
+  _renderStratTabs(list);
+
+  if (list.length === 0) {
+    _activeStrategy = null;
+    _stratTabsInited = true;
+    return;
+  }
+
+  // Restore previously-active strategy if it still exists; otherwise first.
+  let initial = null;
+  try { initial = sessionStorage.getItem(_STRAT_STORAGE_KEY); } catch (_) { /* private mode */ }
+  if (!initial || !list.some(s => s.name === initial)) initial = list[0].name;
+  _setActiveStrategy(initial);
+  _stratTabsInited = true;
+}
+
+// ── Tab handler ───────────────────────────────────────────────────────────────
+//
+// N-tab pattern: each entry is { id, panel, onActivate, onDeactivate }.
+// `body.dataset.tab` mirrors the active tab so CSS rules
+// (e.g. `body[data-tab="strats"] > .kpi-strip { display: none }`) can react.
+
+const _TABS = [
+  {
+    id: "tab-mc", panel: "panel-mc", key: "mc",
+    onActivate: () => { _onAcctTab = false; _onStratTab = false; },
+  },
+  {
+    id: "tab-acct", panel: "panel-acct", key: "acct",
+    onActivate: () => {
+      _onAcctTab = true; _onStratTab = false;
+      // Fetch immediately so the tab feels live, not blank for up to 30s.
+      fetchAccount();
+      fetchEquity(daysFor(_currentRange));
+    },
+  },
+  {
+    id: "tab-strats", panel: "panel-strats", key: "strats",
+    onActivate: () => {
+      _onAcctTab = false; _onStratTab = true;
+      if (!_stratTabsInited) {
+        _initStrategyTabs();
+      } else if (_activeStrategy) {
+        // Returning to the tab — refresh immediately (cache-friendly).
+        fetchStrategySummary(_activeStrategy);
+      }
+    },
+  },
+];
+
+function _selectTab(tabId) {
+  const tabs = _TABS.map(t => ({
+    ...t,
+    btn: document.getElementById(t.id),
+    panelEl: document.getElementById(t.panel),
+  }));
+  if (tabs.some(t => !t.btn || !t.panelEl)) return;
+
+  let activated = null;
+  tabs.forEach(t => {
+    const isActive = t.id === tabId;
+    t.btn.setAttribute("aria-selected", isActive ? "true" : "false");
+    t.btn.setAttribute("tabindex", isActive ? "0" : "-1");
+    if (isActive) {
+      t.panelEl.removeAttribute("hidden");
+      activated = t;
+    } else {
+      t.panelEl.setAttribute("hidden", "");
+    }
+  });
+  if (!activated) return;
+
+  document.body.dataset.tab = activated.key;
+  activated.btn.focus();
+  try { activated.onActivate && activated.onActivate(); } catch (e) { console.warn("tab activate", e); }
+}
+
+function _initTabs() {
+  const buttons = _TABS.map(t => document.getElementById(t.id)).filter(Boolean);
+  if (buttons.length < 2) return;
+
+  buttons.forEach(btn => {
+    btn.addEventListener("click", () => _selectTab(btn.id));
+    btn.addEventListener("keydown", e => {
+      const i = buttons.indexOf(btn);
+      let target = -1;
+      if (e.key === "ArrowRight") target = (i + 1) % buttons.length;
+      else if (e.key === "ArrowLeft") target = (i - 1 + buttons.length) % buttons.length;
+      else if (e.key === "Home") target = 0;
+      else if (e.key === "End") target = buttons.length - 1;
+      else if (e.key === "Enter" || e.key === " ") { btn.click(); e.preventDefault(); return; }
+      if (target >= 0) {
+        _selectTab(buttons[target].id);
         e.preventDefault();
       }
     });
@@ -495,6 +795,19 @@ async function refresh() {
     // Equity: only when tab is active AND 30s have elapsed since last fetch
     if (_onAcctTab && Date.now() - _lastEquityFetch >= 30000) {
       fetchEquity(daysFor(_currentRange));
+    }
+
+    // Strategies summary: only when tab is active AND visible AND 30s have
+    // elapsed. The endpoint has a 30s server-side TTL cache, so polling
+    // faster is wasted; the visibility gate avoids burning RAM on a
+    // background-tab dashboard left open overnight.
+    if (
+      _onStratTab &&
+      _activeStrategy &&
+      document.visibilityState === "visible" &&
+      Date.now() - _lastStratFetch >= _STRAT_POLL_MS
+    ) {
+      fetchStrategySummary(_activeStrategy);
     }
 
     document.getElementById("footer").textContent =
