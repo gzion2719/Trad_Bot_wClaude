@@ -3,6 +3,18 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-13 — Dashboard Phase 5 Session 2: Strategies tab (slim) shipped
+
+- Shipped the user-visible Strategies top tab + dynamic secondary tab strip + per-strategy KPI strip on top of Session 1's three endpoints. N-tab refactor (circular ArrowL/R + Home/End), sessionStorage with list validation, lazy `_initStrategyTabs` on first activation (the tab cannot fetch `/api/strategies` pre-login), 30s polling gated by `_onStratTab && document.visibilityState`, `aria-live` KPI region.
+- DB-path bug caught while prepping local verification: `dashboard/app.py` was reading `data/trades.db` while `main.py` writes to `data/paper_trades.db`. Dashboard had been showing empty data on VPS the whole time — Mission Control's Recent Fills and Session 1's Strategy column too. 1-line fix bundled in the same PR; legacy-NULL-basis surface goes live as a side effect.
+- New `test_ds27` URL-drift tripwire: parses every `fetch("/api/...")` in `dashboard.js`, normalizes `${...}` ↔ `{name}`, asserts each maps to a registered route. Pre-impl CR agent yielded 13 findings (2 CRITICAL, 4 HIGH, 4 MEDIUM, 2 LOW, 2 CONFIRM); all material findings folded in before any code was written.
+- Spawned a separate task — FastAPI silently converts `+inf` to `null` in `/summary` responses, so the only-wins `profit_factor` renders as `—` instead of `∞`. JS renderer already accepts both `Infinity` literal and the string `"Infinity"`, so the server-side fix needs no JS change.
+- Pre-push: ruff/black/mypy ✅, pytest 305 pass / 49 skipped / 5 deselected. Verified locally via new `scripts/dev_dashboard.py` + `scripts/seed_dashboard_db.py` against the seeded `paper_trades.db`; confirmed every KPI value, tab switch, sessionStorage round-trip, and global-KPI-hide CSS rule. PR #197 merged to develop; develop→main pending at session close.
+- **Process improvement:** WORKFLOW.md gains "Pre-fixture wiring check" rule — before staging fixture data to verify a feature, grep the code under test for the source it actually reads. Birthed by the DB-path bug above.
+- **Next session:** Phase 5 Session 3 (paginated history table + streaming CSV export endpoint + DB-X5 shared TestClient auth-failure fixture) OR pick up the spawned FastAPI `+inf` fix first since it directly affects S2's profit-factor rendering.
+
+---
+
 ## 2026-05-12 — Dashboard Phase 5 Session 1: per-strategy API + metadata extraction
 
 - Shipped three new dashboard endpoints (`/api/strategies`, `/api/strategies/{name}/summary` with 30s TTL cache keyed on `(name, MAX(id))`, `/api/strategies/{name}/fills` with server-side `strategy_params` JSON parsing). `_resolve_strategy` dependency validates `{name}` against `STRATEGY_METADATA` → 404 on traversal/unknown. Added Strategy column to Mission Control Recent Fills.
