@@ -555,6 +555,28 @@ def _read_static(name: str) -> str:
     return (_STATIC_DIR / name).read_text(encoding="utf-8")
 
 
+def _js_decl_end(js: str, start: int) -> int:
+    """Return the index of the next TOP-LEVEL declaration after `start`.
+
+    Used to slice a function body for static-grep assertions without
+    accidentally swallowing a sibling declaration. `js.find("\\n}\\n")`
+    was the original heuristic; it broke on functions whose body contained
+    a nested map/arrow expression ending with `}\\n` before the actual
+    function end. Anchoring on the next decl keyword is robust to any
+    intra-function brace shape because top-level `function`/`async function`/
+    `const` declarations always begin a new line.
+    """
+    candidates = [
+        js.find("\nfunction ", start + 1),
+        js.find("\nasync function ", start + 1),
+        js.find("\nconst ", start + 1),
+    ]
+    candidates = [c for c in candidates if c != -1]
+    if not candidates:
+        return len(js)
+    return min(candidates)
+
+
 def test_ds60_history_fetch_decoupled_from_summary_poll():
     """The 30s summary poller must NOT call fetchStrategyFills.
 
@@ -595,10 +617,46 @@ def test_ds61_history_next_button_respects_server_offset_cap():
     assert m, "could not parse _STRAT_OFFSET_CAP value"
     cap = int(m.group(1).replace("_", ""))
     assert cap == 10_000, f"client cap drifted from server (app.py:409): {cap} != 10000"
-    # The Next handler must reference the cap.
-    assert (
-        "_STRAT_OFFSET_CAP" in js[js.find("strat-history-next") :]
-    ), "Next-button click handler does not honour _STRAT_OFFSET_CAP"
+
+    # Slice the Next click handler specifically: from the addEventListener
+    # registration to the next `});`. Substring searches inside this slice
+    # cannot leak into prev/size handlers.
+    next_idx = js.find('next.addEventListener("click"')
+    assert next_idx != -1, "Next click handler not found"
+    next_end = js.find("});", next_idx)
+    handler = js[next_idx:next_end]
+    assert "_STRAT_OFFSET_CAP" in handler, "Next handler does not reference _STRAT_OFFSET_CAP"
+
+    # The handler must use `>` (strict), not `>=`. Strict comparison lets
+    # the user reach offset=10_000 (the last legal page); `>=` would strand
+    # them one page early. Match the operator immediately adjacent to the
+    # constant on either side, so the assertion is impervious to incidental
+    # `>` characters elsewhere in the slice (e.g. arrow fn `=>`).
+    op_match = re.search(
+        r"(?:>=?|<=?)\s*_STRAT_OFFSET_CAP|_STRAT_OFFSET_CAP\s*(?:>=?|<=?)",
+        handler,
+    )
+    assert op_match, "Next handler: no comparison operator adjacent to _STRAT_OFFSET_CAP"
+    operator = re.search(r"(>=|<=|>|<)", op_match.group(0)).group(1)
+    assert operator == ">", (
+        f"Next click handler must use `>` (strict) against _STRAT_OFFSET_CAP, "
+        f"not `{operator}`. `>=` would disable Next one page before the cap "
+        "is reachable — see post-impl CR HIGH finding."
+    )
+
+    # Pager state guard: the disabled flip in _renderHistoryPager uses `>=`
+    # (offset >= cap ⇒ disabled), which is correct precisely BECAUSE the
+    # click handler uses `>`. Lock both halves so future refactors can't
+    # silently desync.
+    pager_idx = js.find("function _renderHistoryPager")
+    assert pager_idx != -1
+    pager_end = _js_decl_end(js, pager_idx)
+    pager = js[pager_idx:pager_end]
+    assert "offset >= _STRAT_OFFSET_CAP" in pager, (
+        "Pager disabled-flip must use `offset >= _STRAT_OFFSET_CAP` so that "
+        "Next disables at the cap. Paired with the click handler's `>`, the "
+        "user can reach the cap but not advance past it."
+    )
 
 
 def test_ds62_history_page_size_change_resets_offset():
@@ -701,9 +759,7 @@ def test_ds67_strategy_switch_resets_history_offset():
     js = _read_static("dashboard.js")
     fn_idx = js.find("function _setActiveStrategy")
     assert fn_idx != -1, "_setActiveStrategy not found in dashboard.js"
-    end = js.find("\n}\n", fn_idx)
-    assert end != -1
-    body = js[fn_idx:end]
+    body = js[fn_idx : _js_decl_end(js, fn_idx)]
     assert (
         "_stratHistoryOffset = 0" in body
     ), "_setActiveStrategy does not reset _stratHistoryOffset before fetching"
@@ -722,14 +778,79 @@ def test_ds68_empty_state_branches_on_total():
     js = _read_static("dashboard.js")
     fn_idx = js.find("function _renderHistoryRows")
     assert fn_idx != -1
-    end = js.find("\n}\n", fn_idx)
-    assert end != -1
-    body = js[fn_idx:end]
+    body = js[fn_idx : _js_decl_end(js, fn_idx)]
     assert "_stratHistoryTotal" in body, (
         "_renderHistoryRows does not consult _stratHistoryTotal — empty-state "
         "placeholder cannot distinguish 'no fills ever' from 'paginated past last'"
     )
     assert "No fills on this page" in body, "missing the 'No fills on this page' placeholder branch"
+
+
+def test_ds69_history_column_order_matches_thead_and_colspan_locked():
+    """Lock three things together: (1) JS column display-name order matches
+    the static `<thead>` order in index.html; (2) the count matches; (3) the
+    static-row `colspan` literal in HTML matches `_STRAT_HISTORY_COLS.length`.
+
+    Catches three classes of regression that ds64 misses:
+      * Someone reorders `_STRAT_HISTORY_COLS` — visual data moves under the
+        wrong header without changing the key membership set.
+      * Someone adds a `<th>` to index.html without adding a JS column.
+      * Someone changes `colspan` in HTML or JS but not the other; the empty
+        / loading-state row then misrenders during the brief no-data window.
+    """
+    import html as html_lib
+    import re
+
+    js = _read_static("dashboard.js")
+    html_text = _read_static("index.html")
+
+    # 1. Display-name list from _STRAT_HISTORY_COLS (snake-case key + display).
+    cols_m = re.search(r"_STRAT_HISTORY_COLS\s*=\s*\[(.*?)\];", js, re.DOTALL)
+    assert cols_m, "could not locate _STRAT_HISTORY_COLS in dashboard.js"
+    # Each entry is `["snake_case", "Display Name"]` — capture the second slot.
+    display_names = re.findall(r'\[\s*"\w+"\s*,\s*"([^"]+)"\s*\]', cols_m.group(1))
+    assert display_names, "_STRAT_HISTORY_COLS parse returned no display names"
+
+    # 2. <thead> of the strat-history table specifically. Slice between the
+    # table id and the FIRST </thead> after it, so other tables in index.html
+    # (e.g. fills-table) don't bleed in.
+    tbl_idx = html_text.find('id="strat-history"')
+    assert tbl_idx != -1, "strat-history table not found in index.html"
+    thead_end = html_text.find("</thead>", tbl_idx)
+    assert thead_end != -1, "strat-history <thead> not found"
+    thead = html_text[tbl_idx:thead_end]
+
+    # <th>...</th> text (markup is clean — no nested tags). Unescape `&amp;`
+    # so "Realized P&amp;L" → "Realized P&L" matches the JS display name.
+    th_texts = [html_lib.unescape(t).strip() for t in re.findall(r"<th[^>]*>([^<]+)</th>", thead)]
+    assert th_texts, "no <th> cells parsed from strat-history thead"
+
+    # 3a. Count parity.
+    assert len(th_texts) == len(display_names), (
+        f"<th> count ({len(th_texts)}) != _STRAT_HISTORY_COLS length "
+        f"({len(display_names)}). thead={th_texts!r}, cols={display_names!r}"
+    )
+
+    # 3b. Order parity.
+    assert th_texts == display_names, (
+        f"<th> order does not match _STRAT_HISTORY_COLS display names. "
+        f"thead={th_texts!r}, cols={display_names!r}. "
+        "Visual data will render under the wrong header."
+    )
+
+    # 4. colspan literal in the static placeholder row must equal column count.
+    span_m = re.search(
+        r'<tbody[^>]*id="strat-history-body".*?colspan="(\d+)"',
+        html_text,
+        re.DOTALL,
+    )
+    assert span_m, "could not locate colspan on the strat-history placeholder row"
+    static_span = int(span_m.group(1))
+    assert static_span == len(display_names), (
+        f'static colspan="{static_span}" in index.html does not equal '
+        f"_STRAT_HISTORY_COLS.length ({len(display_names)}). The empty/loading "
+        "row will misrender."
+    )
 
 
 def test_ds65_history_html_has_required_ids_and_aria():
