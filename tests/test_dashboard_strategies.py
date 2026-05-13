@@ -248,9 +248,13 @@ def test_ds17_profit_factor_none_when_all_losses(fresh_trade_log):
 
 
 def test_ds18_profit_factor_inf_when_all_wins(fresh_trade_log):
-    """Only-wins branch returns +inf — JSON-serializable via fastapi."""
-    import math
+    """Only-wins branch returns the string sentinel "Infinity".
 
+    FastAPI's default JSONResponse converts float('inf') to null on the wire,
+    so the helper at data.trade_log._round_profit_factor emits a string
+    instead. The dashboard renderer (dashboard.js _fmtProfitFactor) handles
+    both forms.
+    """
     log = fresh_trade_log
     log.record(*_mkfill(1, "SMACrossover-QQQ", action="BUY", qty=10, price=100)[:2])
     log.record(
@@ -260,7 +264,7 @@ def test_ds18_profit_factor_inf_when_all_wins(fresh_trade_log):
     out = dashboard_app.api_strategy_summary(meta=meta)
     assert out["wins"] == 1
     assert out["losses"] == 0
-    assert math.isinf(out["profit_factor"])
+    assert out["profit_factor"] == "Infinity"
 
 
 # ── DS-20 .. DS-23: /api/strategies/{name}/fills pagination + JSON parsing ──
@@ -471,3 +475,46 @@ def test_ds27_dashboard_js_fetch_urls_match_routes():
         f"Found suspiciously few JS fetch URLs ({len(js_urls)}) — check the "
         "regex in test_ds27 against dashboard.js."
     )
+
+
+# ── DS-28: profit_factor "Infinity" sentinel round-trips through FastAPI ──
+
+
+def test_ds28_profit_factor_infinity_survives_json_response(fresh_trade_log):
+    """Only-wins profit_factor reaches the wire as the literal string "Infinity".
+
+    Direct-call tests (ds18) bypass FastAPI's default JSONResponse encoder, so
+    they cannot catch a regression where the helper returns float('inf') again
+    and the encoder silently rewrites it to null. This test goes through the
+    real HTTP layer to lock that contract.
+    """
+    import os
+    from starlette.testclient import TestClient
+
+    log = fresh_trade_log
+    log.record(*_mkfill(1, "SMACrossover-QQQ", action="BUY", qty=10, price=100)[:2])
+    log.record(
+        *_mkfill(2, "SMACrossover-QQQ", action="SELL", qty=10, price=110, cost_basis=100)[:2]
+    )
+
+    os.environ["DASHBOARD_TOKEN"] = "pf-infinity-test-secret"
+    with dashboard_app._rate_lock:
+        dashboard_app._rate_state.clear()
+    try:
+        tc = TestClient(dashboard_app.app, raise_server_exceptions=False)
+        login = tc.post("/api/login", json={"token": os.environ["DASHBOARD_TOKEN"]})
+        assert login.status_code == 200, f"login failed: {login.status_code} {login.text}"
+
+        r = tc.get("/api/strategies/SMACrossover-QQQ/summary")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        # The wire-format assertion. If FastAPI's encoder silently rewrites
+        # float('inf') → null, this fails.
+        assert body["profit_factor"] == "Infinity"
+        # The raw response text must contain the literal string — guards
+        # against an alternative encoder reintroducing JSON5-style Infinity.
+        assert '"profit_factor":"Infinity"' in r.text.replace(" ", "")
+    finally:
+        os.environ.pop("DASHBOARD_TOKEN", None)
+        with dashboard_app._rate_lock:
+            dashboard_app._rate_state.clear()
