@@ -39,6 +39,29 @@ let _stratTabsInited = false;
 const _STRAT_POLL_MS = 30000;
 const _STRAT_STORAGE_KEY = "tradebot.activeStrategy";
 
+// History table state. One AbortController per panel; ANY state mutation
+// (strategy switch, page change, page-size change) aborts the prior in-flight
+// fetch and replaces the controller — single rule prevents stale rows
+// overwriting newer ones. Server caps `offset` at 10_000 (dashboard/app.py:409).
+let _stratHistoryOffset = 0;
+let _stratHistoryLimit = 50;
+let _stratHistoryTotal = 0;
+let _stratHistoryAbort = null;
+const _STRAT_OFFSET_CAP = 10_000;
+// Display-name mapping. Keep as a module-level constant so a future schema
+// rename surfaces here via grep, not as silent column drift. Order defines
+// CSV/table column order in S3c too.
+const _STRAT_HISTORY_COLS = [
+  ["filled_at",       "Time"],
+  ["action",          "Side"],
+  ["quantity",        "Qty"],
+  ["fill_price",      "Price"],
+  ["cost_basis",      "Cost basis"],
+  ["realized_pnl",    "Realized P&L"],
+  ["real_r_multiple", "R-multiple"],
+  ["strategy_params", "Params"],
+];
+
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 
 async function _fetchJSON(path) {
@@ -594,6 +617,176 @@ async function fetchStrategySummary(name) {
   return payload;
 }
 
+// ── Per-strategy history table ──────────────────────────────────────────────
+//
+// Fully decoupled from the 30s summary poll: only user actions trigger fetches.
+// AbortController is replaced (not reused) on each call so a late response
+// from a superseded fetch cannot render over a newer one.
+
+function _setHistoryRowsPlaceholder(text) {
+  const body = document.getElementById("strat-history-body");
+  if (body) body.innerHTML = `<tr><td colspan="8" class="muted-center">${esc(text)}</td></tr>`;
+}
+
+function _fmtHistoryCell(key, value) {
+  if (value === null || value === undefined) return "—";
+  if (key === "filled_at") return String(value).replace("T", " ").slice(0, 19);
+  if (key === "action") return String(value);
+  if (key === "quantity") return Number(value).toLocaleString();
+  if (key === "fill_price" || key === "cost_basis") return fmtUSD.format(Number(value));
+  if (key === "realized_pnl") {
+    const n = Number(value);
+    return (n < 0 ? "-$" : "$") + Math.abs(n).toFixed(2);
+  }
+  if (key === "real_r_multiple") return Number(value).toFixed(2) + "R";
+  if (key === "strategy_params") {
+    // Server parses JSON server-side; may arrive as object or string.
+    if (typeof value === "object") return JSON.stringify(value);
+    return String(value);
+  }
+  return String(value);
+}
+
+function _renderHistoryRows(fills) {
+  const body = document.getElementById("strat-history-body");
+  if (!body) return;
+  if (!fills.length) {
+    // "No fills yet" only when total is also zero. If total > 0 but this
+    // page returned [], the user paginated past the last filled page —
+    // e.g. a deletion race or hitting the offset cap on a partial last page.
+    const text = _stratHistoryTotal > 0 ? "No fills on this page" : "No fills yet";
+    _setHistoryRowsPlaceholder(text);
+    return;
+  }
+  const rows = fills.map(f => {
+    const cells = _STRAT_HISTORY_COLS.map(([k]) => {
+      const text = esc(_fmtHistoryCell(k, f[k]));
+      const num = (k === "quantity" || k === "fill_price" || k === "cost_basis" ||
+                   k === "realized_pnl" || k === "real_r_multiple");
+      const cls = k === "strategy_params" ? "params" : (num ? "num" : "");
+      // Params column gets a title so the truncated JSON is visible on hover.
+      const title = k === "strategy_params" ? ` title="${text}"` : "";
+      return `<td${cls ? ` class="${cls}"` : ""}${title}>${text}</td>`;
+    }).join("");
+    return `<tr>${cells}</tr>`;
+  });
+  body.innerHTML = rows.join("");
+}
+
+function _renderHistoryPager() {
+  const total = _stratHistoryTotal;
+  const offset = _stratHistoryOffset;
+  const limit = _stratHistoryLimit;
+  const status = document.getElementById("strat-history-status");
+  const pageEl = document.getElementById("strat-history-page");
+  const prev = document.getElementById("strat-history-prev");
+  const next = document.getElementById("strat-history-next");
+
+  if (status) {
+    if (total === 0) {
+      status.textContent = "0 fills";
+    } else {
+      const from = offset + 1;
+      const to = Math.min(offset + limit, total);
+      status.textContent = `Showing ${from}-${to} of ${total}`;
+    }
+  }
+  if (pageEl) {
+    const pageNum = Math.floor(offset / limit) + 1;
+    const pageCount = Math.max(1, Math.ceil(total / limit));
+    pageEl.textContent = `Page ${pageNum} of ${pageCount}`;
+  }
+  if (prev) prev.disabled = offset <= 0;
+  if (next) {
+    // Next is disabled at the server's offset cap even if more rows exist.
+    // Single rule: disabled iff no more rows OR we've already reached the cap.
+    // Matches the click-handler's `candidate > _STRAT_OFFSET_CAP` guard so the
+    // two gates can't disagree and strand the user one page before the cap.
+    const moreRowsExist = offset + limit < total;
+    next.disabled = !moreRowsExist || offset >= _STRAT_OFFSET_CAP;
+  }
+}
+
+async function fetchStrategyFills(name) {
+  if (!name) return null;
+  // Abort any in-flight fetch and replace the controller — covers every
+  // mutation path (strategy switch, page change, page-size change). The
+  // replacement must happen BEFORE the fetch so a late prior response sees
+  // the OLD aborted signal and is dropped silently.
+  if (_stratHistoryAbort) {
+    try { _stratHistoryAbort.abort(); } catch (_) { /* ignore */ }
+  }
+  _stratHistoryAbort = new AbortController();
+  const myAbort = _stratHistoryAbort;
+
+  const table = document.getElementById("strat-history");
+  if (table) table.setAttribute("aria-busy", "true");
+
+  const enc = encodeURIComponent(name);
+  const offset = _stratHistoryOffset;
+  const limit = _stratHistoryLimit;
+  // Pinned to dashboard/app.py @app.get("/api/strategies/{name}/fills")
+  const url = `/api/strategies/${enc}/fills?limit=${limit}&offset=${offset}`;
+  let payload = null;
+  try {
+    const r = await fetch(url, { credentials: "same-origin", signal: myAbort.signal });
+    if (r.status === 401) {
+      showLogin("Session expired — please log in again.");
+      return null;
+    }
+    if (!r.ok) {
+      console.warn("fetchStrategyFills", url, "->", r.status);
+      _setHistoryRowsPlaceholder("Failed to load fills");
+      return null;
+    }
+    payload = await r.json();
+  } catch (e) {
+    if (e && e.name === "AbortError") return null;  // superseded; silent drop
+    console.warn("fetchStrategyFills", e);
+    _setHistoryRowsPlaceholder("Failed to load fills");
+    return null;
+  } finally {
+    // Only clear busy state if we're still the current request.
+    if (myAbort === _stratHistoryAbort && table) {
+      table.setAttribute("aria-busy", "false");
+    }
+  }
+
+  // Drop late responses (a newer fetch may have superseded us).
+  if (myAbort !== _stratHistoryAbort) return null;
+
+  _stratHistoryTotal = Number(payload.total ?? 0);
+  _renderHistoryRows(payload.fills || []);
+  _renderHistoryPager();
+  return payload;
+}
+
+function _wireHistoryControls() {
+  const prev = document.getElementById("strat-history-prev");
+  const next = document.getElementById("strat-history-next");
+  const size = document.getElementById("strat-history-pagesize");
+  if (prev) prev.addEventListener("click", () => {
+    if (!_activeStrategy) return;
+    _stratHistoryOffset = Math.max(0, _stratHistoryOffset - _stratHistoryLimit);
+    fetchStrategyFills(_activeStrategy);
+  });
+  if (next) next.addEventListener("click", () => {
+    if (!_activeStrategy) return;
+    const candidate = _stratHistoryOffset + _stratHistoryLimit;
+    if (candidate > _STRAT_OFFSET_CAP) return;  // honour server cap
+    _stratHistoryOffset = candidate;
+    fetchStrategyFills(_activeStrategy);
+  });
+  if (size) size.addEventListener("change", () => {
+    if (!_activeStrategy) return;
+    const v = parseInt(size.value, 10);
+    if (!Number.isFinite(v) || v <= 0) return;
+    _stratHistoryLimit = v;
+    _stratHistoryOffset = 0;  // page-size change resets pagination
+    fetchStrategyFills(_activeStrategy);
+  });
+}
+
 function _setActiveStrategy(name) {
   // Validate against the cached list — a stale sessionStorage key from a
   // renamed/deleted strategy must NOT silently activate.
@@ -618,6 +811,11 @@ function _setActiveStrategy(name) {
 
   // Fetch summary for this strategy immediately
   fetchStrategySummary(name);
+  // History pagination resets on strategy switch; history fetch is fully
+  // decoupled from the summary poll so a 30s summary refresh does NOT
+  // re-render the table out from under the user.
+  _stratHistoryOffset = 0;
+  fetchStrategyFills(name);
 }
 
 function _renderStratTabs(list) {
@@ -929,6 +1127,7 @@ loginInput.addEventListener("keydown", e => { if (e.key === "Enter") document.ge
 document.addEventListener("DOMContentLoaded", () => {
   _initTabs();
   _initRangeChips();
+  _wireHistoryControls();
   _activateChip("7");
   // Fetch info first so _infoAccount is populated before fetchAccount runs
   fetchInfo().then(() => {
