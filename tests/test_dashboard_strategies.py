@@ -480,7 +480,7 @@ def test_ds27_dashboard_js_fetch_urls_match_routes():
 # ── DS-28: profit_factor "Infinity" sentinel round-trips through FastAPI ──
 
 
-def test_ds28_profit_factor_infinity_survives_json_response(fresh_trade_log):
+def test_ds28_profit_factor_infinity_survives_json_response(fresh_trade_log, dashboard_client):
     """Only-wins profit_factor reaches the wire as the literal string "Infinity".
 
     Direct-call tests (ds18) bypass FastAPI's default JSONResponse encoder, so
@@ -488,37 +488,76 @@ def test_ds28_profit_factor_infinity_survives_json_response(fresh_trade_log):
     and the encoder silently rewrites it to null. This test goes through the
     real HTTP layer to lock that contract.
     """
-    import os
-    from starlette.testclient import TestClient
-
     log = fresh_trade_log
     log.record(*_mkfill(1, "SMACrossover-QQQ", action="BUY", qty=10, price=100)[:2])
     log.record(
         *_mkfill(2, "SMACrossover-QQQ", action="SELL", qty=10, price=110, cost_basis=100)[:2]
     )
 
-    prior_token = os.environ.get("DASHBOARD_TOKEN")
-    os.environ["DASHBOARD_TOKEN"] = "pf-infinity-test-secret"
-    with dashboard_app._rate_lock:
-        dashboard_app._rate_state.clear()
-    try:
-        tc = TestClient(dashboard_app.app, raise_server_exceptions=False)
-        login = tc.post("/api/login", json={"token": os.environ["DASHBOARD_TOKEN"]})
-        assert login.status_code == 200, f"login failed: {login.status_code} {login.text}"
+    r = dashboard_client.get("/api/strategies/SMACrossover-QQQ/summary")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # The wire-format assertion. If FastAPI's encoder silently rewrites
+    # float('inf') → null, this fails.
+    assert body["profit_factor"] == "Infinity"
+    # The raw response text must contain the literal string — guards
+    # against an alternative encoder reintroducing JSON5-style Infinity.
+    assert '"profit_factor":"Infinity"' in r.text.replace(" ", "")
 
-        r = tc.get("/api/strategies/SMACrossover-QQQ/summary")
-        assert r.status_code == 200, r.text
-        body = r.json()
-        # The wire-format assertion. If FastAPI's encoder silently rewrites
-        # float('inf') → null, this fails.
-        assert body["profit_factor"] == "Infinity"
-        # The raw response text must contain the literal string — guards
-        # against an alternative encoder reintroducing JSON5-style Infinity.
-        assert '"profit_factor":"Infinity"' in r.text.replace(" ", "")
-    finally:
-        if prior_token is None:
-            os.environ.pop("DASHBOARD_TOKEN", None)
-        else:
-            os.environ["DASHBOARD_TOKEN"] = prior_token
-        with dashboard_app._rate_lock:
-            dashboard_app._rate_state.clear()
+
+# ── DS-50..54: auth-failure coverage for per-strategy endpoints (DB-X5) ──────
+
+
+def test_ds50_strategies_list_unauthenticated_returns_401(dashboard_client_unauth):
+    r = dashboard_client_unauth.get("/api/strategies")
+    assert r.status_code == 401
+
+
+def test_ds51_strategy_summary_unauthenticated_returns_401(dashboard_client_unauth):
+    # Use the first known strategy from STRATEGY_METADATA so the route resolves.
+    name = STRATEGY_METADATA[0].name
+    r = dashboard_client_unauth.get(f"/api/strategies/{name}/summary")
+    assert r.status_code == 401
+
+
+def test_ds52_strategy_fills_unauthenticated_returns_401(dashboard_client_unauth):
+    name = STRATEGY_METADATA[0].name
+    r = dashboard_client_unauth.get(f"/api/strategies/{name}/fills")
+    assert r.status_code == 401
+
+
+def test_ds53_strategy_summary_with_tampered_session_cookie_returns_401(dashboard_client_unauth):
+    """Forged dashboard_session cookie must fail _is_valid_session and return 401.
+
+    Replaces the bearer-token variant from the plan: /api/strategies/* uses
+    `_require_session` (cookie-only), so a bearer-token test is impossible.
+    Tampered-cookie is the closest analog to 'bad credentials'.
+    """
+    name = STRATEGY_METADATA[0].name
+    dashboard_client_unauth.cookies.set("dashboard_session", "not.a.valid.signed.session")
+    r = dashboard_client_unauth.get(f"/api/strategies/{name}/summary")
+    assert r.status_code == 401
+
+
+def test_ds54_reset_all_rate_state_clears_both_dicts():
+    """Unit test for `_reset_all_rate_state`: both rate-state dicts get cleared.
+
+    Strictly stronger than a fixture-teardown guard — does not depend on
+    pytest finalizer ordering, and would FAIL if a future refactor stops
+    clearing `_SESSION_RATE_STATE`. The earlier ad-hoc helper in
+    `test_dashboard.py` only cleared `_rate_state`, masking the per-session
+    equity-history quota leak this test now locks.
+    """
+    from tests.conftest import _reset_all_rate_state
+
+    with dashboard_app._rate_lock:
+        dashboard_app._rate_state["10.0.0.99"] = {"attempts": [1.0]}
+    with dashboard_app._session_rate_lock:
+        dashboard_app._SESSION_RATE_STATE["any-session-id"] = {"attempts": [1.0]}
+
+    _reset_all_rate_state()
+
+    with dashboard_app._rate_lock:
+        assert dashboard_app._rate_state == {}
+    with dashboard_app._session_rate_lock:
+        assert dashboard_app._SESSION_RATE_STATE == {}

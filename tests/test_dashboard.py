@@ -10,7 +10,6 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
-from starlette.testclient import TestClient
 
 from dashboard import app as dashboard_app
 
@@ -230,71 +229,42 @@ def test_db15_lockout_after_failed_threshold():
 # ── HTTP-layer tests (TestClient) ─────────────────────────────────────────────
 
 
-def test_db16_http_missing_auth_header_401():
-    os.environ["DASHBOARD_TOKEN"] = "tc-secret"
-    _reset_rate_state()
-    try:
-        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
-        r = client.post("/api/bot/restart")
-        assert r.status_code == 401
-    finally:
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
+def test_db16_http_missing_auth_header_401(dashboard_token, dashboard_client_unauth):
+    r = dashboard_client_unauth.post("/api/bot/restart")
+    assert r.status_code == 401
 
 
-def test_db17_http_wrong_scheme_401():
-    os.environ["DASHBOARD_TOKEN"] = "tc-secret"
-    _reset_rate_state()
-    try:
-        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
-        r = client.post("/api/bot/restart", headers={"Authorization": "Token tc-secret"})
-        assert r.status_code == 401
-    finally:
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
+def test_db17_http_wrong_scheme_401(dashboard_token, dashboard_client_unauth):
+    r = dashboard_client_unauth.post(
+        "/api/bot/restart", headers={"Authorization": f"Token {dashboard_token}"}
+    )
+    assert r.status_code == 401
 
 
-def test_db18_http_wrong_token_401():
-    os.environ["DASHBOARD_TOKEN"] = "tc-secret"
-    _reset_rate_state()
-    try:
-        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
-        r = client.post("/api/bot/restart", headers={"Authorization": "Bearer bad"})
-        assert r.status_code == 401
-    finally:
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
+def test_db18_http_wrong_token_401(dashboard_token, dashboard_client_unauth):
+    r = dashboard_client_unauth.post("/api/bot/restart", headers={"Authorization": "Bearer bad"})
+    assert r.status_code == 401
 
 
-def test_db19_http_lowercase_bearer_401():
-    os.environ["DASHBOARD_TOKEN"] = "tc-secret"
-    _reset_rate_state()
-    try:
-        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
-        r = client.post("/api/bot/restart", headers={"Authorization": "bearer tc-secret"})
-        assert r.status_code == 401
-    finally:
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
+def test_db19_http_lowercase_bearer_401(dashboard_token, dashboard_client_unauth):
+    r = dashboard_client_unauth.post(
+        "/api/bot/restart", headers={"Authorization": f"bearer {dashboard_token}"}
+    )
+    assert r.status_code == 401
 
 
-def test_db20_http_valid_token_200(monkeypatch):
+def test_db20_http_valid_token_200(monkeypatch, dashboard_token, dashboard_client_unauth):
     class _FakeDone:
         returncode = 0
         stdout = ""
         stderr = ""
 
     monkeypatch.setattr(sp_module, "run", lambda *a, **kw: _FakeDone())
-    os.environ["DASHBOARD_TOKEN"] = "tc-secret"
-    _reset_rate_state()
-    try:
-        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
-        r = client.post("/api/bot/restart", headers={"Authorization": "Bearer tc-secret"})
-        assert r.status_code == 200
-        assert r.json().get("ok") is True
-    finally:
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
+    r = dashboard_client_unauth.post(
+        "/api/bot/restart", headers={"Authorization": f"Bearer {dashboard_token}"}
+    )
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
 
 
 # ── stale threshold branch tests (DB-21..DB-25) ──────────────────────────────
@@ -372,45 +342,31 @@ def test_db26_client_ip_ignores_xff_without_trusted_proxies():
     assert ip == "10.0.0.1", f"Expected peer IP 10.0.0.1, got {ip!r} — XFF must be ignored"
 
 
-def test_db27_lockout_persists_for_valid_token_on_attempt_11(monkeypatch):
+def test_db27_lockout_persists_for_valid_token_on_attempt_11(
+    monkeypatch, dashboard_token, dashboard_client_unauth
+):
     # HTTP-layer lockout: 10 wrong tokens → attempt 11 with correct token returns 429.
     # Raise _RATE_LIMIT_MAX_ATTEMPTS so rate-per-minute doesn't fire before the lockout.
     monkeypatch.setattr(dashboard_app, "_RATE_LIMIT_MAX_ATTEMPTS", 100)
-    os.environ["DASHBOARD_TOKEN"] = "lock-secret"
-    _reset_rate_state()
-    try:
-        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
-        for _ in range(dashboard_app._LOCKOUT_FAILED_THRESHOLD):
-            client.post("/api/bot/restart", headers={"Authorization": "Bearer wrong"})
-        r = client.post("/api/bot/restart", headers={"Authorization": "Bearer lock-secret"})
-        assert r.status_code == 429, f"Expected 429 lockout, got {r.status_code}"
-        assert "locked out" in r.json().get("detail", "")
-    finally:
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
+    client = dashboard_client_unauth
+    for _ in range(dashboard_app._LOCKOUT_FAILED_THRESHOLD):
+        client.post("/api/bot/restart", headers={"Authorization": "Bearer wrong"})
+    r = client.post("/api/bot/restart", headers={"Authorization": f"Bearer {dashboard_token}"})
+    assert r.status_code == 429, f"Expected 429 lockout, got {r.status_code}"
+    assert "locked out" in r.json().get("detail", "")
 
 
-def test_db28_cookie_login_flow_authorises_control_endpoint(monkeypatch):
-    # Login with valid token → receive session cookie → call /api/bot/restart with cookie only.
+def test_db28_cookie_login_flow_authorises_control_endpoint(monkeypatch, dashboard_client):
+    # Authenticated client (via fixture) → call /api/bot/restart with cookie only.
     class _FakeDone:
         returncode = 0
         stdout = ""
         stderr = ""
 
     monkeypatch.setattr(sp_module, "run", lambda *a, **kw: _FakeDone())
-    os.environ["DASHBOARD_TOKEN"] = "cookie-secret"
-    _reset_rate_state()
-    try:
-        client = TestClient(dashboard_app.app, raise_server_exceptions=False)
-        login = client.post("/api/login", json={"token": "cookie-secret"})
-        assert login.status_code == 200, f"Login failed: {login.status_code} {login.text}"
-        # TestClient carries cookies automatically; no Authorization header sent
-        r = client.post("/api/bot/restart")
-        assert r.status_code == 200, f"Expected 200 with cookie auth, got {r.status_code}"
-        assert r.json().get("ok") is True
-    finally:
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
+    r = dashboard_client.post("/api/bot/restart")
+    assert r.status_code == 200, f"Expected 200 with cookie auth, got {r.status_code}"
+    assert r.json().get("ok") is True
 
 
 # ── Static guards: catch regressions from a churning popup-features story ────
@@ -490,51 +446,33 @@ _VALID_SNAPSHOT = {
 }
 
 
-def _make_tc_with_session(monkeypatch=None) -> TestClient:
-    """Return (TestClient, session_cookie_dict) for an authenticated session."""
-    os.environ.setdefault("DASHBOARD_TOKEN", "acct-test-secret")
-    _reset_rate_state()
-    tc = TestClient(dashboard_app.app, raise_server_exceptions=False)
-    login = tc.post("/api/login", json={"token": os.environ["DASHBOARD_TOKEN"]})
-    assert login.status_code == 200, f"Login failed: {login.status_code} {login.text}"
-    return tc
-
-
 def _write_snapshot(data_dir: Path, snap: dict) -> None:
     snap_file = data_dir / "account_snapshot.json"
     snap_file.write_text(json.dumps(snap), encoding="utf-8")
 
 
-def test_db30_api_account_missing_returns_status_missing(tmp_path):
+def test_db30_api_account_missing_returns_status_missing(tmp_path, dashboard_client):
     """Empty data dir → GET /api/account returns status='missing'."""
     orig = dashboard_app._ROOT
     dashboard_app._ROOT = tmp_path
-    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
-    _reset_rate_state()
     try:
         (tmp_path / "data").mkdir(parents=True, exist_ok=True)
-        tc = _make_tc_with_session()
-        r = tc.get("/api/account")
+        r = dashboard_client.get("/api/account")
         assert r.status_code == 200
         assert r.json()["status"] == "missing"
     finally:
         dashboard_app._ROOT = orig
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
 
 
-def test_db31_api_account_ok_returns_snapshot_fields(tmp_path):
+def test_db31_api_account_ok_returns_snapshot_fields(tmp_path, dashboard_client):
     """Valid snapshot in data dir → GET /api/account returns all summary keys."""
     orig = dashboard_app._ROOT
     dashboard_app._ROOT = tmp_path
-    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
-    _reset_rate_state()
     try:
         data_dir = tmp_path / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
         _write_snapshot(data_dir, _VALID_SNAPSHOT)
-        tc = _make_tc_with_session()
-        r = tc.get("/api/account")
+        r = dashboard_client.get("/api/account")
         assert r.status_code == 200
         body = r.json()
         assert body["status"] in ("ok", "stale")
@@ -543,92 +481,61 @@ def test_db31_api_account_ok_returns_snapshot_fields(tmp_path):
             assert key in body["summary"]
     finally:
         dashboard_app._ROOT = orig
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
 
 
-def test_db32_api_account_unauthenticated_returns_401():
+def test_db32_api_account_unauthenticated_returns_401(dashboard_client_unauth):
     """GET /api/account without a session cookie returns 401."""
-    tc = TestClient(dashboard_app.app, raise_server_exceptions=False)
-    r = tc.get("/api/account")
+    r = dashboard_client_unauth.get("/api/account")
     assert r.status_code == 401
 
 
-def test_db33_api_positions_returns_list(tmp_path):
+def test_db33_api_positions_returns_list(tmp_path, dashboard_client):
     """Valid snapshot with 1 position → /api/positions returns list of length 1."""
     orig = dashboard_app._ROOT
     dashboard_app._ROOT = tmp_path
-    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
-    _reset_rate_state()
     try:
         data_dir = tmp_path / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
         _write_snapshot(data_dir, _VALID_SNAPSHOT)
-        tc = _make_tc_with_session()
-        r = tc.get("/api/positions")
+        r = dashboard_client.get("/api/positions")
         assert r.status_code == 200
         body = r.json()
         assert "positions" in body
         assert len(body["positions"]) == 1
     finally:
         dashboard_app._ROOT = orig
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
 
 
-def test_db34_api_equity_history_clamps_days_lower(tmp_path):
+def test_db34_api_equity_history_clamps_days_lower(tmp_path, dashboard_client):
     """days=-1 is clamped to 1."""
     orig = dashboard_app._ROOT
     dashboard_app._ROOT = tmp_path
-    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
-    _reset_rate_state()
-    # Clear per-session rate state so this test starts fresh
-    with dashboard_app._session_rate_lock:
-        dashboard_app._SESSION_RATE_STATE.clear()
     try:
         (tmp_path / "data").mkdir(parents=True, exist_ok=True)
-        tc = _make_tc_with_session()
-        r = tc.get("/api/equity-history?days=-1")
+        r = dashboard_client.get("/api/equity-history?days=-1")
         assert r.status_code == 200
         assert r.json()["days"] == 1
     finally:
         dashboard_app._ROOT = orig
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
-        with dashboard_app._session_rate_lock:
-            dashboard_app._SESSION_RATE_STATE.clear()
 
 
-def test_db35_api_equity_history_clamps_days_upper(tmp_path):
+def test_db35_api_equity_history_clamps_days_upper(tmp_path, dashboard_client):
     """days=999 is clamped to 365."""
     orig = dashboard_app._ROOT
     dashboard_app._ROOT = tmp_path
-    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
-    _reset_rate_state()
-    with dashboard_app._session_rate_lock:
-        dashboard_app._SESSION_RATE_STATE.clear()
     try:
         (tmp_path / "data").mkdir(parents=True, exist_ok=True)
-        tc = _make_tc_with_session()
-        r = tc.get("/api/equity-history?days=999")
+        r = dashboard_client.get("/api/equity-history?days=999")
         assert r.status_code == 200
         assert r.json()["days"] == 365
     finally:
         dashboard_app._ROOT = orig
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
-        with dashboard_app._session_rate_lock:
-            dashboard_app._SESSION_RATE_STATE.clear()
 
 
-def test_db36_api_equity_history_downsamples(tmp_path):
+def test_db36_api_equity_history_downsamples(tmp_path, dashboard_client):
     """Today's equity file with 3000 lines → response points <= 2000."""
     orig = dashboard_app._ROOT
     dashboard_app._ROOT = tmp_path
-    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
-    _reset_rate_state()
-    with dashboard_app._session_rate_lock:
-        dashboard_app._SESSION_RATE_STATE.clear()
     try:
         data_dir = tmp_path / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -640,47 +547,32 @@ def test_db36_api_equity_history_downsamples(tmp_path):
         ]
         eq_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-        tc = _make_tc_with_session()
-        r = tc.get("/api/equity-history?days=1")
+        r = dashboard_client.get("/api/equity-history?days=1")
         assert r.status_code == 200
         assert len(r.json()["points"]) <= 2000
     finally:
         dashboard_app._ROOT = orig
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
-        with dashboard_app._session_rate_lock:
-            dashboard_app._SESSION_RATE_STATE.clear()
 
 
-def test_db37_api_equity_history_rate_limit(tmp_path):
+def test_db37_api_equity_history_rate_limit(tmp_path, dashboard_client):
     """11 requests from the same session in one minute → 11th returns 429."""
     orig = dashboard_app._ROOT
     dashboard_app._ROOT = tmp_path
-    os.environ["DASHBOARD_TOKEN"] = "acct-test-secret"
-    _reset_rate_state()
-    with dashboard_app._session_rate_lock:
-        dashboard_app._SESSION_RATE_STATE.clear()
     try:
         (tmp_path / "data").mkdir(parents=True, exist_ok=True)
-        tc = _make_tc_with_session()
         # 10 requests should all succeed (rate limit = 10/min)
         for i in range(10):
-            r = tc.get("/api/equity-history?days=1")
+            r = dashboard_client.get("/api/equity-history?days=1")
             assert r.status_code == 200, f"Request {i+1} should succeed, got {r.status_code}"
         # 11th must be rate-limited
-        r = tc.get("/api/equity-history?days=1")
+        r = dashboard_client.get("/api/equity-history?days=1")
         assert r.status_code == 429, f"Expected 429 on request 11, got {r.status_code}"
     finally:
         dashboard_app._ROOT = orig
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
-        with dashboard_app._session_rate_lock:
-            dashboard_app._SESSION_RATE_STATE.clear()
 
 
-def test_db38_today_and_fills_require_session():
+def test_db38_today_and_fills_require_session(dashboard_client_unauth):
     """/api/today and /api/recent-fills return 401 without a session cookie."""
-    tc = TestClient(dashboard_app.app, raise_server_exceptions=False)
     for path in ("/api/today", "/api/recent-fills"):
-        r = tc.get(path)
+        r = dashboard_client_unauth.get(path)
         assert r.status_code == 401, f"Expected 401 for unauthenticated {path}, got {r.status_code}"
