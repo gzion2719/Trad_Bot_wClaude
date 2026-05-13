@@ -362,3 +362,13 @@ Example (2026-05-11): MS-C plan CR raised H2 — "VIX feed silent-failure gap is
 When adding a polling gate that references multiple fetch functions (e.g. `_onAcctTab ? [fetchAccount(), fetchEquity()] : []`), the comment **must name the specific endpoint(s) that are rate-limited**, not the functions. Gate comments that name functions imply all named functions are rate-limited — reviewers will not re-check each endpoint's backend definition.
 
 Example (2026-05-06): `_onAcctTab` gate comment said "prevents fetchAccount / fetchEquity from consuming the rate limit" — but `/api/account` has no rate limit, only `/api/equity-history` does. The imprecise comment let `fetchAccount()` get swept into the gate, causing the KPI strip to show `—` on Mission Control until the user switched tabs.
+
+---
+
+## Pre-fixture wiring check rule
+
+When verifying a feature against fixture or seed data — populating a DB, writing a temp file, setting an env var — **grep the code under test for the path or source it actually reads BEFORE staging the fixture**. Don't trust a prior CHATLOG observation like "X is empty" or "Y has zero rows" as authoritative; that observation may be correct on the surface while masking a wrong-file-read bug underneath.
+
+The trigger isn't unusual data state — it's the moment you think "I'm about to populate file X so the feature shows data." Stop and confirm the feature actually consumes X. A 2-line grep beats discovering the mismatch after launching the verification, or worse, after deploy.
+
+Example (2026-05-13): the 2026-05-12 CHATLOG noted "VPS `trades.db` has zero rows," which read as a known-empty state. While prepping local verification for Phase 5 S2, I was about to seed `trades.db` to populate the new Strategies tab. A grep of `main.py` first surfaced `TradeLog(db_path=Path("data/paper_trades.db"))` — the bot writes to `paper_trades.db`, but `dashboard/app.py` was reading the default `trades.db`. The "empty" observation was technically correct but masked a wrong-file-read bug. Fixing the dashboard wiring (one line) was bundled into S2's PR and surfaced real paper-account data on the next deploy.
