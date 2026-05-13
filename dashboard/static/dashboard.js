@@ -625,7 +625,11 @@ async function fetchStrategySummary(name) {
 
 function _setHistoryRowsPlaceholder(text) {
   const body = document.getElementById("strat-history-body");
-  if (body) body.innerHTML = `<tr><td colspan="8" class="muted-center">${esc(text)}</td></tr>`;
+  // colspan derived from the column constant so it can't drift on reorders
+  // or insertions. The static initial row in index.html keeps the literal
+  // matching value, locked by test_ds69.
+  const span = _STRAT_HISTORY_COLS.length;
+  if (body) body.innerHTML = `<tr><td colspan="${span}" class="muted-center">${esc(text)}</td></tr>`;
 }
 
 function _fmtHistoryCell(key, value) {

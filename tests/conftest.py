@@ -76,10 +76,10 @@ def dashboard_client(dashboard_token):
     """Authenticated TestClient — POSTs /api/login, asserts 200, yields client.
 
     Yields the client only (not a tuple); the token value is available via
-    the `dashboard_token` fixture if a test needs it. Rate-state teardown is
-    inherited from `dashboard_token` (finalizers unwind in reverse order).
-    If this fixture is ever decoupled from `dashboard_token`, add an explicit
-    `_reset_all_rate_state()` call on teardown here.
+    the `dashboard_token` fixture if a test needs it. Defence-in-depth: this
+    fixture clears rate state on its own teardown in addition to the layer
+    `dashboard_token` already provides, so a future refactor that decouples
+    the two fixtures cannot silently regress rate-state isolation.
     """
     from starlette.testclient import TestClient
     from dashboard import app as dashboard_app
@@ -88,6 +88,7 @@ def dashboard_client(dashboard_token):
     login = tc.post("/api/login", json={"token": dashboard_token})
     assert login.status_code == 200, f"login failed: {login.status_code} {login.text}"
     yield tc
+    _reset_all_rate_state()
 
 
 @pytest.fixture(scope="session")

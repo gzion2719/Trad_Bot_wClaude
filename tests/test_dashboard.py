@@ -129,37 +129,38 @@ def test_db08_api_system_gateway_port_open_is_bool():
 # ── auth / rate-limit tests ───────────────────────────────────────────────────
 
 
-def test_db09_control_rejects_when_token_unset():
-    os.environ.pop("DASHBOARD_TOKEN", None)
+def test_db09_control_rejects_when_token_unset(monkeypatch):
+    # monkeypatch.delenv auto-restores any prior value (real env or earlier
+    # monkeypatch) on teardown, so a developer running with DASHBOARD_TOKEN
+    # set in their shell can't leak into a sibling test if this one raises.
+    monkeypatch.delenv("DASHBOARD_TOKEN", raising=False)
     _reset_rate_state()
     with pytest.raises(HTTPException) as exc_info:
         dashboard_app._check_token(_fake_request("10.0.0.9"), authorization="Bearer anything")
     assert exc_info.value.status_code == 503
 
 
-def test_db10_control_rejects_missing_or_wrong_token():
-    os.environ["DASHBOARD_TOKEN"] = "secret-xyz"
+def test_db10_control_rejects_missing_or_wrong_token(monkeypatch):
+    # db09-15 hit `_check_token` directly, which only touches `_rate_state`;
+    # they do NOT exercise the session-cookie path that populates
+    # `_SESSION_RATE_STATE`. The local `_reset_rate_state` helper is the
+    # right scope for these tests (no need for the broader fixture).
+    monkeypatch.setenv("DASHBOARD_TOKEN", "secret-xyz")
     _reset_rate_state()
-    try:
-        with pytest.raises(HTTPException) as exc_info:
-            dashboard_app._check_token(_fake_request("10.0.0.10"), authorization=None)
-        assert exc_info.value.status_code == 401
+    with pytest.raises(HTTPException) as exc_info:
+        dashboard_app._check_token(_fake_request("10.0.0.10"), authorization=None)
+    assert exc_info.value.status_code == 401
 
-        with pytest.raises(HTTPException) as exc_info:
-            dashboard_app._check_token(_fake_request("10.0.0.11"), authorization="Bearer wrong")
-        assert exc_info.value.status_code == 401
+    with pytest.raises(HTTPException) as exc_info:
+        dashboard_app._check_token(_fake_request("10.0.0.11"), authorization="Bearer wrong")
+    assert exc_info.value.status_code == 401
 
-        with pytest.raises(HTTPException) as exc_info:
-            dashboard_app._check_token(
-                _fake_request("10.0.0.12"), authorization="NotBearer secret-xyz"
-            )
-        assert exc_info.value.status_code == 401
+    with pytest.raises(HTTPException) as exc_info:
+        dashboard_app._check_token(_fake_request("10.0.0.12"), authorization="NotBearer secret-xyz")
+    assert exc_info.value.status_code == 401
 
-        # correct token must not raise
-        dashboard_app._check_token(_fake_request("10.0.0.13"), authorization="Bearer secret-xyz")
-    finally:
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
+    # correct token must not raise
+    dashboard_app._check_token(_fake_request("10.0.0.13"), authorization="Bearer secret-xyz")
 
 
 def test_db11_systemctl_action_ok_on_rc0(monkeypatch):
@@ -193,37 +194,29 @@ def test_db13_systemctl_action_rejects_unsupported():
     assert exc_info.value.status_code == 400
 
 
-def test_db14_rate_limit_429_after_three_per_ip():
-    os.environ["DASHBOARD_TOKEN"] = "secret-xyz"
+def test_db14_rate_limit_429_after_three_per_ip(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_TOKEN", "secret-xyz")
     _reset_rate_state()
     ip = "10.0.0.14"
-    try:
-        for _ in range(dashboard_app._RATE_LIMIT_MAX_ATTEMPTS):
-            dashboard_app._check_token(_fake_request(ip), authorization="Bearer secret-xyz")
-        with pytest.raises(HTTPException) as exc_info:
-            dashboard_app._check_token(_fake_request(ip), authorization="Bearer secret-xyz")
-        assert exc_info.value.status_code == 429
-        # different IP is unaffected
-        dashboard_app._check_token(_fake_request("10.0.0.15"), authorization="Bearer secret-xyz")
-    finally:
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
+    for _ in range(dashboard_app._RATE_LIMIT_MAX_ATTEMPTS):
+        dashboard_app._check_token(_fake_request(ip), authorization="Bearer secret-xyz")
+    with pytest.raises(HTTPException) as exc_info:
+        dashboard_app._check_token(_fake_request(ip), authorization="Bearer secret-xyz")
+    assert exc_info.value.status_code == 429
+    # different IP is unaffected
+    dashboard_app._check_token(_fake_request("10.0.0.15"), authorization="Bearer secret-xyz")
 
 
-def test_db15_lockout_after_failed_threshold():
-    os.environ["DASHBOARD_TOKEN"] = "secret-xyz"
+def test_db15_lockout_after_failed_threshold(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_TOKEN", "secret-xyz")
     _reset_rate_state()
     ip = "10.0.0.16"
-    try:
-        for _ in range(dashboard_app._LOCKOUT_FAILED_THRESHOLD):
-            dashboard_app._record_auth_failure(ip)
-        with pytest.raises(HTTPException) as exc_info:
-            dashboard_app._check_token(_fake_request(ip), authorization="Bearer secret-xyz")
-        assert exc_info.value.status_code == 429
-        assert "locked out" in str(exc_info.value.detail)
-    finally:
-        os.environ.pop("DASHBOARD_TOKEN", None)
-        _reset_rate_state()
+    for _ in range(dashboard_app._LOCKOUT_FAILED_THRESHOLD):
+        dashboard_app._record_auth_failure(ip)
+    with pytest.raises(HTTPException) as exc_info:
+        dashboard_app._check_token(_fake_request(ip), authorization="Bearer secret-xyz")
+    assert exc_info.value.status_code == 429
+    assert "locked out" in str(exc_info.value.detail)
 
 
 # ── HTTP-layer tests (TestClient) ─────────────────────────────────────────────
