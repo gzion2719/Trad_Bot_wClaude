@@ -3,6 +3,17 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-19 — Session-doc merge + PingPong dashboard-tab diagnosis
+
+- Step 5 drift: the 2026-05-18 closing docs (`ee6479b`) were committed and pushed to `chore/close-session-2026-05-18` but never merged. Opened chore→develop→main (PRs #223/#224); user merged both — docs-only, no VPS deploy.
+- "PingPong missing from the dashboard Strategies tab" diagnosed as a **deploy gap, not a code gap**: `config/strategy_metadata.py` already has the `PingPongTest-AAPL` entry (merged PR #221) and `/api/strategies` returns every entry unfiltered — the VPS `tradebot-dashboard` process simply was not restarted after the 2026-05-18 deploy. User restarted `tradebot-dashboard` and verified the third tab now shows; no code change, no PR.
+- Walked the backlog: GC-4 (dashboard TLS) is still the only unblocked roadmap build item; DB-P4-1 (account balance card + equity curve) and 4.8 (multi-strategy runner) are the other P1 build candidates.
+- `neon-glass-dashboard` skill is not reachable from Claude Code — it was added in Claude Desktop, which keeps a separate skill/plugin install from the VSCode extension. Needs installing on the Claude Code side (`/plugin` or `.claude/skills/`) plus a fresh session before it is invocable.
+- **Process improvement:** SESSION_PROTOCOL.md Step 5 gains a note — in the IDE/extension context, render PR compare URLs as clickable markdown links, not bare code blocks. Birthed by the user having to ask "make the links clickable" this session.
+- **Next session:** GC-4 (dashboard TLS — Caddy/nginx + `tailscale cert`) — the only unblocked roadmap build item.
+
+---
+
 ## 2026-05-18 — PingPongTest-AAPL test-only strategy shipped
 
 - Built `PingPongTest` (`strategies/test_pingpong.py`) — a deliberately trivial TEST-ONLY strategy that alternates BUY 1 / SELL 1 AAPL every 5 min during RTH (`Interval(300)`), so the bot + dashboard can be watched end-to-end on the paper account. P&L is not a goal. Fully independent: own symbol, own RiskManager, own scheduler thread; the MS-D guard enforces the unique symbol.
