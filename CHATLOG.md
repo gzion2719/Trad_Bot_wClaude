@@ -3,6 +3,16 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-16 — Dashboard Phase 5 Session 3c: CSV export shipped
+
+- Added `?format=csv` content-negotiation to `GET /api/strategies/{name}/fills` — buffered (not streamed: `TradeLog.connection()` closes its sqlite conn on `__exit__`, so a lazy generator would iterate after close), 8 columns mirroring the JS `_STRAT_HISTORY_COLS` constant via a new server-side `_CSV_COLUMNS` (locked by `test_ds71`), 100k row cap → HTTP 413 (no silent truncation), formula-injection guard on string cells only (negative P&L stays numeric), UTF-8 BOM + RFC 4180 CRLF + RFC 6266 dual-form filename + `Cache-Control: no-store`. Dependency order swapped so precedence is 401→404→400. Frontend: `<a id="strat-export" download>` in the history toolbar, href wired per-strategy in `_setActiveStrategy`.
+- Pre-impl CR: proceed-with-changes — 1 CRITICAL + 4 HIGH folded into the plan before any code, including the negative-number-mangling bug in the injection-guard design. Post-impl CR: fix-then-ship, no functional bugs — applied 3 test/comment-level fixes (ds74 docstring precision, ds70 weak `len()>=2` swapped for a real data-row assertion, `ORDER BY id DESC` parity comment).
+- 10 new tests `test_ds70..79`; 336 pass / 49 skipped. Ruff/black/mypy clean. Committed `959bb38` on `feature/strat-fills-csv-export`, pushed. PRs not yet opened at session close.
+- **Process improvement:** WORKFLOW.md gains the "Invisible Unicode literal rule" — non-printing chars (BOM etc.) must be written as the `\uXXXX` escape, never the raw character. Birthed by typing a literal U+FEFF into source twice this session, costing two throwaway fix scripts.
+- **Next session:** Open both PRs (feature→develop, develop→main) + VPS `tradebot-dashboard` restart — that closes the read side of Dashboard Phase 5. Then MS-C2 (IBKR `reqHistoricalData` fallback — design item) or GC-4 (dashboard TLS).
+
+---
+
 ## 2026-05-15 — Dashboard Phase 5 Session 3a: DB-X5 fixtures + per-strategy history table
 
 - Shipped three stacked PRs closing the read side of Phase 5: (a) DB-X5 — `dashboard_token`/`dashboard_client`/`dashboard_client_unauth` fixtures in `tests/conftest.py` + `_reset_all_rate_state` clearing BOTH `_rate_state` AND `_SESSION_RATE_STATE`; 13 callers retrofitted; ds50..54 cover 401 paths. (b) Per-strategy paginated history table consuming the existing `/api/strategies/{name}/fills` — single AbortController replaced on EVERY state mutation, fully decoupled from the 30s summary poll, Next disabled at the server's 10k offset cap, `_STRAT_HISTORY_COLS` constant for grep-on-schema-change; ds60..68. (c) `chore/cr-cycle-tracker-3b` — explicit teardown in `dashboard_client`, db09/10/14/15 migrated to `monkeypatch`, `_js_decl_end` helper replacing brittle `js.find("\n}\n")`, ds61 operator regex, ds69 locks `<th>` order + count + colspan parity.
