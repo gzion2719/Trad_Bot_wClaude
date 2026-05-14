@@ -400,3 +400,29 @@ Before describing, recommending, or planning around any BACKLOG or ROADMAP item,
 The trigger is the moment you are about to tell the user \u2014 or yourself, in a Step 6 focus option \u2014 what an item *is* or whether it is *actionable*. One `Read` of the real entry is cheaper than contradicting a recorded decision out loud.
 
 Example (2026-05-16): asked "what is MS-C2?", Claude described it from CLAUDE.md's summary ("design item \u2014 needs auto_adjust resolution") and offered it as a next-session option. The authoritative `docs/BACKLOG.md` entry said MS-C2 was **measurement-gated** \u2014 explicitly deferred until a 30-day yfinance-outage report runs on 2026-06-12, with "don't design or build before then." The user caught the contradiction. Reading the BACKLOG line first would have made the answer correct and removed a dead option from the focus list.
+
+---
+
+## Broker-state-authority rule
+
+When a strategy (or any stateful component) tracks position / order state
+alongside the broker's own view, the plan must answer ONE question
+explicitly before any code: **when is the broker's view authoritative, and
+when is it stale?** The classic stale window: an order is `Filled` (gone
+from `get_open_orders`) but the position has not yet appeared in
+`get_positions()` -- read in that gap, the broker looks flat when it isn't.
+
+Every code path that reads broker state -- `on_start` reconcile, a
+pending-timeout self-heal, an each-tick check -- must derive its behaviour
+from that single stated answer, not re-reason about the race locally. If
+two separate code reviews catch the same race in two different paths, the
+invariant was never written down.
+
+Example (2026-05-18, PingPongTest): the pre-impl CR caught a duplicate-order
+race in a "pure broker-reconcile, no flags" design; a pending flag was added
+to fix it. The post-impl CR then caught the *same* race reappear in the
+pending-timeout path, which force-cleared the flag and re-placed on a
+possibly-stale flat snapshot. Both are the same defect -- "the broker can
+look flat right after a fill." Stating that invariant once in the plan, and
+ruling that no path places an order on a flat *snapshot* (only on a
+positively-confirmed position), would have closed both at plan time.
