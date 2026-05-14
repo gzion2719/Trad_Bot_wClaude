@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TradeBot — Mission Control (mock 1 · neon green)</title>
+<!--
+  STANDALONE MOCKUP — not wired to the backend.
+  All numbers, fills, positions and the equity curve are hardcoded "flashy showcase"
+  placeholder data. Purpose: judge the neon-glass restyle of the real 3-tab dashboard
+  (dashboard/static/index.html) before touching the live UI.
+  Open by double-clicking this file. No server needed.
+-->
+<style>
+  :root {
+    /* ---- neon-glass design tokens ---- */
+    --green-neon: #00ff88;
+    --green-mid:  #34d399;
+    --green-deep: #10b981;
+    --green-dark: #059669;
+    --red-neon:   #ff4d6d;
+    --red-mid:    #f43f5e;
+    --red-deep:   #dc2626;
+    --amber:      #ffaa44;
+
+    --text-primary:   #f0fff7;
+    --text-body:      #d2ffe5;
+    --text-secondary: #9bbbab;
+    --text-tertiary:  #7da594;
+
+    --card-bg: linear-gradient(135deg, rgba(15,40,30,0.55) 0%, rgba(8,20,18,0.6) 100%);
+    --card-border: 1px solid rgba(74,222,128,0.12);
+    --card-border-hover: 1px solid rgba(74,222,128,0.25);
+    --grid-line: rgba(74,222,128,0.08);
+
+    font-variant-numeric: tabular-nums;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: Inter, "SF Pro", system-ui, -apple-system, sans-serif;
+    font-weight: 400;
+    color: var(--text-body);
+    background: radial-gradient(ellipse at top left, #0a2620 0%, #050d10 50%, #02080a 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---- atmospheric canvas: exactly two glow blobs ---- */
+  .viz {
+    position: relative;
+    min-height: 100vh;
+    padding: 14px;
+    overflow: hidden;
+  }
+  .viz::before {
+    content: ""; position: fixed; top: -40%; right: -15%;
+    width: 620px; height: 620px;
+    background: radial-gradient(circle, rgba(0,255,136,0.08) 0%, transparent 60%);
+    pointer-events: none; z-index: 0;
+  }
+  .viz::after {
+    content: ""; position: fixed; bottom: -30%; left: -10%;
+    width: 540px; height: 540px;
+    background: radial-gradient(circle, rgba(255,77,109,0.07) 0%, transparent 60%);
+    pointer-events: none; z-index: 0;
+  }
+  .layout { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; }
+
+  /* ---- header ---- */
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 14px; padding: 2px 4px;
+  }
+  .brand {
+    width: 26px; height: 26px; border-radius: 7px;
+    background: linear-gradient(135deg, var(--green-neon) 0%, var(--red-neon) 100%);
+    box-shadow: 0 0 14px rgba(0,255,136,0.45);
+    flex-shrink: 0;
+  }
+  .topbar h1 {
+    font-size: 17px; font-weight: 600; color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+  .topbar .sub {
+    font-size: 11px; color: var(--text-secondary); margin-left: 2px;
+  }
+  .topbar .live {
+    margin-left: auto; display: flex; align-items: center; gap: 6px;
+    font-size: 10px; font-weight: 600; color: var(--green-neon);
+    text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .dot-live {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green-neon); box-shadow: 0 0 8px var(--green-neon);
+    display: inline-block;
+  }
+
+  /* ---- top tabs ---- */
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tab {
+    font-family: inherit; font-size: 11px; font-weight: 600;
+    padding: 7px 14px; border-radius: 8px; cursor: pointer;
+    background: transparent; color: var(--text-secondary);
+    border: 1px solid rgba(74,222,128,0.10);
+    transition: all 0.15s ease;
+  }
+  .tab:hover { color: var(--text-body); border-color: rgba(74,222,128,0.22); }
+  .tab.on {
+    background: rgba(0,255,136,0.10); color: var(--green-neon);
+    border-color: rgba(0,255,136,0.30);
+    box-shadow: inset 0 0 0 1px rgba(0,255,136,0.12);
+  }
+
+  /* ---- cards ---- */
+  .card {
+    background: var(--card-bg);
+    border: var(--card-border);
+    border-radius: 14px;
+    padding: 12px 14px;
+    backdrop-filter: blur(12px);
+    position: relative;
+    overflow: hidden;
+  }
+  .card h2 {
+    font-size: 13px; font-weight: 600; color: var(--text-primary);
+    margin-bottom: 10px;
+  }
+  .eyebrow {
+    font-size: 9px; font-weight: 500; color: var(--text-tertiary);
+    text-transform: uppercase; letter-spacing: 0.12em;
+  }
+
+  /* ---- grids ---- */
+  .grid { display: grid; gap: 12px; }
+  .g-3 { grid-template-columns: repeat(3, 1fr); }
+  .g-4 { grid-template-columns: repeat(4, 1fr); }
+  .g-5 { grid-template-columns: repeat(5, 1fr); }
+  .g-2-1 { grid-template-columns: 2fr 1fr; }
+  .mt12 { margin-top: 12px; }
+
+  /* ---- stat card ---- */
+  .stat .eyebrow { margin-bottom: 6px; }
+  .stat-value {
+    font-size: 21px; font-weight: 600; color: var(--text-primary);
+    letter-spacing: -0.01em; line-height: 1.1;
+  }
+  .stat-value.neg { color: var(--red-neon); }
+  .change {
+    font-size: 10px; font-weight: 600; margin-top: 5px;
+  }
+  .change.up { color: var(--green-neon); }
+  .change.down { color: var(--red-neon); }
+
+  /* ---- key/value rows ---- */
+  .row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 11px; padding: 4px 0;
+    border-bottom: 1px solid rgba(74,222,128,0.06);
+  }
+  .row:last-child { border-bottom: none; }
+  .row .k { color: var(--text-tertiary); }
+  .row .v { color: var(--text-body); font-weight: 600; }
+  .row .v.green { color: var(--green-neon); }
+  .row .v.red { color: var(--red-neon); }
+
+  .big {
+    font-size: 18px; font-weight: 600; color: var(--text-primary);
+    margin-bottom: 8px;
+  }
+  .big.green { color: var(--green-neon); }
+  .big.red { color: var(--red-neon); }
+
+  /* ---- status line w/ dot ---- */
+  .status-line { display: flex; align-items: center; gap: 7px; }
+  .status-line .label-pair { display: flex; flex-direction: column; }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%; display: inline-block;
+  }
+  .dot.ok  { background: var(--green-neon); box-shadow: 0 0 8px var(--green-neon); }
+  .dot.bad { background: var(--red-neon);   box-shadow: 0 0 8px var(--red-neon); }
+
+  .sys-split { display: flex; gap: 14px; align-items: center; }
+  .sys-divider { width: 1px; align-self: stretch; background: rgba(74,222,128,0.12); }
+
+  /* ---- pills ---- */
+  .pill {
+    font-size: 9px; font-weight: 600;
+    padding: 2px 7px; border-radius: 999px;
+    letter-spacing: 0.04em; display: inline-block;
+  }
+  .pill-b { background: rgba(0,255,136,0.15); color: var(--green-neon); border: 1px solid rgba(0,255,136,0.3); }
+  .pill-s { background: rgba(255,77,109,0.15); color: var(--red-neon); border: 1px solid rgba(255,77,109,0.3); }
+
+  /* ---- buttons ---- */
+  .controls { display: flex; flex-wrap: wrap; gap: 7px; }
+  .btn {
+    font-family: inherit; font-size: 10px; font-weight: 600;
+    padding: 6px 11px; border-radius: 7px; cursor: pointer;
+    background: rgba(74,222,128,0.06); color: var(--text-body);
+    border: 1px solid rgba(74,222,128,0.15);
+    transition: all 0.15s ease;
+  }
+  .btn:hover { border-color: rgba(74,222,128,0.30); color: var(--text-primary); }
+  .btn.warn { color: var(--amber); border-color: rgba(255,170,68,0.30); background: rgba(255,170,68,0.07); }
+  .btn.err  { color: var(--red-neon); border-color: rgba(255,77,109,0.30); background: rgba(255,77,109,0.07); }
+  .btn.accent { color: var(--green-neon); border-color: rgba(0,255,136,0.30); background: rgba(0,255,136,0.08); }
+
+  /* ---- tables ---- */
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    font-size: 9px; font-weight: 500; color: var(--text-tertiary);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    text-align: left; padding: 6px 8px;
+  }
+  tbody td {
+    font-size: 11px; color: var(--text-body);
+    padding: 7px 8px;
+    border-bottom: 1px solid rgba(74,222,128,0.06);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  th.num, td.num { text-align: right; }
+  td .green { color: var(--green-neon); }
+  td .red   { color: var(--red-neon); }
+  .ticker {
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .ticker-icon {
+    width: 22px; height: 22px; border-radius: 6px;
+    font-size: 9px; font-weight: 600;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: rgba(0,255,136,0.12); color: var(--green-neon);
+    border: 1px solid rgba(0,255,136,0.20);
+  }
+  .ticker-icon.loss {
+    background: rgba(255,77,109,0.12); color: var(--red-neon);
+    border-color: rgba(255,77,109,0.20);
+  }
+
+  /* ---- hero (Net Liquidation) ---- */
+  .hero {
+    background: linear-gradient(120deg,
+      rgba(0,80,55,0.55) 0%,
+      rgba(40,10,25,0.4) 55%,
+      rgba(8,18,16,0.7) 100%);
+    border: 1px solid rgba(0,255,136,0.2);
+    min-height: 132px;
+  }
+  .hero-orb {
+    position: absolute; right: 16px; top: 18px;
+    width: 84px; height: 84px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%,
+      #34d399 0%, #059669 35%, #5b1421 80%, #2a0810 100%);
+    box-shadow: 0 0 32px rgba(0,255,136,0.4),
+                inset -6px -10px 18px rgba(0,0,0,0.45);
+  }
+  .hero-glow {
+    position: absolute; right: -10px; top: -4px;
+    width: 150px; height: 150px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(0,255,136,0.3) 0%, transparent 65%);
+    filter: blur(10px); pointer-events: none;
+  }
+  .hero-netliq {
+    font-size: 30px; font-weight: 600; color: var(--text-primary);
+    letter-spacing: -0.02em; margin: 6px 0 2px;
+  }
+
+  /* ---- timeframe chips ---- */
+  .tf-row { display: flex; gap: 6px; margin: 10px 0; }
+  .tf {
+    font-family: inherit; font-size: 10px; padding: 3px 9px; border-radius: 6px;
+    border: 1px solid rgba(74,222,128,0.15);
+    background: transparent; color: var(--text-secondary); cursor: pointer;
+  }
+  .tf.on {
+    background: rgba(0,255,136,0.12); color: var(--green-neon);
+    border-color: rgba(0,255,136,0.35);
+  }
+
+  /* ---- equity chart ---- */
+  .equity-chart { width: 100%; height: 230px; display: block; }
+  .eq-yaxis { font-size: 8px; fill: var(--text-tertiary); }
+
+  /* ---- ring chart ---- */
+  .ring-wrap { display: flex; align-items: center; gap: 14px; }
+  .ring-center {
+    font-size: 14px; font-weight: 600; fill: var(--text-primary);
+  }
+
+  /* ---- strategy sub-tabs ---- */
+  .strat-tabs { display: flex; gap: 6px; margin: 12px 0; flex-wrap: wrap; }
+  .strat-tab {
+    font-family: inherit; font-size: 10px; font-weight: 600;
+    padding: 6px 12px; border-radius: 999px; cursor: pointer;
+    background: transparent; color: var(--text-secondary);
+    border: 1px solid rgba(74,222,128,0.12);
+  }
+  .strat-tab.on {
+    background: rgba(0,255,136,0.10); color: var(--green-neon);
+    border-color: rgba(0,255,136,0.30);
+  }
+  .strat-meta { font-size: 10px; color: var(--text-secondary); margin-top: 3px; }
+
+  /* ---- pager ---- */
+  .pager {
+    display: flex; align-items: center; gap: 10px; justify-content: flex-end;
+    margin-top: 10px; font-size: 10px; color: var(--text-tertiary);
+  }
+  .toolbar {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 10px; flex-wrap: wrap;
+  }
+  .toolbar .spacer { flex: 1; }
+  select {
+    font-family: inherit; font-size: 10px; padding: 3px 6px;
+    background: rgba(8,20,18,0.8); color: var(--text-body);
+    border: 1px solid rgba(74,222,128,0.15); border-radius: 6px;
+  }
+
+  .panel { display: none; }
+  .panel.on { display: block; }
+
+  .footer {
+    text-align: center; font-size: 10px; color: var(--text-tertiary);
+    margin-top: 16px; padding: 8px;
+  }
+  .mockup-note {
+    text-align: center; font-size: 10px; color: var(--amber);
+    margin-bottom: 10px; opacity: 0.8;
+  }
+</style>
+</head>
+<body>
+<div class="viz">
+<div class="layout">
+
+  <div class="topbar">
+    <div class="brand"></div>
+    <h1>TradeBot — Mission Control</h1>
+    <span class="sub">paper account · polling every 5s</span>
+    <span class="live"><span class="dot-live"></span> Live</span>
+  </div>
+
+  <div class="mockup-note">⚠ Mock 1 · neon green — standalone mockup, placeholder showcase data, not wired to the backend</div>
+
+  <div class="tabs">
+    <button class="tab on" data-panel="mc">Mission Control</button>
+    <button class="tab" data-panel="acct">IBKR Account</button>
+    <button class="tab" data-panel="strats">Strategies</button>
+  </div>
+
+  <!-- ============ MISSION CONTROL ============ -->
+  <div class="panel on" id="panel-mc">
+
+    <!-- KPI strip -->
+    <div class="grid g-3">
+      <div class="card stat">
+        <div class="eyebrow">Cash</div>
+        <div class="stat-value">$184,920.55</div>
+        <div class="change up">▲ available buying power</div>
+      </div>
+      <div class="card stat">
+        <div class="eyebrow">Unrealized P&amp;L</div>
+        <div class="stat-value">+$12,840.18</div>
+        <div class="change up">▲ 6.94% open positions</div>
+      </div>
+      <div class="card stat">
+        <div class="eyebrow">Realized P&amp;L</div>
+        <div class="stat-value">+$8,317.42</div>
+        <div class="change up">▲ 3.10% lifetime closed</div>
+      </div>
+    </div>
+
+    <!-- 5 cards -->
+    <div class="grid g-5 mt12">
+      <div class="card">
+        <h2>Liveness</h2>
+        <div class="status-line">
+          <span class="dot ok"></span>
+          <div class="label-pair">
+            <span class="big green" style="margin:0;font-size:15px;">Healthy</span>
+          </div>
+        </div>
+        <div class="row mt12"><span class="k">Last tick</span><span class="v">16:10:04 ET</span></div>
+        <div class="row"><span class="k">Age</span><span class="v green">2m 11s</span></div>
+      </div>
+
+      <div class="card">
+        <h2>Today (UTC)</h2>
+        <div class="big green">+$2,488.90</div>
+        <div class="row"><span class="k">Trades</span><span class="v">14</span></div>
+        <div class="row"><span class="k">Buys / Sells</span><span class="v">8 / 6</span></div>
+        <div class="row"><span class="k">Net flow</span><span class="v">−$1,204</span></div>
+      </div>
+
+      <div class="card">
+        <h2>Connection</h2>
+        <div class="row"><span class="k">Account</span><span class="v">DU-paper</span></div>
+        <div class="row"><span class="k">Host</span><span class="v">127.0.0.1</span></div>
+        <div class="row"><span class="k">Port</span><span class="v">4001</span></div>
+        <div class="row"><span class="k">Dashboard up</span><span class="v">6h 22m</span></div>
+      </div>
+
+      <div class="card">
+        <h2>System</h2>
+        <div class="sys-split">
+          <div class="status-line">
+            <span class="dot ok"></span>
+            <div class="label-pair">
+              <span class="eyebrow">Bot</span>
+              <span class="v green" style="font-size:13px;">Active</span>
+            </div>
+          </div>
+          <div class="sys-divider"></div>
+          <div class="status-line">
+            <span class="dot ok"></span>
+            <div class="label-pair">
+              <span class="eyebrow">Gateway</span>
+              <span class="v green" style="font-size:13px;">Active</span>
+            </div>
+          </div>
+        </div>
+        <div class="row mt12"><span class="k">Bot PID</span><span class="v">52545</span></div>
+        <div class="row"><span class="k">Bot uptime</span><span class="v">6h 18m</span></div>
+        <div class="row"><span class="k">Port 4001</span><span class="v green">open</span></div>
+      </div>
+
+      <div class="card">
+        <h2>Controls</h2>
+        <div class="controls">
+          <button class="btn warn">Restart bot</button>
+          <button class="btn err">Stop bot</button>
+          <button class="btn accent">Gateway Console</button>
+          <button class="btn">Login</button>
+          <button class="btn">Logout</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent fills -->
+    <div class="card mt12">
+      <h2>Recent fills</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th><th>Strategy</th><th>Symbol</th><th>Side</th>
+            <th class="num">Qty</th><th class="num">Price</th>
+            <th class="num">Value</th><th class="num">Realized P&amp;L</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>16:09:58</td><td>PingPongTest-AAPL</td>
+            <td><span class="ticker"><span class="ticker-icon">AA</span> AAPL</span></td>
+            <td><span class="pill pill-s">SELL</span></td>
+            <td class="num">1</td><td class="num">$229.84</td>
+            <td class="num">$229.84</td><td class="num"><span class="green">+$3.12</span></td>
+          </tr>
+          <tr>
+            <td>15:58:21</td><td>RSI2MR-SPY</td>
+            <td><span class="ticker"><span class="ticker-icon">SP</span> SPY</span></td>
+            <td><span class="pill pill-b">BUY</span></td>
+            <td class="num">120</td><td class="num">$571.40</td>
+            <td class="num">$68,568.00</td><td class="num">—</td>
+          </tr>
+          <tr>
+            <td>15:42:07</td><td>SMACrossover-QQQ</td>
+            <td><span class="ticker"><span class="ticker-icon">QQ</span> QQQ</span></td>
+            <td><span class="pill pill-s">SELL</span></td>
+            <td class="num">85</td><td class="num">$501.22</td>
+            <td class="num">$42,603.70</td><td class="num"><span class="green">+$2,914.55</span></td>
+          </tr>
+          <tr>
+            <td>15:04:58</td><td>PingPongTest-AAPL</td>
+            <td><span class="ticker"><span class="ticker-icon">AA</span> AAPL</span></td>
+            <td><span class="pill pill-b">BUY</span></td>
+            <td class="num">1</td><td class="num">$226.72</td>
+            <td class="num">$226.72</td><td class="num">—</td>
+          </tr>
+          <tr>
+            <td>14:31:12</td><td>RSI2MR-SPY</td>
+            <td><span class="ticker"><span class="ticker-icon loss">SP</span> SPY</span></td>
+            <td><span class="pill pill-s">SELL</span></td>
+            <td class="num">96</td><td class="num">$566.18</td>
+            <td class="num">$54,353.28</td><td class="num"><span class="red">−$487.20</span></td>
+          </tr>
+          <tr>
+            <td>13:50:44</td><td>SMACrossover-QQQ</td>
+            <td><span class="ticker"><span class="ticker-icon">QQ</span> QQQ</span></td>
+            <td><span class="pill pill-b">BUY</span></td>
+            <td class="num">85</td><td class="num">$467.93</td>
+            <td class="num">$39,774.05</td><td class="num">—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============ IBKR ACCOUNT ============ -->
+  <div class="panel" id="panel-acct">
+
+    <div class="grid g-2-1">
+      <!-- hero -->
+      <div class="card hero">
+        <div class="hero-glow"></div>
+        <div class="hero-orb"></div>
+        <div class="eyebrow">Net Liquidation</div>
+        <div class="hero-netliq">$206,077.97</div>
+        <div class="change up">▲ $19,412.66 &nbsp;·&nbsp; +10.4% all-time</div>
+        <div class="row mt12" style="max-width:280px;"><span class="k">Data freshness</span><span class="v green">live · 4s ago</span></div>
+      </div>
+
+      <!-- win-rate ring -->
+      <div class="card">
+        <h2>Account health</h2>
+        <div class="ring-wrap">
+          <svg width="96" height="96" viewBox="0 0 96 96">
+            <defs>
+              <linearGradient id="ringGreen" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#00ff88"/>
+                <stop offset="100%" stop-color="#059669"/>
+              </linearGradient>
+            </defs>
+            <circle cx="48" cy="48" r="40" fill="none"
+                    stroke="rgba(74,222,128,0.12)" stroke-width="5"/>
+            <circle cx="48" cy="48" r="40" fill="none"
+                    stroke="url(#ringGreen)" stroke-width="5" stroke-linecap="round"
+                    stroke-dasharray="251.2" stroke-dashoffset="47.7"
+                    transform="rotate(-90 48 48)"
+                    style="filter: drop-shadow(0 0 4px #00ff88);"/>
+            <text class="ring-center" x="48" y="52" text-anchor="middle">81%</text>
+          </svg>
+          <div>
+            <div class="eyebrow">Margin used</div>
+            <div class="stat-value" style="font-size:16px;">19%</div>
+            <div class="change up" style="margin-top:8px;">▲ comfortable headroom</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- equity chart -->
+    <div class="card mt12">
+      <h2>Equity curve</h2>
+      <div class="tf-row">
+        <button class="tf">7D</button>
+        <button class="tf on">30D</button>
+        <button class="tf">MTD</button>
+        <button class="tf">YTD</button>
+        <button class="tf">All</button>
+      </div>
+      <svg class="equity-chart" viewBox="0 0 800 230" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#00ff88" stop-opacity="0.45"/>
+            <stop offset="100%" stop-color="#00ff88" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <!-- grid lines -->
+        <line x1="0" y1="50"  x2="800" y2="50"  stroke="rgba(74,222,128,0.08)" stroke-dasharray="2 4"/>
+        <line x1="0" y1="105" x2="800" y2="105" stroke="rgba(74,222,128,0.08)" stroke-dasharray="2 4"/>
+        <line x1="0" y1="160" x2="800" y2="160" stroke="rgba(74,222,128,0.08)" stroke-dasharray="2 4"/>
+        <!-- area -->
+        <polygon fill="url(#eqFill)" points="
+          0,205 33,198 66,202 99,185 132,190 165,172 198,178 231,160 264,150
+          297,158 330,140 363,132 396,142 429,120 462,110 495,118 528,98
+          561,90 594,100 627,78 660,70 693,82 726,58 759,50 792,38
+          792,230 0,230"/>
+        <!-- line -->
+        <polyline fill="none" stroke="#00ff88" stroke-width="1.6" stroke-linecap="round"
+          style="filter: drop-shadow(0 0 4px #00ff88);" points="
+          0,205 33,198 66,202 99,185 132,190 165,172 198,178 231,160 264,150
+          297,158 330,140 363,132 396,142 429,120 462,110 495,118 528,98
+          561,90 594,100 627,78 660,70 693,82 726,58 759,50 792,38"/>
+        <!-- last point -->
+        <circle cx="792" cy="38" r="3.4" fill="#00ff88"
+                style="filter: drop-shadow(0 0 6px #00ff88);"/>
+        <!-- y labels -->
+        <text class="eq-yaxis" x="4" y="48">$210k</text>
+        <text class="eq-yaxis" x="4" y="103">$190k</text>
+        <text class="eq-yaxis" x="4" y="158">$170k</text>
+      </svg>
+    </div>
+
+    <div class="grid g-2-1 mt12">
+      <!-- positions -->
+      <div class="card">
+        <h2>Positions</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Instrument</th><th class="num">Position</th>
+              <th class="num">Market Value</th><th class="num">Avg Price</th>
+              <th class="num">Unrealized P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="ticker"><span class="ticker-icon">QQ</span> QQQ</span></td>
+              <td class="num">170</td><td class="num">$87,210.40</td>
+              <td class="num">$467.93</td>
+              <td class="num"><span class="green">+$7,662.30</span></td>
+            </tr>
+            <tr>
+              <td><span class="ticker"><span class="ticker-icon">SP</span> SPY</span></td>
+              <td class="num">120</td><td class="num">$69,012.00</td>
+              <td class="num">$571.40</td>
+              <td class="num"><span class="green">+$5,290.40</span></td>
+            </tr>
+            <tr>
+              <td><span class="ticker"><span class="ticker-icon loss">AA</span> AAPL</span></td>
+              <td class="num">1</td><td class="num">$229.84</td>
+              <td class="num">$232.71</td>
+              <td class="num"><span class="red">−$2.87</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- balances -->
+      <div class="card">
+        <h2>Balances</h2>
+        <div class="row"><span class="k">Net liquidation</span><span class="v">$206,077.97</span></div>
+        <div class="row"><span class="k">Total cash</span><span class="v">$184,920.55</span></div>
+        <div class="row"><span class="k">Buying power</span><span class="v">$739,682.20</span></div>
+        <div class="row"><span class="k">Gross position value</span><span class="v">$156,452.24</span></div>
+        <div class="row"><span class="k">Maintenance margin</span><span class="v">$39,113.06</span></div>
+        <div class="row"><span class="k">Excess liquidity</span><span class="v green">$166,964.91</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ STRATEGIES ============ -->
+  <div class="panel" id="panel-strats">
+
+    <div class="card" style="margin-bottom:12px;">
+      <div class="eyebrow">Active strategy</div>
+      <div class="big" style="margin:4px 0 0;">SMACrossover-QQQ</div>
+      <div class="strat-meta">QQQ · daily bars · fires 16:10 ET · risk cap 2% / trade · 1:3 R/R</div>
+      <div class="strat-tabs">
+        <button class="strat-tab on">SMACrossover-QQQ</button>
+        <button class="strat-tab">RSI2MR-SPY</button>
+        <button class="strat-tab">PingPongTest-AAPL</button>
+      </div>
+    </div>
+
+    <!-- 8 KPIs -->
+    <div class="grid g-4">
+      <div class="card stat"><div class="eyebrow">Total fills</div><div class="stat-value">142</div></div>
+      <div class="card stat"><div class="eyebrow">Closed trades</div><div class="stat-value">68</div></div>
+      <div class="card stat"><div class="eyebrow">Win rate</div><div class="stat-value">66.2%</div><div class="change up">▲ 45 W / 23 L</div></div>
+      <div class="card stat"><div class="eyebrow">Realized P&amp;L (lifetime)</div><div class="stat-value">+$31,204.88</div><div class="change up">▲ 18.6%</div></div>
+    </div>
+    <div class="grid g-4 mt12">
+      <div class="card stat"><div class="eyebrow">Realized P&amp;L (today)</div><div class="stat-value">+$2,914.55</div><div class="change up">▲ 1 close</div></div>
+      <div class="card stat"><div class="eyebrow">Profit factor</div><div class="stat-value">2.41</div><div class="change up">▲ strong</div></div>
+      <div class="card stat"><div class="eyebrow">Avg R-multiple</div><div class="stat-value">+0.74</div><div class="change up">▲ per trade</div></div>
+      <div class="card stat"><div class="eyebrow">Last fill</div><div class="stat-value" style="font-size:15px;">15:42:07</div><div class="change up">today</div></div>
+    </div>
+
+    <!-- history table -->
+    <div class="card mt12">
+      <h2>Trade history</h2>
+      <div class="toolbar">
+        <span class="eyebrow">Page size</span>
+        <select><option>50</option><option>100</option><option>200</option><option>500</option></select>
+        <span class="spacer"></span>
+        <span class="eyebrow" style="color:var(--text-secondary);">Showing 1–8 of 142</span>
+        <button class="btn accent">Export CSV</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th><th>Side</th><th class="num">Qty</th>
+            <th class="num">Price</th><th class="num">Cost basis</th>
+            <th class="num">Realized P&amp;L</th><th class="num">R-multiple</th><th>Params</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>15:42:07</td><td><span class="pill pill-s">SELL</span></td><td class="num">85</td><td class="num">$501.22</td><td class="num">$467.93</td><td class="num"><span class="green">+$2,914.55</span></td><td class="num"><span class="green">+2.31</span></td><td>fast=10 slow=30</td></tr>
+          <tr><td>13:50:44</td><td><span class="pill pill-b">BUY</span></td><td class="num">85</td><td class="num">$467.93</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td>fast=10 slow=30</td></tr>
+          <tr><td>05-18 16:10</td><td><span class="pill pill-s">SELL</span></td><td class="num">92</td><td class="num">$455.18</td><td class="num">$441.02</td><td class="num"><span class="green">+$1,302.72</span></td><td class="num"><span class="green">+1.18</span></td><td>fast=10 slow=30</td></tr>
+          <tr><td>05-15 16:10</td><td><span class="pill pill-b">BUY</span></td><td class="num">92</td><td class="num">$441.02</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td>fast=10 slow=30</td></tr>
+          <tr><td>05-14 16:10</td><td><span class="pill pill-s">SELL</span></td><td class="num">78</td><td class="num">$432.55</td><td class="num">$438.90</td><td class="num"><span class="red">−$495.30</span></td><td class="num"><span class="red">−0.42</span></td><td>fast=10 slow=30</td></tr>
+          <tr><td>05-09 16:10</td><td><span class="pill pill-b">BUY</span></td><td class="num">78</td><td class="num">$438.90</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td>fast=10 slow=30</td></tr>
+          <tr><td>05-08 16:10</td><td><span class="pill pill-s">SELL</span></td><td class="num">81</td><td class="num">$429.71</td><td class="num">$410.23</td><td class="num"><span class="green">+$1,577.88</span></td><td class="num"><span class="green">+1.64</span></td><td>fast=10 slow=30</td></tr>
+          <tr><td>05-02 16:10</td><td><span class="pill pill-b">BUY</span></td><td class="num">81</td><td class="num">$410.23</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td>fast=10 slow=30</td></tr>
+        </tbody>
+      </table>
+      <div class="pager">
+        <button class="btn">Prev</button>
+        <span>Page 1 of 18</span>
+        <button class="btn">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">last refresh: 16:12:11 — neon-glass mockup (mock 1 · neon green) · docs/mockups/dashboard-mock1.html</div>
+
+</div>
+</div>
+
+<script>
+  // Minimal tab switching — the only JS in the mockup.
+  document.querySelectorAll('.tab').forEach(function (t) {
+    t.addEventListener('click', function () {
+      document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('on'); });
+      document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('on'); });
+      t.classList.add('on');
+      document.getElementById('panel-' + t.dataset.panel).classList.add('on');
+    });
+  });
+  // Strategy sub-tabs + timeframe chips — visual toggle only.
+  function groupToggle(sel) {
+    document.querySelectorAll(sel).forEach(function (b) {
+      b.addEventListener('click', function () {
+        b.parentElement.querySelectorAll(sel.split(' ').pop()).forEach(function (x) {
+          x.classList.remove('on');
+        });
+        b.classList.add('on');
+      });
+    });
+  }
+  groupToggle('.strat-tabs .strat-tab');
+  groupToggle('.tf-row .tf');
+</script>
+</body>
+</html>

@@ -48,7 +48,7 @@ Defer deeper files (CLAUDE.md architecture sections, strategy files, broker code
 
 ### Step 5 — Git status
 
-Run `git --no-optional-locks status` and `git branch`.
+Run `git --no-optional-locks fetch origin main develop` **first**, then `git --no-optional-locks status` and `git branch`. The fetch is non-negotiable before judging merge state — a `status`/`log` check against stale remote-tracking refs will flag drift that is already resolved (or miss drift that exists). Example (2026-05-20): `chore/close-session-2026-05-19` was reported as unmerged drift, then a fetch showed it was already on `develop` via PR #225.
 
 Flag any drift:
 - If on `main` or `develop` directly → warn, ask which branch to create
