@@ -3,6 +3,17 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-15 — Dashboard Phase 5 Session 3a: DB-X5 fixtures + per-strategy history table
+
+- Shipped three stacked PRs closing the read side of Phase 5: (a) DB-X5 — `dashboard_token`/`dashboard_client`/`dashboard_client_unauth` fixtures in `tests/conftest.py` + `_reset_all_rate_state` clearing BOTH `_rate_state` AND `_SESSION_RATE_STATE`; 13 callers retrofitted; ds50..54 cover 401 paths. (b) Per-strategy paginated history table consuming the existing `/api/strategies/{name}/fills` — single AbortController replaced on EVERY state mutation, fully decoupled from the 30s summary poll, Next disabled at the server's 10k offset cap, `_STRAT_HISTORY_COLS` constant for grep-on-schema-change; ds60..68. (c) `chore/cr-cycle-tracker-3b` — explicit teardown in `dashboard_client`, db09/10/14/15 migrated to `monkeypatch`, `_js_decl_end` helper replacing brittle `js.find("\n}\n")`, ds61 operator regex, ds69 locks `<th>` order + count + colspan parity.
+- Six CR rounds: DB-X5 pre+post, history-table pre+second-opinion+post, chore pre+post. Caught 1 CRITICAL (SQLite `check_same_thread=True` + Starlette threadpool affinity → CSV deferred to S3c with buffered design), 3 HIGH (Next-cap off-by-one, fixture teardown fragility, env-var leak path), several MEDIUMs. **Second-opinion agent overturned my bundled-3b plan** with the "your own 70% confidence is the tell" argument — split into 3a (history table) + 3c (CSV via `?format=csv`).
+- 326 tests pass (+15 vs baseline 311). Ruff/black/mypy clean. Three branches stacked: `feature/db-x5-shared-auth-fixture` → `feature/strat-history-table` → `chore/cr-cycle-tracker-3b`.
+- BACKLOG updated: DB-X5 marked done; DB-M4 added (title-tooltip a11y → click-to-expand); DB-X10 added (server↔JS column-key mirror — ds69 covers JS↔HTML but not server-rename silent drift).
+- **Process improvement:** SESSION_PROTOCOL.md Step 7 gains "Verify-before-finalize" sub-rule — a plan section titled "pre-coding verification" or holding N "verify after go" assumptions is a smell; answer them with greps/reads BEFORE presenting the plan, not as a "to verify during coding" checklist.
+- **Next session:** Merge the 3 stacked PRs in order (DB-X5 → develop → main → VPS dashboard restart), then **Session 3c** — CSV export via `?format=csv` content-negotiation on the existing endpoint (buffered, BOM + RFC 6266 filename + injection guard).
+
+---
+
 ## 2026-05-13 — Dashboard Phase 5 Session 2: Strategies tab (slim) shipped
 
 - Shipped the user-visible Strategies top tab + dynamic secondary tab strip + per-strategy KPI strip on top of Session 1's three endpoints. N-tab refactor (circular ArrowL/R + Home/End), sessionStorage with list validation, lazy `_initStrategyTabs` on first activation (the tab cannot fetch `/api/strategies` pre-login), 30s polling gated by `_onStratTab && document.visibilityState`, `aria-live` KPI region.
