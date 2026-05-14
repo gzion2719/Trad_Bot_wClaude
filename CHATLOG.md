@@ -3,6 +3,17 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-18 — PingPongTest-AAPL test-only strategy shipped
+
+- Built `PingPongTest` (`strategies/test_pingpong.py`) — a deliberately trivial TEST-ONLY strategy that alternates BUY 1 / SELL 1 AAPL every 5 min during RTH (`Interval(300)`), so the bot + dashboard can be watched end-to-end on the paper account. P&L is not a goal. Fully independent: own symbol, own RiskManager, own scheduler thread; the MS-D guard enforces the unique symbol.
+- Design hardened by pre- + post-impl CR: `tif=DAY` + explicit `_is_market_open()` gate (a 24/7 `Interval` + GTC market order would rest off-hours and deadlock the open-order guard); `_order_pending` flag (id + timestamp; cleared by on_fill/on_error/on_cancel; 90s timeout self-heal); `on_start` reconcile adopts an existing AAPL position only if exactly `qty` shares, else disables itself; `on_fill` stamps `cost_basis` on SELL so the dashboard shows realized P&L; `max_open_orders=50` because that cap is account-wide and shared.
+- Post-impl CR HIGH (H1): the pending-timeout path force-cleared the flag then re-placed on a possibly-stale flat snapshot — the *same* duplicate-order race the pre-impl CR had already caught in the no-flags design. Fixed: a timeout tick re-places only when the reconcile positively confirms a held position, never on a flat snapshot.
+- 35 tests `test_pp01..22`; full suite **371 pass / 49 skipped**, ruff/black/mypy clean. Branch `feature/test-pingpong-strategy` (`689ef03`) + a `chore/sync-develop-before-pingpong` fast-forward (develop was 5 commits behind main). Deployed to VPS — all three strategies started cleanly, RiskManager caps correct, no errors.
+- **Process improvement:** WORKFLOW.md gains the "Broker-state-authority rule" — when a component tracks position/order state, the plan must state once "when is the broker's view authoritative vs stale?" and every code path derives from that single answer. Birthed by the same race being caught twice, once per CR.
+- **Next session:** Watch the first PingPong fills next RTH session + verify the dashboard Strategies tab reflects them; then GC-4 (dashboard TLS — Caddy/nginx + `tailscale cert`), the only unblocked roadmap item.
+
+---
+
 ## 2026-05-17 — Session-doc recovery + CSV-export security review
 
 - Step 5 drift caught at session open: the 2026-05-16 session shipped Phase 5 S3c (CSV export) to `main` via PRs #212/#213 (`959bb38`) but its closing-ritual docs sat on the unmerged, code-stale `chore/close-session-2026-05-16` branch. Recovered surgically — `git checkout` of only the 4 doc files onto `chore/recover-session-2026-05-16-docs` from `develop`; diff verified docs-only, no code regression.
