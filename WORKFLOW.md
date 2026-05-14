@@ -185,13 +185,15 @@ Example (2026-05-07): twice in one closing ritual, Claude handed the user a mult
 
 After committing any production-code change (strategies, broker, risk, runtime, backtester), run an unbiased code review **before declaring the task done**. This is not optional. The user should not have to ask.
 
-What counts as a mandatory CR trigger: any new file in `strategies/`, `broker/`, `risk/`, `runtime/`, or `backtester/`; any modification to `config/strategies.py` REGISTRY; any new `StrategyConfig` entry.
+What counts as a mandatory CR trigger: any new file in `strategies/`, `broker/`, `risk/`, `runtime/`, or `backtester/`; any modification to `config/strategies.py` REGISTRY; any new `StrategyConfig` entry; **OR — independent of file path — any feature that took a pre-implementation CR also takes a post-implementation CR.** The two passes catch different classes of issue: pre-impl reviews the plan (logic, scope, missing tests); post-impl reviews the actual diff (drift from plan, off-by-one in the code, env-var leaks, redundant assertions). One does not substitute for the other.
 
 What does NOT require a full CR: docs-only commits, CHATLOG updates, test-only changes that don't touch production paths.
 
 Spawn the CR agent (or run an in-chat unbiased review) immediately after the commit that ships the feature. Report findings to the user before saying "done."
 
 Example (2026-05-09): Phase B registered RSI2MR-SPY in REGISTRY, committed, and pushed — CR was skipped. User caught the omission ("did you do unbiased code review?"). The CR found 3 HIGH items (MS-A, MS-B, MS-C) that are now tracked in BACKLOG.
+
+Example (2026-05-14): Profit-factor `+inf → null` fix touched `data/trade_log.py` — not on the file-path trigger list. Pre-impl CR ran and caught a CRITICAL ds-18 test miss. Post-impl CR was skipped on the reasoning "trigger didn't fire"; user asked, and the post-impl CR found two LOW items (redundant nan assertion; non-restorative env-var pop) that were fixed in the same branch. The fix added the "pre-impl ran → post-impl runs" trigger above.
 
 ---
 
