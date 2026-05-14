@@ -390,3 +390,13 @@ assert chr(0xFEFF) not in open("path.py", encoding="utf-8").read()
 ```
 
 Example (2026-05-16): the CSV-export BOM prefix was typed as a literal `U+FEFF` character into `dashboard/app.py` and again into the test file. Both worked functionally but were invisible in the diff; correcting them to `"\ufeff"` cost two throwaway fix scripts. Writing the escape the first time is free.
+
+---
+
+## Describe-from-source rule
+
+Before describing, recommending, or planning around any BACKLOG or ROADMAP item, **read that item's full entry in `docs/BACKLOG.md` or `docs/ROADMAP.md` \u2014 never paraphrase from the CLAUDE.md "Immediate next steps" / "Current state" summary.** Those CLAUDE.md sections are a stale-prone index: they are updated opportunistically and routinely lag a decision recorded in the detail file. A summary line is a pointer to the source, not the source.
+
+The trigger is the moment you are about to tell the user \u2014 or yourself, in a Step 6 focus option \u2014 what an item *is* or whether it is *actionable*. One `Read` of the real entry is cheaper than contradicting a recorded decision out loud.
+
+Example (2026-05-16): asked "what is MS-C2?", Claude described it from CLAUDE.md's summary ("design item \u2014 needs auto_adjust resolution") and offered it as a next-session option. The authoritative `docs/BACKLOG.md` entry said MS-C2 was **measurement-gated** \u2014 explicitly deferred until a 30-day yfinance-outage report runs on 2026-06-12, with "don't design or build before then." The user caught the contradiction. Reading the BACKLOG line first would have made the answer correct and removed a dead option from the focus list.
