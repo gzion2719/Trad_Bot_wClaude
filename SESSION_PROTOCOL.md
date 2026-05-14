@@ -169,6 +169,8 @@ These checks apply to ANY "ready to commit" handoff, not just the closing ritual
 1. Feature → develop: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/develop...<branch>`
 2. develop → main: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/main...develop`
 
+In the VSCode-extension / IDE context, render these compare URLs as **clickable markdown links** (`[label](url)`), not bare code blocks — a code block is not clickable and forces the user to copy-paste. The gate-first `bash` block stays a code block; only the PR URLs become links.
+
 Then immediately provide the full VPS deploy command:
 ```bash
 ssh chappy-vps
