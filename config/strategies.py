@@ -47,6 +47,7 @@ from config.validator import ConfigError
 from strategies.base_strategy import BaseStrategy
 from strategies.rsi2_mr import RSI2MR_SPY
 from strategies.sma_crossover import SMACrossover
+from strategies.test_pingpong import PingPongTest
 
 # Re-export moved types so `from config.strategies import RiskCaps, DailyAt, ...`
 # keeps working for existing callers (runtime.strategy_runner, tests).
@@ -144,6 +145,7 @@ class StrategyConfig:
 _STRATEGY_CLASSES: dict[str, Type[BaseStrategy]] = {
     "SMACrossover-QQQ": SMACrossover,
     "RSI2MR-SPY": RSI2MR_SPY,
+    "PingPongTest-AAPL": PingPongTest,  # TEST-ONLY — see config/strategy_metadata.py
 }
 
 

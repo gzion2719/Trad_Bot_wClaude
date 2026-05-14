@@ -122,6 +122,28 @@ STRATEGY_METADATA: list[StrategyMetadata] = [
         },
         state_file_path="data/rsi2_mr_state.json",
     ),
+    # TEST-ONLY strategy. Alternates BUY 1 / SELL 1 AAPL every 5 minutes during
+    # market hours so the bot and dashboard can be observed end-to-end. P&L is
+    # NOT a goal. Remove this entry (and its _STRATEGY_CLASSES line) to disable.
+    # Caps are generous on purpose: 1 share of AAPL is a ~$250 order, trivially
+    # within every cap. max_open_orders is high because that cap is account-wide
+    # and shared with the other strategies' resting bracket orders (pre-impl CR
+    # C1). max_daily_loss is set well clear of any plausible test round-trip.
+    StrategyMetadata(
+        name="PingPongTest-AAPL",
+        symbol="AAPL",
+        schedule=Interval(seconds=300),
+        risk_caps=RiskCaps(
+            max_order_value=2_000.0,
+            max_position_value=2_000.0,
+            max_daily_loss=-10_000.0,
+            max_open_orders=50,
+            max_risk_per_trade_pct=0.02,
+            min_reward_risk_ratio=3.0,
+        ),
+        params={"qty": 1},
+        state_file_path=None,
+    ),
 ]
 
 
