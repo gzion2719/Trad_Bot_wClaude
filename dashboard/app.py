@@ -20,7 +20,9 @@ Never expose publicly without TLS. Tailscale provides transport encryption.
 
 from __future__ import annotations
 
+import csv
 import hmac
+import io
 import json
 import logging
 import os
@@ -32,6 +34,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from fastapi import (
     Cookie,
@@ -293,6 +296,30 @@ _SUMMARY_CACHE_TTL_SECONDS = 30.0
 _summary_cache: Dict[str, Dict[str, Any]] = {}
 _summary_cache_lock = threading.Lock()
 
+# CSV export (Session 3c). The column list MUST mirror `_STRAT_HISTORY_COLS`
+# in dashboard/static/dashboard.js — same keys, same order — so the export and
+# the on-screen table never drift. test_ds locks this against the JS constant.
+_CSV_COLUMNS = [
+    "filled_at",
+    "action",
+    "quantity",
+    "fill_price",
+    "cost_basis",
+    "realized_pnl",
+    "real_r_multiple",
+    "strategy_params",
+]
+# Buffered CSV is built entirely in-handler (one Starlette threadpool thread)
+# because TradeLog.connection() closes its sqlite conn in __exit__ — a lazy
+# StreamingResponse generator would iterate after the conn is closed and raise
+# sqlite3.ProgrammingError. The cap bounds the in-memory buffer; at ~1 fill/day
+# it is effectively unreachable. Hitting it returns 413 (never silent truncation).
+_CSV_ROW_CAP = 100_000
+# Leading characters that turn a spreadsheet cell into a formula. Applied ONLY
+# to string cells — numeric DB columns (a negative realized_pnl is a valid
+# number, not a formula) are written raw so the export stays machine-readable.
+_CSV_INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
+
 
 def _schedule_to_dict(schedule: Any) -> Dict[str, Any]:
     """Serialize a Schedule (DailyAt | Interval) for JSON output."""
@@ -389,17 +416,109 @@ def api_strategy_summary(
     return payload
 
 
+def _csv_safe_cell(value: Any) -> Any:
+    """Render one trades-row value for CSV output.
+
+    Numeric columns are returned raw — a negative `realized_pnl` is a number,
+    not a formula, and guarding it would corrupt the export into text. String
+    cells get the formula-injection guard: a leading =/+/-/@/control char is
+    neutralised with a leading apostrophe so a spreadsheet treats it as text.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, (int, float)):
+        return value
+    s = str(value)
+    if s and s[0] in _CSV_INJECTION_PREFIXES:
+        return "'" + s
+    return s
+
+
+def _build_strategy_fills_csv(name: str) -> bytes:
+    """Build the full CSV export for one strategy as BOM-prefixed UTF-8 bytes.
+
+    Buffered, not streamed (see `_CSV_ROW_CAP`). Raises HTTPException(413) when
+    the strategy has more fills than the cap rather than truncating silently —
+    a partial audit trail is worse than a hard failure.
+    """
+    with _trade_log.connection(row_factory=True) as conn:
+        total_row = conn.execute(
+            "SELECT COUNT(*) FROM trades WHERE strategy_name = ?",
+            (name,),
+        ).fetchone()
+        total = int(total_row[0]) if total_row else 0
+        if total > _CSV_ROW_CAP:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"strategy has {total} fills, above the {_CSV_ROW_CAP} "
+                    "CSV export cap — use the paginated JSON endpoint instead"
+                ),
+            )
+        # id DESC mirrors the JSON branch and the on-screen history table —
+        # the CSV must not present rows in a different order than the UI.
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE strategy_name = ? ORDER BY id DESC",
+            (name,),
+        ).fetchall()
+
+    buf = io.StringIO()
+    # RFC 4180 line terminator pinned explicitly — do not rely on the default.
+    writer = csv.writer(buf, lineterminator="\r\n")
+    writer.writerow(_CSV_COLUMNS)
+    for r in rows:
+        # strategy_params is emitted as its verbatim TEXT blob (not json.loads'd
+        # like the JSON branch) — a leading "{" is harmless to the guard, and
+        # corrupt JSON in the column exports raw instead of crashing the build.
+        writer.writerow([_csv_safe_cell(r[c]) for c in _CSV_COLUMNS])
+    # The BOM is a document-level prefix so Excel detects UTF-8. It is never
+    # part of any cell, so the per-cell injection guard never sees it.
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
+
 @app.get("/api/strategies/{name}/fills")
 def api_strategy_fills(
     limit: int = 50,
     offset: int = 0,
-    meta: StrategyMetadata = Depends(_resolve_strategy),
+    format: str = "json",
     _: None = Depends(_require_session),
-) -> Dict[str, Any]:
-    """Paginated fills for one strategy. `strategy_params` JSON parsed server-side.
+    meta: StrategyMetadata = Depends(_resolve_strategy),
+) -> Any:
+    """Paginated fills for one strategy, or a full CSV export.
 
-    Returns {"fills": [...], "total": N, "limit": L, "offset": O}.
+    `?format=json` (default) — {"fills": [...], "total": N, "limit": L,
+    "offset": O} with `strategy_params` JSON parsed server-side.
+    `?format=csv` — every fill for the strategy as a CSV attachment; `limit`
+    and `offset` are ignored. Any other `format` value → 400.
+
+    Dependency order is deliberate: `_require_session` (401) is declared before
+    `_resolve_strategy` (404) so an unauthenticated caller gets 401 and cannot
+    use the 404 / 400-bad-format branches as a route-existence oracle. The body
+    runs only after both gates pass, so precedence is 401 → 404 → 400.
+
+    CSV export is intentionally not rate-limited: this is a single-user internal
+    dashboard and the row cap already bounds the work per request.
     """
+    if format == "csv":
+        body = _build_strategy_fills_csv(meta.name)
+        filename = f"{meta.name}-fills.csv"
+        ascii_name = filename.encode("ascii", "replace").decode("ascii")
+        return Response(
+            content=body,
+            # Starlette appends "; charset=utf-8" to any text/* media type.
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{ascii_name}"; ' f"filename*=UTF-8''{quote(filename)}"
+                ),
+                # Fills are an audit trail — never serve a stale export from a
+                # proxy or browser cache after new fills land.
+                "Cache-Control": "no-store",
+            },
+        )
+    if format != "json":
+        raise HTTPException(status_code=400, detail="format must be 'json' or 'csv'")
+
     limit = max(1, min(limit, 500))
     # OFFSET pagination in SQLite is O(N) — the engine walks the index and
     # discards `offset` rows before returning any. 10k is ~5 years of expected

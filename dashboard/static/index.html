@@ -134,6 +134,9 @@
           </select>
         </label>
         <div class="strat-history-status" id="strat-history-status" aria-live="polite">—</div>
+        <!-- href is set per-strategy by _setActiveStrategy in dashboard.js;
+             inert until a strategy is active. -->
+        <a class="btn" id="strat-export" download>Export CSV</a>
       </div>
       <table id="strat-history" aria-busy="false">
         <thead>

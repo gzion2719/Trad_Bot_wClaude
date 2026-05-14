@@ -898,3 +898,174 @@ def test_ds54_reset_all_rate_state_clears_both_dicts():
         assert dashboard_app._rate_state == {}
     with dashboard_app._session_rate_lock:
         assert dashboard_app._SESSION_RATE_STATE == {}
+
+
+# ── DS-70..79: CSV export via ?format=csv (Session 3c) ─────────────────────
+#
+# `?format=csv` on /api/strategies/{name}/fills returns a buffered CSV
+# attachment. Buffered (not streamed) because TradeLog.connection() closes its
+# sqlite conn on __exit__ — a lazy StreamingResponse generator would iterate
+# after close and raise. These tests lock the wire format (BOM, CRLF, headers),
+# the formula-injection guard, the 401→404→400 precedence, and the row cap.
+
+_CSV_HEADER = ",".join(dashboard_app._CSV_COLUMNS)
+
+
+def test_ds70_csv_export_happy_path_wire_format(fresh_trade_log, dashboard_client):
+    """End-to-end: status, content-type, BOM, CRLF header row, attachment headers."""
+    import csv as _csv
+    import io as _io
+
+    log = fresh_trade_log
+    log.record(*_mkfill(1, "SMACrossover-QQQ", action="BUY", qty=10, price=100)[:2])
+
+    r = dashboard_client.get("/api/strategies/SMACrossover-QQQ/fills?format=csv")
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "text/csv; charset=utf-8"
+    assert r.headers["cache-control"] == "no-store"
+    assert r.headers["content-disposition"] == (
+        'attachment; filename="SMACrossover-QQQ-fills.csv"; '
+        "filename*=UTF-8''SMACrossover-QQQ-fills.csv"
+    )
+    body = r.content
+    # UTF-8 BOM so Excel detects encoding.
+    assert body.startswith(b"\xef\xbb\xbf")
+    text = body.decode("utf-8-sig")
+    lines = text.split("\r\n")
+    # RFC 4180 CRLF terminator; header row matches _CSV_COLUMNS order.
+    assert lines[0] == _CSV_HEADER
+    # The data row must carry the seeded fill's actual values — a weak
+    # len()>=2 check would pass even if the row were malformed.
+    rows = list(_csv.reader(_io.StringIO(text)))
+    assert len(rows) == 2  # header + exactly one seeded fill
+    data = dict(zip(rows[0], rows[1]))
+    assert data["action"] == "BUY"
+    assert data["quantity"] == "10.0"
+    assert data["fill_price"] == "100.0"
+
+
+def test_ds71_csv_columns_locked_against_js_constant(fresh_trade_log):
+    """Server _CSV_COLUMNS must mirror dashboard.js _STRAT_HISTORY_COLS keys/order.
+
+    Locks the DB-X10 drift risk: a server-side column rename that the JS table
+    constant doesn't follow (or vice versa) would silently desync the export
+    from the on-screen table. This is the symmetric guard to ds64/ds69.
+    """
+    import re
+
+    js = _read_static("dashboard.js")
+    m = re.search(r"_STRAT_HISTORY_COLS\s*=\s*\[(.*?)\];", js, re.DOTALL)
+    assert m, "could not locate _STRAT_HISTORY_COLS in dashboard.js"
+    js_keys = re.findall(r'\[\s*"(\w+)"\s*,', m.group(1))
+    assert js_keys, "parsed no keys from _STRAT_HISTORY_COLS"
+    assert js_keys == dashboard_app._CSV_COLUMNS, (
+        f"_CSV_COLUMNS (server) drifted from _STRAT_HISTORY_COLS (JS): "
+        f"server={dashboard_app._CSV_COLUMNS}, js={js_keys}"
+    )
+
+
+def test_ds72_csv_safe_cell_guards_strings_not_numbers():
+    """_csv_safe_cell neutralises formula-leading STRINGS, leaves numbers raw."""
+    f = dashboard_app._csv_safe_cell
+    # Formula-injection prefixes on string cells get an apostrophe guard.
+    for danger in ("=cmd", "+1", "-1+2", "@SUM", "\tx", "\rx", "\nx"):
+        assert f(danger) == "'" + danger, f"{danger!r} not guarded"
+    # Numeric cells are returned raw — a negative realized_pnl is a number,
+    # not a formula; guarding it would corrupt the export into text.
+    assert f(-5.0) == -5.0
+    assert f(-100) == -100
+    assert f(0.0) == 0.0
+    # None → empty string; safe-leading strings pass through untouched.
+    assert f(None) == ""
+    assert f('{"sma_fast": 10}') == '{"sma_fast": 10}'
+    assert f("BUY") == "BUY"
+
+
+def test_ds73_csv_negative_pnl_raw_and_injection_blob_guarded(fresh_trade_log):
+    """Integration: negative realized_pnl exports raw; a =-leading params blob is guarded."""
+    import csv as _csv
+    import io as _io
+    import sqlite3 as _sqlite
+
+    log = fresh_trade_log
+    log.record(*_mkfill(1, "SMACrossover-QQQ", action="BUY", qty=10, price=100)[:2])
+    # SELL at a loss → realized_pnl = (90 - 100) * 10 = -100.0
+    log.record(*_mkfill(2, "SMACrossover-QQQ", action="SELL", qty=10, price=90, cost_basis=100)[:2])
+    # Force a formula-leading strategy_params blob onto the SELL row.
+    with _sqlite.connect(log._db_path) as conn:
+        conn.execute("UPDATE trades SET strategy_params = '=DANGER()' WHERE id = 2")
+
+    body = dashboard_app._build_strategy_fills_csv("SMACrossover-QQQ")
+    rows = list(_csv.reader(_io.StringIO(body.decode("utf-8-sig"))))
+    header = rows[0]
+    # rows are id DESC → first data row is the SELL (id=2)
+    sell = dict(zip(header, rows[1]))
+    assert sell["realized_pnl"] == "-100.0"  # raw negative number, NOT '-100.0
+    assert not sell["realized_pnl"].startswith("'")
+    assert sell["strategy_params"] == "'=DANGER()"  # apostrophe-guarded
+
+
+def test_ds74_csv_unauth_returns_401_before_404(dashboard_client_unauth):
+    """An unauth request to a *bad* strategy name must return 401, not 404.
+
+    This is the load-bearing precedence check: if `_resolve_strategy` ran
+    before `_require_session`, the bad name would raise 404 first. Getting 401
+    proves `_require_session` is evaluated first (pre-impl CR C1). The 400
+    bad-format leg is trivially also beaten — 400 is raised in the handler
+    body, which never runs when a dependency raises. The 404-beats-400 leg is
+    covered by ds75 + ds76.
+    """
+    r = dashboard_client_unauth.get("/api/strategies/NOTAREALSTRATEGY/fills?format=xml")
+    assert r.status_code == 401
+
+
+def test_ds75_csv_unknown_strategy_returns_404(fresh_trade_log, dashboard_client):
+    """Authenticated + unknown strategy → 404 (resolve_strategy), even with format=csv."""
+    r = dashboard_client.get("/api/strategies/NOTAREALSTRATEGY/fills?format=csv")
+    assert r.status_code == 404
+
+
+def test_ds76_csv_bad_format_returns_400(fresh_trade_log, dashboard_client):
+    """Authenticated + valid strategy + unknown format → 400."""
+    r = dashboard_client.get("/api/strategies/SMACrossover-QQQ/fills?format=xml")
+    assert r.status_code == 400
+
+
+def test_ds77_csv_empty_db_is_exactly_bom_header_crlf(fresh_trade_log):
+    """Empty DB → body is exactly BOM + header row + CRLF, nothing else."""
+    body = dashboard_app._build_strategy_fills_csv("SMACrossover-QQQ")
+    expected = ("\ufeff" + _CSV_HEADER + "\r\n").encode("utf-8")
+    assert body == expected
+
+
+def test_ds78_csv_corrupt_strategy_params_exports_raw(fresh_trade_log):
+    """Corrupt JSON in strategy_params exports the raw blob — never crashes the build.
+
+    Mirrors ds24 (which asserts the JSON branch serves null). The CSV branch
+    deliberately does NOT json.loads the column, so a corrupt blob round-trips
+    verbatim instead of becoming null or raising.
+    """
+    import csv as _csv
+    import io as _io
+    import sqlite3 as _sqlite
+
+    log = fresh_trade_log
+    log.record(*_mkfill(1, "SMACrossover-QQQ", action="BUY", qty=10, price=100)[:2])
+    with _sqlite.connect(log._db_path) as conn:
+        conn.execute("UPDATE trades SET strategy_params = '{not valid json' WHERE id = 1")
+
+    body = dashboard_app._build_strategy_fills_csv("SMACrossover-QQQ")
+    rows = list(_csv.reader(_io.StringIO(body.decode("utf-8-sig"))))
+    row = dict(zip(rows[0], rows[1]))
+    # Leading "{" is a safe char → exported verbatim, not guarded, not nulled.
+    assert row["strategy_params"] == "{not valid json"
+
+
+def test_ds79_csv_row_cap_returns_413(fresh_trade_log, dashboard_client, monkeypatch):
+    """A strategy with more fills than _CSV_ROW_CAP returns 413 — never silent truncation."""
+    monkeypatch.setattr(dashboard_app, "_CSV_ROW_CAP", 2)
+    log = fresh_trade_log
+    for i in range(3):
+        log.record(*_mkfill(i + 1, "SMACrossover-QQQ", action="BUY", qty=1, price=100 + i)[:2])
+    r = dashboard_client.get("/api/strategies/SMACrossover-QQQ/fills?format=csv")
+    assert r.status_code == 413
