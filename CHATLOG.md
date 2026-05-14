@@ -3,6 +3,16 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-17 — Session-doc recovery + CSV-export security review
+
+- Step 5 drift caught at session open: the 2026-05-16 session shipped Phase 5 S3c (CSV export) to `main` via PRs #212/#213 (`959bb38`) but its closing-ritual docs sat on the unmerged, code-stale `chore/close-session-2026-05-16` branch. Recovered surgically — `git checkout` of only the 4 doc files onto `chore/recover-session-2026-05-16-docs` from `develop`; diff verified docs-only, no code regression.
+- Ran `/security-review` on `959bb38` at user request (skill's auto-diff was empty since the feature is already merged — fed it the commit diff manually). No HIGH/MEDIUM findings: parameterized queries, fixed-allowlist strategy-name validation, `_require_session`→`_resolve_strategy` dependency order (401 before 404), `attachment` disposition, sound CSV formula-injection guard all verified by reading source.
+- Mis-described MS-C2 from CLAUDE.md's stale "Immediate next steps" summary; user caught it. Authoritative `docs/BACKLOG.md` says MS-C2 is **measurement-gated** — deferred until `scripts/yfinance_outage_report.py` runs on the VPS on/after 2026-06-12, "don't design or build before then." GC-4 (dashboard TLS) is the only unblocked roadmap item.
+- **Process improvement:** WORKFLOW.md gains the "Describe-from-source rule" (commit `9272aa0`) — read a BACKLOG/ROADMAP item's full entry before describing/recommending/planning around it; never paraphrase the CLAUDE.md index summary. Pairs with the existing "CR-finding-to-BACKLOG grounding rule" (that one governs writing entries; this one governs reading them).
+- **Next session:** Merge the recovery PR (chore→develop→main; docs-only, no VPS deploy), then GC-4 (dashboard TLS — Caddy/nginx + `tailscale cert`). MS-C2 stays parked until the 2026-06-12 measurement window.
+
+---
+
 ## 2026-05-16 — Dashboard Phase 5 Session 3c: CSV export shipped
 
 - Added `?format=csv` content-negotiation to `GET /api/strategies/{name}/fills` — buffered (not streamed: `TradeLog.connection()` closes its sqlite conn on `__exit__`, so a lazy generator would iterate after close), 8 columns mirroring the JS `_STRAT_HISTORY_COLS` constant via a new server-side `_CSV_COLUMNS` (locked by `test_ds71`), 100k row cap → HTTP 413 (no silent truncation), formula-injection guard on string cells only (negative P&L stays numeric), UTF-8 BOM + RFC 4180 CRLF + RFC 6266 dual-form filename + `Cache-Control: no-store`. Dependency order swapped so precedence is 401→404→400. Frontend: `<a id="strat-export" download>` in the history toolbar, href wired per-strategy in `_setActiveStrategy`.
