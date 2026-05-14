@@ -813,6 +813,13 @@ function _setActiveStrategy(name) {
     btn.setAttribute("tabindex", isMe ? "0" : "-1");
   });
 
+  // Point the CSV export link at the active strategy. Same encodeURIComponent
+  // as fetchStrategyFills so the path component matches the registered name.
+  const exportLink = document.getElementById("strat-export");
+  if (exportLink) {
+    exportLink.href = `/api/strategies/${encodeURIComponent(name)}/fills?format=csv`;
+  }
+
   // Fetch summary for this strategy immediately
   fetchStrategySummary(name);
   // History pagination resets on strategy switch; history fetch is fully

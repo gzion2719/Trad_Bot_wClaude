@@ -370,6 +370,17 @@ body[data-tab="strats"] > .kpi-strip { display: none; }
   align-items: center;
   gap: 0.4rem;
 }
+/* The export control is an <a download>, not a <button> — strip the anchor
+   underline and dim it while it has no href (no strategy active yet). */
+a.btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+a.btn:not([href]) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .strat-history-pagesize select {
   background: var(--bg);
   color: var(--text);
