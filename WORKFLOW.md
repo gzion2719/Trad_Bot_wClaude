@@ -374,3 +374,19 @@ When verifying a feature against fixture or seed data — populating a DB, writi
 The trigger isn't unusual data state — it's the moment you think "I'm about to populate file X so the feature shows data." Stop and confirm the feature actually consumes X. A 2-line grep beats discovering the mismatch after launching the verification, or worse, after deploy.
 
 Example (2026-05-13): the 2026-05-12 CHATLOG noted "VPS `trades.db` has zero rows," which read as a known-empty state. While prepping local verification for Phase 5 S2, I was about to seed `trades.db` to populate the new Strategies tab. A grep of `main.py` first surfaced `TradeLog(db_path=Path("data/paper_trades.db"))` — the bot writes to `paper_trades.db`, but `dashboard/app.py` was reading the default `trades.db`. The "empty" observation was technically correct but masked a wrong-file-read bug. Fixing the dashboard wiring (one line) was bundled into S2's PR and surfaced real paper-account data on the next deploy.
+
+---
+
+## Invisible Unicode literal rule
+
+When a string literal needs a non-printing or invisible Unicode character — a BOM (`U+FEFF`), zero-width space, non-breaking space, etc. — **always write the `\uXXXX` escape sequence, never the raw character**. A raw invisible char in source is undetectable on review, survives copy-paste silently, and an editor or `git` filter can strip or mangle it without anyone noticing. The escape form is self-documenting and greppable.
+
+After writing such a literal, verify with a `repr()` check that the source contains the escape, not the raw codepoint:
+
+```python
+# in the file: ("\ufeff" + body)   ← correct, escape sequence
+# NOT:         ("<raw BOM>" + body) ← invisible, will be flagged here
+assert chr(0xFEFF) not in open("path.py", encoding="utf-8").read()
+```
+
+Example (2026-05-16): the CSV-export BOM prefix was typed as a literal `U+FEFF` character into `dashboard/app.py` and again into the test file. Both worked functionally but were invisible in the diff; correcting them to `"\ufeff"` cost two throwaway fix scripts. Writing the escape the first time is free.
