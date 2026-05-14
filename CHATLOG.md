@@ -3,6 +3,16 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-20 — Neon-glass dashboard mockups (mock 1 + mock 2)
+
+- Loaded the `neon-glass-dashboard` skill (reachable from Claude Code this session, as the 2026-05-19 entry predicted) and built two standalone dashboard mockups in `docs/mockups/`: `dashboard-mock1.html` (neon green/red) and `dashboard-mock2.html` (blue/purple variant), both mirroring the live 3-tab structure (Mission Control / IBKR Account / Strategies) with flashy showcase placeholder data.
+- Docs-only deliverable — self-contained HTML, no backend wiring, no Python touched → no CR, no VPS deploy. Porting a chosen palette onto the live `dashboard/static/` files is the follow-up.
+- Step 5 self-check: flagged `chore/close-session-2026-05-19` as unmerged drift, but a `git fetch` seconds later showed it was already on `develop` via PR #225 — the status check had run pre-fetch. Its develop→main is still genuinely pending.
+- **Process improvement:** SESSION_PROTOCOL.md Step 5 now requires `git fetch origin main develop` before judging merge state — birthed by the false drift flag above.
+- **Next session:** Pick mock 1 or mock 2 and port the palette onto the live `dashboard/static/` files; or GC-4 (dashboard TLS), still the only unblocked roadmap build item.
+
+---
+
 ## 2026-05-19 — Session-doc merge + PingPong dashboard-tab diagnosis
 
 - Step 5 drift: the 2026-05-18 closing docs (`ee6479b`) were committed and pushed to `chore/close-session-2026-05-18` but never merged. Opened chore→develop→main (PRs #223/#224); user merged both — docs-only, no VPS deploy.
