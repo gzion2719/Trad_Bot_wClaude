@@ -243,6 +243,21 @@ Example (2026-05-11): after a VPS `git pull` that picked up two open PRs, I aske
 
 ---
 
+## IBKRClient method thread-safety rule
+
+Any new method on `IBKRClient` that wraps an `ib_insync` sync wrapper which internally calls `_run()` (i.e. `qualifyContracts`, `accountSummary` on uncached first call, `reqCurrentTime`, `sleep`, anything that does `loop.run_until_complete()`) MUST auto-detect the calling thread and route via `asyncio.run_coroutine_threadsafe(coro, self._main_loop)` when invoked from a non-main thread. The auto-detect helper is `self._needs_threadsafe_route()`.
+
+Rules:
+
+1. **Do not introduce new `_threadsafe`-suffixed variants.** That opt-in pattern lets every new caller forget — the May 2026 PingPong zero-fills bug went latent for days because `get_market_price` and `qualify_contract` were never given the threadsafe treatment. Existing `get_account_summary_threadsafe` / `get_positions_threadsafe` are one-line aliases kept for back-compat only; delete after callers migrate.
+2. **`_needs_threadsafe_route()` raises on cold-start, never silently falls through.** If called from a non-main thread before `connect()` captured the main loop (or after the loop stopped), it raises `RuntimeError` — the previous silent-fallback dropped daemon callers onto the broken sync path, which is exactly the bug class this rule exists to fix.
+3. **Callers outside `IBKRClient` must not reach for `self._ib.sleep(...)`, `self._ib.qualifyContracts(...)`, or `self._ib.reqCurrentTime(...)` directly.** Go through `client.sleep(...)`, `client.qualify_contract(...)`, `client.is_alive()`. The grep tripwire test `test_ts07_no_direct_ib_sync_calls_outside_client` fails the build if a regression slips in — this is the regression that hid the bug for days because PingPong's broad `except` swallowed the resulting RuntimeError.
+4. **Inside any `_async` coroutine on `IBKRClient`, every wait MUST be `await asyncio.sleep(...)`, never `self.ib.sleep(...)`.** The latter re-enters `loop.run_until_complete` from inside the loop — self-deadlock. Use `loop.time()` for deadlines, not `time.time()`.
+
+Example (2026-05-15): PingPong's `on_tick` ran on its daemon scheduler thread and called `client.get_market_price` → `qualify_contract` → sync `ib.qualifyContracts` → `loop.run_until_complete(qualifyContractsAsync(...))` while the main loop was already running → `RuntimeWarning: coroutine 'IB.qualifyContractsAsync' was never awaited` → swallowed by PingPong's broad except. Zero fills for 5 days. The fix made auto-routing implicit across `IBKRClient`; the grep tripwire (this rule's point 3) prevents the regression class.
+
+---
+
 ## ib_insync sync-vs-async rule (inside threadsafe coroutines)
 
 When wrapping ib_insync calls in `asyncio.run_coroutine_threadsafe`, every call inside the coroutine MUST use the `*Async` variant. Sync ib_insync wrappers (e.g. `reqAllOpenOrders`, `accountSummary`, `qualifyContracts`) internally call `loop.run_until_complete()` via `IB._run()`. Inside an awaiting coroutine the loop is already running, so `_run()` raises `RuntimeError("This event loop is already running")` — exactly the failure mode the threadsafe routing was meant to prevent.

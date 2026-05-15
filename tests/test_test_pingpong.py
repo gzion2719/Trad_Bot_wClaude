@@ -573,3 +573,37 @@ def test_pp22_dispatch_on_fill_filters_by_strategy_name():
 
     om.fire_fill(_filled(OrderAction.BUY, order_id=2, strategy_name="PingPongTest-AAPL"))
     assert strat._in_position is True  # ours — delivered
+
+
+def test_pp23_on_tick_from_daemon_thread_queues_order():
+    """Regression tripwire: PingPong tick from a daemon thread must place an order.
+
+    The 2026-05-15 production bug was: PingPong on_tick runs on the scheduler's
+    daemon thread, called client.get_market_price, which internally hit the
+    ib_insync sync wrapper from the wrong thread and crashed silently. Zero
+    fills since deploy. This test pins the invariant: a tick from a non-main
+    thread must complete and queue an order (using the test's MockClient that
+    bypasses the real ib_insync path).
+    """
+    import threading as _threading
+
+    strat, _, om, _, _ = _make_strategy()
+
+    holder: dict = {}
+
+    def _runner() -> None:
+        try:
+            strat.on_tick()
+            holder["ok"] = True
+        except BaseException as exc:  # noqa: BLE001
+            holder["error"] = exc
+
+    t = _threading.Thread(target=_runner, name="pp23-daemon", daemon=True)
+    t.start()
+    t.join(timeout=5.0)
+    assert not t.is_alive()
+    assert "error" not in holder, holder.get("error")
+    assert holder.get("ok") is True
+    assert len(om.placed) == 1
+    assert om.placed[0].action == OrderAction.BUY
+    assert strat._order_pending is True
