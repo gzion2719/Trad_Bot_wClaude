@@ -111,6 +111,7 @@ For sprint-by-sprint detail, see `TODO.md`. For the phased roadmap, see `docs/RO
 | QA-15 | P2 | Delayed data staleness warning surfaced to strategies |
 | QA-16 | P2 | Market hours check for DAY orders |
 | 5.11 | P1 | Split test suite — mark IBKR-dependent tests with `requires_tws` so CI can run logic-only tests without TWS (today CI test step always fails because `tests/run_tests.py:94` connects at module load) |
+| TS-CLEANUP | P3 | Migrate `data/account_snapshot.py` (the only remaining caller) off the deprecated `get_account_summary_threadsafe()` and `get_positions_threadsafe()` aliases, then delete the aliases from `broker/ibkr_client.py`. The aliases were kept for backward-compat when the 2026-05-15 thread-safety refactor folded the `_threadsafe` variants into the base methods; they are now dead weight. 1-line PR. |
 
 ---
 

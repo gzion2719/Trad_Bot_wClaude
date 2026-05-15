@@ -23,6 +23,10 @@ _CONNECT_TIMEOUT = 10  # seconds to wait for connection to be ready
 _PRICE_TIMEOUT = 10  # seconds to wait for market data tick
 _PRICE_POLL = 0.25  # poll interval for price
 _PRICE_CANCEL_WAIT = 0.5  # cooldown after cancelMktData (respects IBKR pacing)
+_QUALIFY_TIMEOUT = 10  # seconds to wait for qualifyContracts
+_ACCOUNT_TIMEOUT = 10  # seconds to wait for accountSummary / portfolio (reuses same value)
+_HEARTBEAT_TIMEOUT = 10  # seconds to wait for reqCurrentTime
+_THREADSAFE_RESULT_SLACK = 5  # extra seconds on Future.result vs the in-coroutine deadline
 _RECONNECT_DELAYS = [2, 5, 10, 30, 60]  # backoff schedule in seconds
 
 
@@ -188,14 +192,83 @@ class IBKRClient:
         """
         Check if the connection is truly alive by requesting server time.
         More reliable than isConnected() which can return True on a stale socket.
+
+        Thread-safe: auto-routes via run_coroutine_threadsafe when called from a
+        non-main thread (ReconnectManager daemon).
         """
         if not self.ib.isConnected():
             return False
         try:
-            t = self.ib.reqCurrentTime()
+            if self._needs_threadsafe_route():
+                assert self._main_loop is not None  # narrowed by _needs_threadsafe_route
+                fut = asyncio.run_coroutine_threadsafe(  # type: ignore[var-annotated]
+                    self.ib.reqCurrentTimeAsync(),  # type: ignore[arg-type]
+                    self._main_loop,
+                )
+                t = fut.result(timeout=_HEARTBEAT_TIMEOUT)
+            else:
+                t = self.ib.reqCurrentTime()
             return t is not None
-        except (RuntimeError, OSError, AttributeError):
+        except (RuntimeError, OSError, AttributeError, TimeoutError):
             return False
+        except Exception:
+            # concurrent.futures.TimeoutError is not a builtin TimeoutError on
+            # all Python versions; catch broadly here -- a heartbeat failure
+            # must never propagate. The caller treats False as "reconnect".
+            return False
+
+    # ------------------------------------------------------------------
+    # Thread-safety routing
+    # ------------------------------------------------------------------
+
+    def _needs_threadsafe_route(self) -> bool:
+        """
+        True when an ib_insync call must be scheduled on the main asyncio loop.
+
+        Returns False on the main thread (the sync ib_insync wrappers work
+        normally there). Returns True on any other thread when the main loop
+        is captured and running.
+
+        Raises RuntimeError on a non-main thread when the main loop has not
+        been captured yet (cold-start race: a daemon scheduler tick fires
+        before connect() runs on the main thread). The previous design
+        silently returned False here, which dropped daemon callers onto the
+        broken sync path -- exactly the bug class this rule exists to fix.
+        """
+        if threading.current_thread() is threading.main_thread():
+            return False
+        if self._main_loop is None:
+            raise RuntimeError(
+                "IBKRClient called from a non-main thread before connect() ran. "
+                "The main asyncio loop must be captured on the main thread first."
+            )
+        if not self._main_loop.is_running():
+            raise RuntimeError(
+                "IBKRClient called from a non-main thread but the main loop is "
+                "not running. The main loop must be active to route ib_insync calls."
+            )
+        return True
+
+    def sleep(self, seconds: float) -> None:
+        """
+        Thread-safe replacement for ib.sleep(seconds).
+
+        On the main thread, defers to ib.sleep (drives the event loop while
+        sleeping, which OrderManager relies on to let newOrderEvent fire).
+        On a daemon thread with a running main loop, schedules asyncio.sleep on
+        the main loop and blocks the daemon thread on the Future.
+        On a daemon thread before connect() or after loop shutdown, falls back
+        to plain time.sleep -- sleep is a wait, not a network call, so it does
+        not need the loop to be available to be correct.
+        """
+        if threading.current_thread() is not threading.main_thread():
+            if self._main_loop is not None and self._main_loop.is_running():
+                fut = asyncio.run_coroutine_threadsafe(asyncio.sleep(seconds), self._main_loop)
+                fut.result(timeout=seconds + 1.0)
+            else:
+                time.sleep(seconds)
+        else:
+            self.ib.sleep(seconds)
 
     # ------------------------------------------------------------------
     # Properties
@@ -261,6 +334,18 @@ class IBKRClient:
                 symbol,
             )
 
+        # On a daemon thread the entire poll loop runs as a coroutine on the
+        # main asyncio loop. Pre-fix, the sync ib_insync wrappers (qualifyContracts,
+        # ib.sleep) called loop.run_until_complete() while the main loop was
+        # already running -- RuntimeWarning, silent failure, zero fills.
+        if self._needs_threadsafe_route():
+            assert self._main_loop is not None
+            fut = asyncio.run_coroutine_threadsafe(
+                self._get_market_price_async(symbol, exchange, currency, is_delayed),
+                self._main_loop,
+            )
+            return fut.result(timeout=_PRICE_TIMEOUT + _THREADSAFE_RESULT_SLACK)
+
         contract = self.qualify_contract(Stock(symbol, exchange, currency))
         ticker = self.ib.reqMktData(contract, "", False, False)
         price = None
@@ -280,6 +365,55 @@ class IBKRClient:
             # Leaked subscriptions accumulate and IBKR will refuse new ones.
             self.ib.cancelMktData(contract)
             self.ib.sleep(_PRICE_CANCEL_WAIT)  # respect IBKR pacing limits
+
+        if price is None:
+            raise ValueError(
+                f"Could not obtain a valid price for {symbol} within {_PRICE_TIMEOUT}s."
+            )
+
+        logger.debug(
+            "Market price for %s: %.4f%s", symbol, price, " (delayed)" if is_delayed else ""
+        )
+        return price
+
+    async def _get_market_price_async(
+        self,
+        symbol: str,
+        exchange: str,
+        currency: str,
+        is_delayed: bool,
+    ) -> float:
+        """
+        Async variant of get_market_price, scheduled on the main loop from a
+        non-main caller via run_coroutine_threadsafe.
+
+        Critical: every wait MUST be `await asyncio.sleep`, never `self.ib.sleep`
+        (which would re-enter loop.run_until_complete from inside the loop --
+        self-deadlock).
+
+        Note: `is_delayed` is forwarded for logging only. The market-data mode
+        (DELAYED vs REALTIME) is set once at connect time via _set_market_data_type
+        and applies to all subsequent reqMktData calls automatically.
+        """
+        qualified = await self.ib.qualifyContractsAsync(Stock(symbol, exchange, currency))
+        if not qualified:
+            raise RuntimeError(f"Could not qualify contract for {symbol}")
+        contract = next((c for c in qualified if c.primaryExchange), qualified[0])
+
+        ticker = self.ib.reqMktData(contract, "", False, False)
+        price: Optional[float] = None
+        loop = asyncio.get_running_loop()
+        try:
+            await asyncio.sleep(1)  # first tick
+            deadline = loop.time() + _PRICE_TIMEOUT
+            while loop.time() < deadline:
+                price = self._best_price(ticker)
+                if price is not None:
+                    break
+                await asyncio.sleep(_PRICE_POLL)
+        finally:
+            self.ib.cancelMktData(contract)
+            await asyncio.sleep(_PRICE_CANCEL_WAIT)
 
         if price is None:
             raise ValueError(
@@ -327,8 +461,20 @@ class IBKRClient:
 
         Returns the best match (primary exchange preferred over regional).
         Raises RuntimeError if the contract cannot be resolved.
+
+        Thread-safe: auto-routes via run_coroutine_threadsafe when called from a
+        non-main thread (any strategy's on_tick via OrderManager.place_order or
+        get_market_price).
         """
-        qualified = self.ib.qualifyContracts(contract)
+        if self._needs_threadsafe_route():
+            assert self._main_loop is not None
+            fut = asyncio.run_coroutine_threadsafe(
+                self.ib.qualifyContractsAsync(contract), self._main_loop
+            )
+            qualified = fut.result(timeout=_QUALIFY_TIMEOUT + _THREADSAFE_RESULT_SLACK)
+        else:
+            qualified = self.ib.qualifyContracts(contract)
+
         if not qualified:
             raise RuntimeError(f"Could not qualify contract: {contract}")
 
@@ -342,6 +488,18 @@ class IBKRClient:
     # ------------------------------------------------------------------
 
     def get_account_summary(self) -> list:
+        """
+        Return the cached account-summary tag list.
+
+        Thread-safe: auto-routes via run_coroutine_threadsafe when called from a
+        non-main thread. ib.accountSummary() triggers _run() on the first call
+        (uncached); subsequent calls hit the cache and are safe even from a
+        daemon, but we always route to keep the contract uniform.
+        """
+        if self._needs_threadsafe_route():
+            assert self._main_loop is not None
+            fut = asyncio.run_coroutine_threadsafe(self.ib.accountSummaryAsync(), self._main_loop)
+            return fut.result(timeout=_ACCOUNT_TIMEOUT + _THREADSAFE_RESULT_SLACK)
         return self.ib.accountSummary()
 
     def get_positions(self) -> list:
@@ -351,35 +509,37 @@ class IBKRClient:
         Uses ib.portfolio() (not ib.positions()) because portfolio() includes
         marketPrice, marketValue, unrealizedPNL, and realizedPNL.
         ib.positions() only has contract, position, and avgCost.
+
+        Thread-safe: portfolio() has no Async variant (it's a pure dict read
+        of the Wrapper cache), so we wrap it in a trivial coroutine that runs
+        on the event-loop thread -- the sole writer of that cache.
         """
+        if self._needs_threadsafe_route():
+            assert self._main_loop is not None
+
+            async def _fetch() -> list:
+                return self.ib.portfolio()
+
+            fut = asyncio.run_coroutine_threadsafe(_fetch(), self._main_loop)
+            return fut.result(timeout=_ACCOUNT_TIMEOUT + _THREADSAFE_RESULT_SLACK)
         return self.ib.portfolio()
 
     def get_account_summary_threadsafe(self) -> list:
-        """Thread-safe variant of get_account_summary() for daemon-thread callers.
+        """Deprecated alias for get_account_summary() -- kept for back-compat.
 
-        Mirrors the B-08 fix in connect(): uses run_coroutine_threadsafe against
-        the main event loop saved on first connect(). Required because ib_insync
-        calls asyncio.get_event_loop() internally; Python 3.12 raises RuntimeError
-        in non-main threads.
+        The base method now auto-detects the calling thread (see the
+        "IBKRClient method thread-safety rule" in WORKFLOW.md). Migrate
+        callers to get_account_summary() and delete this alias.
+        Tracked: BACKLOG TS-CLEANUP.
         """
-        if self._main_loop is None or threading.current_thread() is threading.main_thread():
-            return self.ib.accountSummary()
-        fut = asyncio.run_coroutine_threadsafe(self.ib.accountSummaryAsync(), self._main_loop)
-        return fut.result(timeout=10)
+        return self.get_account_summary()
 
     def get_positions_threadsafe(self) -> list:
-        """Thread-safe variant of get_positions() — same pattern as above.
+        """Deprecated alias for get_positions() -- kept for back-compat.
 
-        portfolio() has no Async variant. We wrap it in a coroutine so it
-        executes on the event-loop thread, which is the sole writer of the
-        internal portfolio cache (ib_insync Wrapper). Running on any other
-        thread would race with IBKR callback updates.
+        The base method now auto-detects the calling thread (see the
+        "IBKRClient method thread-safety rule" in WORKFLOW.md). Migrate
+        callers to get_positions() and delete this alias.
+        Tracked: BACKLOG TS-CLEANUP.
         """
-        if self._main_loop is None or threading.current_thread() is threading.main_thread():
-            return self.ib.portfolio()
-
-        async def _fetch() -> list:
-            return self.ib.portfolio()
-
-        fut = asyncio.run_coroutine_threadsafe(_fetch(), self._main_loop)
-        return fut.result(timeout=10)
+        return self.get_positions()

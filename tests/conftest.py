@@ -109,7 +109,7 @@ def live_client():
 
     # Cancel leftover orders from previous sessions before starting
     om.cancel_all()
-    client.ib.sleep(0.5)
+    client.sleep(0.5)
 
     yield client, om
 
@@ -119,7 +119,43 @@ def live_client():
             remaining = om.get_open_orders()
             if remaining:
                 om.cancel_all()
-                client.ib.sleep(1)
+                client.sleep(1)
             client.disconnect()
     except Exception:
         pass
+
+
+# ── Background event loop (thread-safety tests) ────────────────────────────
+#
+# Spins an asyncio loop in a dedicated thread so tests can exercise the
+# run_coroutine_threadsafe routing in IBKRClient. The fixture yields the
+# loop reference; tests set `client._main_loop = bg_event_loop` to simulate
+# the post-connect state where the main loop is captured and running.
+
+
+@pytest.fixture
+def bg_event_loop():
+    """Run an asyncio event loop in a background thread for the duration of the test.
+
+    Yields the loop. Teardown: stop the loop on its own thread, join the thread.
+    """
+    import asyncio
+    import threading
+
+    loop = asyncio.new_event_loop()
+    ready = threading.Event()
+
+    def _run() -> None:
+        asyncio.set_event_loop(loop)
+        ready.set()
+        loop.run_forever()
+
+    thread = threading.Thread(target=_run, name="bg-event-loop", daemon=True)
+    thread.start()
+    ready.wait(timeout=2.0)
+    try:
+        yield loop
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2.0)
+        loop.close()
