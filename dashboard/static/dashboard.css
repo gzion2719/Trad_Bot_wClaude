@@ -331,6 +331,61 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .sys-margin-top { margin-top: 0.75rem; }
 .fills-card { margin-top: 12px; }
 
+/* ── Eyebrow label (mock2) ───────────────────────────────────────────────── */
+.eyebrow {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* ── BUY / SELL pills (mock2 chips for table side column) ────────────────── */
+.pill {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  display: inline-block;
+}
+.pill-b {
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--blue-neon);
+  border: 1px solid rgba(56, 189, 248, 0.32);
+}
+.pill-s {
+  background: rgba(255, 77, 141, 0.15);
+  color: var(--pink-neon);
+  border: 1px solid rgba(255, 77, 141, 0.32);
+}
+
+/* ── Ticker icon (mock2 22×22 rounded square next to symbol) ─────────────── */
+.ticker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.ticker-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(56, 189, 248, 0.13);
+  color: var(--blue-neon);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  font-variant-numeric: tabular-nums;
+}
+.ticker-icon.loss {
+  background: rgba(255, 77, 141, 0.13);
+  color: var(--pink-neon);
+  border-color: rgba(255, 77, 141, 0.22);
+}
+
 /* ── Primary tabs ────────────────────────────────────────────────────────── */
 .tabs {
   display: flex;
@@ -405,23 +460,69 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .acct-positions,
 .acct-balances { margin-top: 12px; }
 
+/* Hero treatment on the Account dashboard card — mock2's signature panel:
+   green/violet diagonal wash + glowing orb in the top-right + soft halo.
+   The orb is decorative chrome; it's the ONE place a non-data element is
+   allowed to glow (alongside the brand mark + live dot). */
+.acct-dash.hero {
+  background: linear-gradient(120deg,
+    rgba(30, 60, 130, 0.55) 0%,
+    rgba(70, 25, 110, 0.42) 55%,
+    rgba(12, 10, 30, 0.7) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  min-height: 148px;
+}
+.hero-orb {
+  position: absolute;
+  right: 16px;
+  top: 18px;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%,
+    #60a5fa 0%, #3b82f6 35%, #6b21a8 80%, #2a0840 100%);
+  box-shadow:
+    0 0 32px rgba(56, 189, 248, 0.42),
+    inset -6px -10px 18px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+.hero-glow {
+  /* Halo behind the orb. `.card` has `overflow:hidden`, but the radial-gradient
+     fades to transparent at 65% of radius — the *visible* halo is well inside
+     the 150×150 box, so the small negative offsets don't produce a visible
+     hard-cut at the card edge. Values mirror docs/mockups/dashboard-mock2.html. */
+  position: absolute;
+  right: -10px;
+  top: -4px;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.32) 0%, transparent 65%);
+  filter: blur(10px);
+  pointer-events: none;
+}
+
 .acct-dash-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 0.75rem;
+  position: relative;
+  z-index: 1;
 }
 .acct-netliq-label {
-  font-size: 0.65rem;
+  font-size: 9px;
   color: var(--text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   margin-bottom: 0.2rem;
   font-weight: 500;
 }
 .acct-netliq {
   font-variant-numeric: tabular-nums;
-  font-size: 1.8rem;
+  font-size: 1.95rem;
+  letter-spacing: -0.02em;
+  margin: 4px 0 2px;
 }
 .acct-change { font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
 
@@ -529,21 +630,36 @@ body[data-tab="strats"] > .kpi-strip { display: none; }
 
 .strat-shell { display: flex; flex-direction: column; gap: 1rem; }
 
+/* Strategies sub-header — promoted to a glass card to match mock2's layout
+   (active-strategy callout sits in its own card above the KPI strip). */
 .strat-subheader {
+  background: var(--card-grad);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 1rem;
-  padding: 0.25rem 0 0.6rem 0;
-  border-bottom: 1px solid var(--border);
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+  overflow: hidden;
+}
+.strat-subheader-eyebrow {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
 }
 .strat-title {
-  font-size: 1.05rem;
+  font-size: 1.15rem;
   font-weight: 600;
   color: var(--text-primary);
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
-.strat-meta { font-size: 0.78rem; color: var(--muted); letter-spacing: 0.03em; }
+.strat-meta { font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; }
 
 .strat-tabs {
   display: flex;
