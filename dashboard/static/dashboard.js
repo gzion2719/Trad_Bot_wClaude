@@ -370,6 +370,94 @@ function checkAccountMismatch(snap) {
   }
 }
 
+// Account-health ring — visualises maintenance-margin usage as a percentage
+// of net liquidation. Circumference is derived once from the SVG's `r`
+// attribute, so changing the radius in index.html doesn't require a JS edit.
+//
+// A risk metric: low margin usage → small arc → "healthy headroom". The arc
+// caps at 100% (can't render past a full circle), but the numeric label is
+// left uncapped — a margin call (maint ≥ netLiq) is the loudest signal this
+// card delivers, and we don't want to flatten it to "100%".
+let _ringCircumference = null;
+
+function _ringInit(arc) {
+  if (_ringCircumference != null) return _ringCircumference;
+  // SVGCircleElement.r.baseVal.value is the parsed numeric radius. Fall back
+  // to 40 (the value in index.html today) if the platform doesn't expose it.
+  const r = (arc && arc.r && arc.r.baseVal && arc.r.baseVal.value) || 40;
+  _ringCircumference = 2 * Math.PI * r;
+  // Set dasharray from JS so it can't drift from the JS circumference. The
+  // static value in index.html is just a pre-init placeholder that renders
+  // the empty state identically until this runs.
+  arc.setAttribute("stroke-dasharray", _ringCircumference.toFixed(3));
+  return _ringCircumference;
+}
+
+function renderHealthRing(snap) {
+  const arc = document.getElementById("health-ring-arc");
+  const text = document.getElementById("health-ring-text");
+  const marginEl = document.getElementById("health-margin");
+  const excessEl = document.getElementById("health-excess");
+
+  const ok = snap && snap.status === "ok" && snap.summary;
+  const s = ok ? snap.summary : {};
+  const netLiq = ok ? s.net_liquidation : null;
+  const maint = ok ? s.maintenance_margin : null;
+  const excess = ok ? s.excess_liquidity : null;
+
+  // Three cases drive every render:
+  //   1. marginCall — netLiq ≤ 0 with positive maint. Past-the-edge state; the
+  //      raw ratio is undefined / infinite, so we present a full red ring.
+  //   2. haveRatio — both numbers finite and netLiq > 0. Render the ratio.
+  //   3. otherwise — missing data; render the empty state.
+  const marginCall =
+    netLiq != null && Number.isFinite(netLiq) && netLiq <= 0 &&
+    maint != null && Number.isFinite(maint) && maint > 0;
+  const haveRatio =
+    netLiq != null && Number.isFinite(netLiq) && netLiq > 0 &&
+    maint != null && Number.isFinite(maint) && maint >= 0;
+
+  const ratio = haveRatio ? (maint / netLiq) : null;
+  const rawPct = ratio != null ? ratio * 100 : null;
+
+  // Clear/reset every side label first — must happen even when the SVG nodes
+  // are missing, so future DOM rewires don't leave stale numbers.
+  if (marginEl) {
+    if (marginCall) marginEl.textContent = "≥100%";
+    else marginEl.textContent = haveRatio ? rawPct.toFixed(1) + "%" : "—";
+    marginEl.classList.toggle(
+      "health-margin-warn",
+      marginCall || (haveRatio && ratio > 1),
+    );
+  }
+  if (excessEl) {
+    excessEl.textContent = excess != null ? fmtUSD.format(excess) : "—";
+  }
+
+  if (!arc || !text) return;
+  const circ = _ringInit(arc);
+
+  if (marginCall) {
+    arc.setAttribute("stroke-dashoffset", "0");
+    text.textContent = "MARGIN";
+    text.classList.add("ring-center-warn");
+    return;
+  }
+  if (!haveRatio) {
+    arc.setAttribute("stroke-dashoffset", String(circ));
+    text.textContent = "—";
+    text.classList.remove("ring-center-warn");
+    return;
+  }
+  // Arc geometry caps at 100% (can't render more than a full circle); the
+  // text label uses rawPct so a margin call shows e.g. "112%", not "100%".
+  const arcPct = Math.min(100, rawPct);
+  const offset = circ * (1 - arcPct / 100);
+  arc.setAttribute("stroke-dashoffset", offset.toFixed(2));
+  text.textContent = rawPct.toFixed(0) + "%";
+  text.classList.toggle("ring-center-warn", rawPct > 100);
+}
+
 // Net liquidation value in the account dash header
 function renderNetliq(snap) {
   const el = document.getElementById("acct-netliq");
@@ -389,6 +477,7 @@ async function fetchAccount() {
   renderPositions(snap);
   renderFreshness(snap);
   renderNetliq(snap);
+  renderHealthRing(snap);
   checkAccountMismatch(snap);
 }
 
