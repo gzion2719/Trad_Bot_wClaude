@@ -3,6 +3,17 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-15 (cont.) — B-11 PingPong zero-fills: three commits to root-cause
+
+- Continuation of B-11. Layer 1 (`fff3950`) was deployed; PingPong still failed identically with "There is no current event loop in thread 'Sched-PingPongTest-AAPL'". Layer 2 (`b8ec0da`) wrapped each `*Async` call in an inner `async def` so ib_insync's coroutine is *created* on the main loop thread, not the daemon. Deployed → still failing identically.
+- Layer 3 (`554caf4`, the actual fix): read ib_insync source — `Client.sendMsg()` calls `getLoop()` → `asyncio.get_event_loop_policy().get_event_loop()` from the calling thread, raising from any daemon. Every `IB.*` socket-write method goes through `sendMsg`, including `placeOrder` and `cancelOrder` which `OrderManager` was still calling directly via `self._ib`. Added `IBKRClient.ib_place_order()` + `ib_cancel_order()` with the same inner-coroutine routing pattern; migrated `OrderManager.place_order`/`cancel_order`/`cancel_all`; extended TS-07 grep tripwire to ban `placeOrder`/`cancelOrder`; added TS-12 + TS-13. **387 tests pass; ruff/black/mypy ✅.**
+- Test-file accident worth remembering: my Edit to append TS-12 + TS-13 used an `old_string` that didn't include TS-11's full trailing `with pytest.raises(...)` block, so those two lines silently migrated into TS-13. The traceback showed the right thing (`qualify_contract` running during a `ib_cancel_order` test); diagnosis was reading the actual test file at the failing line number.
+- Branch `feature/ibkr-client-thread-safe-market-data` pushed to head `554caf4`. PRs (feature→develop, develop→main) not yet merged; VPS not yet deployed.
+- **Process improvement:** when an asyncio "no current event loop" persists after a routing fix, read the WIRE-LAYER source (`Client.send` → `sendMsg`) before adding another wrapper. ib_insync's `getLoop()` is called from `sendMsg`, so every `IB.*` socket-write method is broken from a daemon thread unless routed. Codified the rule in `WORKFLOW.md`'s IBKRClient thread-safety section and the TS-07 grep now covers the new method names.
+- **Next session:** merge the B-11 PRs + deploy `554caf4` to VPS; verify PingPong places at the first tick (5 min after restart); if the error returns, read ib_insync source for the failing path before assuming a new layer.
+
+---
+
 ## 2026-05-20 — Neon-glass dashboard mockups (mock 1 + mock 2)
 
 - Loaded the `neon-glass-dashboard` skill (reachable from Claude Code this session, as the 2026-05-19 entry predicted) and built two standalone dashboard mockups in `docs/mockups/`: `dashboard-mock1.html` (neon green/red) and `dashboard-mock2.html` (blue/purple variant), both mirroring the live 3-tab structure (Mission Control / IBKR Account / Strategies) with flashy showcase placeholder data.
