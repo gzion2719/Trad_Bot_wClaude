@@ -2,6 +2,26 @@
 // Loaded by index.html as /static/dashboard.js with a strict default-src 'self' CSP.
 
 const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+// Render mock2's BUY/SELL pill chip. `action` is "BUY" / "SELL" from the wire;
+// anything else falls back to plain escaped text (defensive: PENDING_CANCEL etc.).
+function _pill(action) {
+  const a = String(action || "").toUpperCase();
+  if (a === "BUY")  return '<span class="pill pill-b">BUY</span>';
+  if (a === "SELL") return '<span class="pill pill-s">SELL</span>';
+  return esc(action) || "—";
+}
+
+// Render mock2's ticker chip (22×22 rounded square + symbol). `loss` flips the
+// icon to the pink palette when the position is in the red — caller decides.
+// aria-hidden on the initials block: the visible symbol text outside the icon
+// already carries the meaning, so screen readers shouldn't read "AA AAPL".
+function _ticker(symbol, loss) {
+  const s = String(symbol || "");
+  const initials = s.slice(0, 2).toUpperCase() || "—";
+  const cls = "ticker-icon" + (loss ? " loss" : "");
+  return `<span class="ticker"><span class="${cls}" aria-hidden="true">${esc(initials)}</span> ${esc(s)}</span>`;
+}
 const fmtMoney = (n) => n == null ? "—" : (n < 0 ? "-$" : "$") + Math.abs(n).toFixed(2);
 const fmtAge = (s) => {
   if (s == null) return "—";
@@ -118,18 +138,25 @@ async function fetchFills() {
   if (!fills.length) {
     body.innerHTML = '<tr><td colspan="8" class="muted-center">no fills yet</td></tr>';
   } else {
-    body.innerHTML = fills.map(f => `
+    body.innerHTML = fills.map(f => {
+      // Loss-palette rule (matches mock2): a fill chip flips to pink ONLY when
+      // realized_pnl is present and strictly negative. BUYs have no realized
+      // P&L → stay blue. Profitable / break-even SELLs → blue. Losing SELLs
+      // → pink. The BUY/SELL pill carries the side; the chip color carries P&L.
+      const loss = f.realized_pnl != null && f.realized_pnl < 0;
+      return `
       <tr>
         <td>${esc((f.filled_at || "").replace("T", " ").slice(0, 19))}</td>
         <td>${f.strategy_name ? esc(f.strategy_name) : '<span class="muted">—</span>'}</td>
-        <td>${esc(f.symbol)}</td>
-        <td class="${f.action === "BUY" ? "ok" : "err"}">${esc(f.action)}</td>
+        <td>${_ticker(f.symbol, loss)}</td>
+        <td>${_pill(f.action)}</td>
         <td class="num">${f.quantity}</td>
         <td class="num">${f.fill_price?.toFixed(4) ?? "—"}</td>
         <td class="num">${fmtMoney(f.fill_value)}</td>
         <td class="num ${f.realized_pnl == null ? "" : f.realized_pnl >= 0 ? "ok" : "err"}">${fmtMoney(f.realized_pnl)}</td>
       </tr>
-    `).join("");
+    `;
+    }).join("");
   }
 }
 
@@ -282,15 +309,23 @@ function renderPositions(snap) {
 
   const pnlCls = (v) => v == null ? "" : v > 0 ? "kpi-positive" : v < 0 ? "kpi-negative" : "kpi-zero";
 
-  tbody.innerHTML = positions.map(p => `
+  tbody.innerHTML = positions.map(p => {
+    // Ticker icon flips to loss palette when the position's unrealized P&L is
+    // negative — visual at-a-glance signal that matches the P&L column tint.
+    const loss = p.unrealized_pnl != null && p.unrealized_pnl < 0;
+    // p.name (e.g. "Apple Inc.") is retained as a secondary <small> line so the
+    // company name isn't lost when we swap the symbol cell to a ticker chip.
+    const nameLine = p.name ? `<br><small>${esc(p.name)}</small>` : "";
+    return `
     <tr>
-      <td>${esc(p.symbol)}<br><small>${esc(p.name || "")}</small></td>
+      <td>${_ticker(p.symbol, loss)}${nameLine}</td>
       <td class="num">${p.position}</td>
       <td class="num">${p.market_value != null ? fmtUSD.format(p.market_value) : "—"}</td>
       <td class="num">${p.avg_cost != null ? fmtUSD.format(p.avg_cost) : "—"}</td>
       <td class="num ${pnlCls(p.unrealized_pnl)}">${p.unrealized_pnl != null ? fmtUSD.format(p.unrealized_pnl) : "—"}</td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
 }
 
 function renderFreshness(snap) {
@@ -670,6 +705,9 @@ function _renderHistoryRows(fills) {
   }
   const rows = fills.map(f => {
     const cells = _STRAT_HISTORY_COLS.map(([k]) => {
+      // Side column renders the mock2 pill chip — _pill already emits safe
+      // markup and falls back to esc() for unexpected actions.
+      if (k === "action") return `<td>${_pill(f[k])}</td>`;
       const text = esc(_fmtHistoryCell(k, f[k]));
       const num = (k === "quantity" || k === "fill_price" || k === "cost_basis" ||
                    k === "realized_pnl" || k === "real_r_multiple");
