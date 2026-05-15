@@ -485,6 +485,87 @@ def test_ms10_strategy_name_cleanup_on_fill_and_cancel():
     assert om._strategy_name_by_order_id == {}
 
 
+# ── MS-12: strategy_name written BEFORE sleep so fast-fill carries the tag ────
+
+
+def test_ms12_strategy_name_set_before_sleep_so_fast_fill_carries_tag():
+    """Race regression (2026-05-15 PingPong silent-since-fill-1 bug).
+
+    place_order's internal `_client.sleep(0.5)` yields to the IB event loop;
+    a fast MKT fill on a liquid symbol can fire orderStatus=Filled inside
+    that window. _trade_to_result reads strategy_name from
+    _strategy_name_by_order_id -- if the dict write happens AFTER the sleep,
+    the fill's OrderResult.strategy_name is None, BaseStrategy._dispatch_on_fill
+    filters the callback out (`None != "PingPongTest-AAPL"`), and the strategy
+    never sees its own fill. Pin the ordering: the dict entry must exist by
+    the time `_client.sleep` is called.
+    """
+    from unittest.mock import MagicMock
+
+    from broker.order_manager import OrderManager
+    from models.order import OrderAction, OrderRequest, OrderType, TimeInForce
+
+    om = OrderManager.__new__(OrderManager)
+    om._client = MagicMock()
+    om._client.is_connected = True
+    om._client.qualify_contract.return_value = MagicMock()  # contract stand-in
+    fake_trade = MagicMock()
+    fake_trade.order.orderId = 4242
+    fake_trade.order.action = "BUY"
+    fake_trade.order.totalQuantity = 1
+    fake_trade.order.orderType = "MKT"
+    fake_trade.order.tif = "DAY"
+    fake_trade.order.lmtPrice = 0
+    fake_trade.order.auxPrice = 0
+    fake_trade.orderStatus.status = "Submitted"
+    fake_trade.orderStatus.filled = 0
+    fake_trade.orderStatus.remaining = 1
+    fake_trade.orderStatus.avgFillPrice = 0.0
+    fake_trade.contract.symbol = "AAPL"
+    om._client.ib_place_order.return_value = fake_trade
+    om._orders = {}
+    om._lock = threading.Lock()
+    om._strategy_name_by_order_id = {}
+    om._seen_exec_ids = set()
+    om._on_fill_callbacks = []
+    om._on_cancel_callbacks = []
+    om._on_error_callbacks = []
+
+    # Stub the duplicate check (the request would otherwise need a full
+    # cache); we're testing ordering, not de-dup.
+    om._check_duplicate = lambda req: None  # type: ignore[method-assign]
+
+    observed_during_sleep: dict = {}
+
+    def _sleep_records_state(_dur):
+        # The whole point of this test: the strategy_name mapping must already
+        # exist by the time the IB event loop is allowed to run (i.e., now).
+        observed_during_sleep["strategy_name"] = om._strategy_name_by_order_id.get(
+            fake_trade.order.orderId
+        )
+
+    om._client.sleep.side_effect = _sleep_records_state
+
+    request = OrderRequest(
+        symbol="AAPL",
+        action=OrderAction.BUY,
+        quantity=1,
+        order_type=OrderType.MARKET,
+        tif=TimeInForce.DAY,
+        strategy_name="PingPongTest-AAPL",
+    )
+    om.place_order(request)
+
+    assert observed_during_sleep.get("strategy_name") == "PingPongTest-AAPL", (
+        "_strategy_name_by_order_id must be populated before _client.sleep so a "
+        "fast-fill event arriving during the sleep can read it and stamp it "
+        "onto the OrderResult."
+    )
+    # Sanity: post-sleep state still correct.
+    assert om._strategy_name_by_order_id[fake_trade.order.orderId] == "PingPongTest-AAPL"
+    assert fake_trade.order.orderId in om._orders
+
+
 # ── MS-11: real REGISTRY smoke test ───────────────────────────────────────────
 
 
