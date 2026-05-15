@@ -275,7 +275,7 @@ class OrderManager:
 
         submitted_at = datetime.now(timezone.utc)
         ib_order = self._build_ib_order(request)
-        trade = self._ib.placeOrder(contract, ib_order)
+        trade = self._client.ib_place_order(contract, ib_order)
         # Use the client's thread-safe sleep -- ib.sleep() from a daemon thread
         # re-enters loop.run_until_complete on an already-running loop.
         self._client.sleep(0.5)
@@ -323,7 +323,7 @@ class OrderManager:
                 trade.orderStatus.status,
             )
             return False
-        self._ib.cancelOrder(trade.order)
+        self._client.ib_cancel_order(trade.order)
         self._client.sleep(0.5)
         logger.info(
             "Cancel sent | id=%s | %s %s", order_id, trade.order.action, trade.contract.symbol
@@ -339,7 +339,7 @@ class OrderManager:
         """
         trades = self._active_trades(symbol)
         for trade in trades:
-            self._ib.cancelOrder(trade.order)
+            self._client.ib_cancel_order(trade.order)
             logger.info(
                 "Cancel sent | id=%s | %s %s",
                 trade.order.orderId,
