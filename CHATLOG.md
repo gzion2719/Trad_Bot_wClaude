@@ -3,6 +3,17 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-15 (cont. 2) — PingPong fast-fill race: pending overwrite + strategy_name late-write
+
+- Dashboard showed 1 BUY at 17:21:49 then silence for 21 min on PingPongTest-AAPL. Independent CR-skill review caught two compounding bugs both prior PingPong CRs (5/18 pre+post) missed: (BLOCKING) `test_pingpong.py:on_tick` re-set `_order_pending=True` AFTER `safe_place_order` returned, overwriting `on_fill`'s `_clear_pending()` when a fast MKT fill arrived inside `place_order`'s internal `_client.sleep(0.5)` window; (MAJOR) `order_manager.py:place_order` wrote `_strategy_name_by_order_id` AFTER the sleep, so the fast-fill event's `OrderResult.strategy_name` came back `None` and `BaseStrategy._dispatch_on_fill` filtered the strategy out of its own fill.
+- Fix (`a932205`, PRs #242/#243 merged): stamp `_strategy_name_by_order_id` BEFORE `_client.sleep`; in `on_tick` arm `_order_pending`+`_pending_since` BEFORE `safe_place_order`, clear in all exception paths, and only stamp `_pending_order_id` post-call if pending survived. 3 new tests: `test_pp24` (synchronous BUY fill mid-place_order → pending stays False), `test_pp25` (same for SELL), `test_ms12` (strategy_name visible inside the `_client.sleep` mock).
+- Side-investigation: user asked if M1 could have hidden SMA/RSI2MR fills too. Journal grep showed both placed ZERO orders in a week — only lifecycle messages. `data/health.txt` mtime was `2026-05-14 20:10:00 UTC` exactly = 16:10 ET = the DailyAt tick — both daily strategies are healthy-and-quiet (no signal), not silently broken; M1 hid nothing for them.
+- Gate: **392 passed / 5 skipped**. The 3 fails + 42 errors are the same TWS-fixture pre-existing pattern from the 5/15 layer-3 session (no port 7497 on dev PC).
+- **Process improvement:** WORKFLOW.md gains a "Pending-flag pattern CR checklist" — any strategy with an `_order_pending`/in-flight guard MUST be reviewed with the explicit question "what happens if `on_fill` fires synchronously inside `safe_place_order` before it returns?" Two CRs on PingPong missed this exact trace; the new checklist catches it cold.
+- **Next session:** Verify post-deploy PingPong fills next RTH (alternating BUY/SELL every 5 min on the Strategies → PingPongTest-AAPL tab). Then GC-4 (dashboard TLS — Caddy/nginx + `tailscale cert`), still the only unblocked roadmap build item.
+
+---
+
 ## 2026-05-15 (cont.) — B-11 PingPong zero-fills: three commits to root-cause
 
 - Continuation of B-11. Layer 1 (`fff3950`) was deployed; PingPong still failed identically with "There is no current event loop in thread 'Sched-PingPongTest-AAPL'". Layer 2 (`b8ec0da`) wrapped each `*Async` call in an inner `async def` so ib_insync's coroutine is *created* on the main loop thread, not the daemon. Deployed → still failing identically.
