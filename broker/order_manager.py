@@ -276,7 +276,9 @@ class OrderManager:
         submitted_at = datetime.now(timezone.utc)
         ib_order = self._build_ib_order(request)
         trade = self._ib.placeOrder(contract, ib_order)
-        self._ib.sleep(0.5)
+        # Use the client's thread-safe sleep -- ib.sleep() from a daemon thread
+        # re-enters loop.run_until_complete on an already-running loop.
+        self._client.sleep(0.5)
 
         # Add to cache AFTER ib.sleep so the newOrderEvent has already fired.
         # If the event fires first, _handle_new_order adds it; this is a safe upsert.
@@ -322,7 +324,7 @@ class OrderManager:
             )
             return False
         self._ib.cancelOrder(trade.order)
-        self._ib.sleep(0.5)
+        self._client.sleep(0.5)
         logger.info(
             "Cancel sent | id=%s | %s %s", order_id, trade.order.action, trade.contract.symbol
         )
@@ -345,7 +347,7 @@ class OrderManager:
                 trade.contract.symbol,
             )
         if trades:
-            self._ib.sleep(0.5)
+            self._client.sleep(0.5)
         return len(trades)
 
     # ------------------------------------------------------------------
