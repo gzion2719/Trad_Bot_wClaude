@@ -455,10 +455,22 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .kpi-zero     { color: var(--text-primary); }
 .kpi-stale    { color: var(--muted); opacity: 0.5; }
 
+/* ── Grid utilities (mock2) ──────────────────────────────────────────────── */
+/* `.g-2-1` overrides `.grid`'s auto-fit columns with a fixed 2fr / 1fr split
+   for the Account-tab rows. Pair with `.mt12` for inter-row vertical rhythm.
+   Collapses to a single column under 720px so the ring card's 96px SVG +
+   side labels don't get squeezed into an unreadable strip. */
+.grid.g-2-1 { grid-template-columns: 2fr 1fr; }
+.mt12 { margin-top: 12px; }
+@media (max-width: 720px) {
+  .grid.g-2-1 { grid-template-columns: 1fr; }
+}
+
 /* ── IBKR Account tab — sub-cards ────────────────────────────────────────── */
-.acct-dash,
-.acct-positions,
-.acct-balances { margin-top: 12px; }
+/* Rows wrapped in `.grid.g-2-1` get spacing from `.mt12` / `.acct-row` on the
+   wrapper instead — cards inside the grid collapse to 0 margin-top below. */
+.acct-row { margin-top: 12px; }
+.grid.g-2-1 > .card { margin-top: 0; }
 
 /* Hero treatment on the Account dashboard card — mock2's signature panel:
    green/violet diagonal wash + glowing orb in the top-right + soft halo.
@@ -470,7 +482,10 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
     rgba(70, 25, 110, 0.42) 55%,
     rgba(12, 10, 30, 0.7) 100%);
   border: 1px solid rgba(56, 189, 248, 0.22);
-  min-height: 148px;
+  /* min-height matches the ring card next to it in row 1. With the equity
+     chart moved to its own card below, the hero just hosts netliq + change
+     + freshness pill, so we don't need mock2's taller 132/148px floor. */
+  min-height: 116px;
 }
 .hero-orb {
   position: absolute;
@@ -525,6 +540,42 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   margin: 4px 0 2px;
 }
 .acct-change { font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
+
+/* ── Account-health ring card ────────────────────────────────────────────── */
+.ring-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.ring-side { display: flex; flex-direction: column; gap: 2px; }
+.ring-side-eyebrow { margin-top: 8px; }
+.health-margin-val,
+.health-excess-val {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+/* Margin-call signal: when maint > netLiq, JS flips on .health-margin-warn so
+   the number reads as red ("you are past the safety threshold"). Glow stays
+   on the data arc, not the text — chrome doesn't glow. */
+.health-margin-val.health-margin-warn { color: var(--pink-neon); }
+.health-ring { display: block; }
+/* Track uses the standard --border token so theme retunes carry through. */
+.health-ring-track { stroke: var(--border); }
+/* Glow on the data arc — sole non-data glow is the brand mark + live dot,
+   per the neon-glass rule "glow on data, not chrome". The ring arc IS data. */
+.health-ring-arc { filter: drop-shadow(0 0 4px var(--blue-neon)); }
+.ring-center {
+  font-size: 14px;
+  font-weight: 600;
+  fill: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+/* Center-text margin-call signal — flipped on by JS when raw pct > 100 or
+   we entered the explicit marginCall branch (netLiq ≤ 0, maint > 0). */
+.ring-center.ring-center-warn { fill: var(--pink-neon); }
 
 .range-chips { display: flex; gap: 0.4rem; margin-bottom: 0.75rem; }
 .chip {
@@ -626,7 +677,8 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* ── Strategies tab ──────────────────────────────────────────────────────── */
 /* Hide global KPI strip when Strategies tab is active — the per-strategy KPI
    strip takes its place. body[data-tab="strats"] is set by dashboard.js. */
-body[data-tab="strats"] > .kpi-strip { display: none; }
+body[data-tab="strats"] > .kpi-strip,
+body[data-tab="acct"] > .kpi-strip { display: none; }
 
 .strat-shell { display: flex; flex-direction: column; gap: 1rem; }
 
