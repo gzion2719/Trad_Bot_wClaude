@@ -8,8 +8,14 @@
 </head>
 <body>
 
-<h1>TradeBot — Mission Control</h1>
-<div class="sub" id="sub">polling every 5s</div>
+<div class="topbar">
+  <div class="brand"></div>
+  <h1>TradeBot — Mission Control</h1>
+  <div class="sub" id="sub">polling every 5s</div>
+  <!-- Decorative only. Real liveness is in the "Liveness" card; the topbar
+       "Live" indicator is brand chrome and does not reflect bot state. -->
+  <span class="live"><span class="dot-live"></span> Live</span>
+</div>
 
 <div class="tabs" role="tablist" aria-label="Dashboard sections">
   <button class="tab" role="tab" id="tab-mc" aria-selected="true" aria-controls="panel-mc" tabindex="0">Mission Control</button>
@@ -182,6 +188,13 @@
       <button class="chip" data-days="365">All</button>
     </div>
     <svg id="equity-chart" class="equity-chart" viewBox="0 0 800 240" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.45"/>
+          <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <polygon class="equity-area" id="equity-area" points=""/>
       <polyline class="equity-line" id="equity-line" points=""/>
     </svg>
     <div class="empty" id="chart-empty" hidden>No data yet.</div>

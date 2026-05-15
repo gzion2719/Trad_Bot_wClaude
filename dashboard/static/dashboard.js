@@ -123,7 +123,7 @@ async function fetchFills() {
         <td>${esc((f.filled_at || "").replace("T", " ").slice(0, 19))}</td>
         <td>${f.strategy_name ? esc(f.strategy_name) : '<span class="muted">—</span>'}</td>
         <td>${esc(f.symbol)}</td>
-        <td class="${f.action === "BUY" ? "ok" : "warn"}">${esc(f.action)}</td>
+        <td class="${f.action === "BUY" ? "ok" : "err"}">${esc(f.action)}</td>
         <td class="num">${f.quantity}</td>
         <td class="num">${f.fill_price?.toFixed(4) ?? "—"}</td>
         <td class="num">${fmtMoney(f.fill_value)}</td>
@@ -382,6 +382,9 @@ function daysFor(range) {
 function renderChart(points) {
   const svg = document.getElementById("equity-chart");
   const line = document.getElementById("equity-line");
+  // The <polygon class="equity-area"> renders the gradient fill beneath the
+  // line. Optional element — if absent (older HTML), only the line draws.
+  const area = document.getElementById("equity-area");
   const emptyEl = document.getElementById("chart-empty");
   if (!svg || !line) return;
 
@@ -391,6 +394,7 @@ function renderChart(points) {
 
   if (!points || points.length < 2) {
     line.setAttribute("points", "");
+    if (area) area.setAttribute("points", "");
     if (emptyEl) emptyEl.removeAttribute("hidden");
     return;
   }
@@ -410,6 +414,8 @@ function renderChart(points) {
   }).join(" ");
 
   line.setAttribute("points", ptStr);
+  // Close the area polygon: line points + bottom-right corner + bottom-left.
+  if (area) area.setAttribute("points", ptStr + " 800,240 0,240");
 }
 
 async function fetchEquity(days) {
