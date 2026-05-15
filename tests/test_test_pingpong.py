@@ -575,6 +575,82 @@ def test_pp22_dispatch_on_fill_filters_by_strategy_name():
     assert strat._in_position is True  # ours — delivered
 
 
+def test_pp24_fast_fill_during_place_order_does_not_resurrect_pending():
+    """Race regression: a fill that arrives during place_order's internal
+    sleep(0.5) fires on_fill on the IB event-loop thread BEFORE place_order
+    returns. on_fill calls _clear_pending(). The old code then unconditionally
+    re-set _order_pending=True with the now-terminal order_id, locking the
+    strategy out for one 90s-timeout cycle (and, combined with the strategy_name
+    race in OrderManager, indefinitely).
+    """
+    strat, _, om, _, _ = _make_strategy()
+    strat._strategy_name = "PingPongTest-AAPL"  # multi-strategy dispatch path
+
+    # Replace place_order with one that synchronously fires on_fill before
+    # returning -- exactly what _client.sleep(0.5) lets ib_insync do for a
+    # fast-filling MKT order on a liquid symbol.
+    original_place = om.place_order
+
+    def _place_with_synchronous_fill(request, allow_duplicate=False):
+        result = original_place(request, allow_duplicate=allow_duplicate)
+        # Fire fill BEFORE returning -- the race window.
+        om.fire_fill(
+            _filled(
+                OrderAction.BUY if request.action == OrderAction.BUY else OrderAction.SELL,
+                qty=request.quantity,
+                price=302.59,
+                order_id=result.order_id,
+                strategy_name="PingPongTest-AAPL",
+            )
+        )
+        return result
+
+    om.place_order = _place_with_synchronous_fill  # type: ignore[method-assign]
+    strat.on_tick()
+    assert len(om.placed) == 1
+    assert strat._in_position is True
+    assert strat._position_shares == 1
+    assert strat._entry_price == 302.59
+    # The critical assertion: pending must NOT be resurrected after on_fill cleared it.
+    assert strat._order_pending is False
+    assert strat._pending_order_id is None
+    assert strat._pending_since is None
+
+
+def test_pp25_fast_fill_on_sell_leaves_strategy_flat_and_unblocked():
+    """Same race, but starting in_position so the tick places a SELL. After
+    the synchronous SELL fill, _in_position should be False AND _order_pending
+    should be False -- the next tick must be free to place a new BUY.
+    """
+    strat, _, om, _, _ = _make_strategy()
+    strat._strategy_name = "PingPongTest-AAPL"
+    strat._in_position = True
+    strat._position_shares = 1
+    strat._entry_price = 300.0
+
+    original_place = om.place_order
+
+    def _place_with_synchronous_fill(request, allow_duplicate=False):
+        result = original_place(request, allow_duplicate=allow_duplicate)
+        om.fire_fill(
+            _filled(
+                OrderAction.SELL,
+                qty=request.quantity,
+                price=305.0,
+                order_id=result.order_id,
+                strategy_name="PingPongTest-AAPL",
+            )
+        )
+        return result
+
+    om.place_order = _place_with_synchronous_fill  # type: ignore[method-assign]
+    strat.on_tick()
+    assert om.placed[0].action == OrderAction.SELL
+    assert strat._in_position is False
+    assert strat._position_shares == 0
+    assert strat._order_pending is False
+
+
 def test_pp23_on_tick_from_daemon_thread_queues_order():
     """Regression tripwire: PingPong tick from a daemon thread must place an order.
 

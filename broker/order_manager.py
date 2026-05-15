@@ -276,6 +276,15 @@ class OrderManager:
         submitted_at = datetime.now(timezone.utc)
         ib_order = self._build_ib_order(request)
         trade = self._client.ib_place_order(contract, ib_order)
+        # Stamp the strategy-name mapping BEFORE the sleep. Fast-filling MKT
+        # orders on liquid symbols can fire orderStatus=Filled inside this
+        # 0.5s window; _trade_to_result reads strategy_name from this dict,
+        # so a late write makes the fill arrive with strategy_name=None and
+        # BaseStrategy._dispatch_on_fill drops the callback (multi-strategy
+        # filter). orderId is assigned by ib_insync on ib_place_order return.
+        with self._lock:
+            self._strategy_name_by_order_id[trade.order.orderId] = request.strategy_name
+
         # Use the client's thread-safe sleep -- ib.sleep() from a daemon thread
         # re-enters loop.run_until_complete on an already-running loop.
         self._client.sleep(0.5)
@@ -284,7 +293,6 @@ class OrderManager:
         # If the event fires first, _handle_new_order adds it; this is a safe upsert.
         with self._lock:
             self._orders[trade.order.orderId] = trade
-            self._strategy_name_by_order_id[trade.order.orderId] = request.strategy_name
 
         result = self._trade_to_result(trade, submitted_at=submitted_at)
         logger.info(
