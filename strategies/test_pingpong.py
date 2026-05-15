@@ -290,21 +290,40 @@ class PingPongTest(BaseStrategy):
             order_type=OrderType.MARKET,
             tif=TimeInForce.DAY,
         )
+
+        # Arm the pending guard BEFORE submitting. place_order's internal
+        # sleep(0.5) yields to the IB event loop, where a fast MKT fill on
+        # a liquid symbol can fire on_fill *before* place_order returns.
+        # on_fill calls _clear_pending; if we set _order_pending=True after
+        # safe_place_order, we overwrite that clear and lock the strategy
+        # out until the 90s timeout self-heal (and even then only on alternate
+        # ticks). Order matters: pending_since must be set before order_pending
+        # so the timeout calculation in _pending_age_seconds is valid the
+        # instant on_tick on another thread could read it (currently single-
+        # threaded, but cheap insurance).
+        self._pending_since = datetime.now(timezone.utc)
+        self._pending_order_id = None
+        self._order_pending = True
         try:
             result = self.safe_place_order(request, current_price=price)
         except RiskViolationError as exc:
+            self._clear_pending()
             logger.warning("%s: %s order blocked by risk check -- %s", self.name, action.value, exc)
             return
         except DuplicateOrderError as exc:
+            self._clear_pending()
             logger.warning("%s: %s order rejected as duplicate -- %s", self.name, action.value, exc)
             return
         except Exception as exc:
+            self._clear_pending()
             logger.error("%s: %s order failed to place -- %s", self.name, action.value, exc)
             return
 
-        self._order_pending = True
-        self._pending_order_id = result.order_id
-        self._pending_since = datetime.now(timezone.utc)
+        # Only stamp the order_id if pending is still set. If on_fill fired
+        # during safe_place_order's internal sleep, _clear_pending() already
+        # ran -- do NOT resurrect the flag with a now-terminal order id.
+        if self._order_pending:
+            self._pending_order_id = result.order_id
         logger.info(
             "%s: %s %s x%d queued (order %s) @ ~%.2f",
             self.name,
