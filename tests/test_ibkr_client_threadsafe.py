@@ -191,7 +191,9 @@ def test_ts07_no_direct_ib_sync_calls_outside_client():
     only inside the main-thread branch of an auto-detect.
     """
     project_root = Path(__file__).resolve().parent.parent
-    dangerous_pattern = re.compile(r"\.ib\.(sleep|qualifyContracts|reqCurrentTime)\(")
+    dangerous_pattern = re.compile(
+        r"\.ib\.(sleep|qualifyContracts|reqCurrentTime|placeOrder|cancelOrder)\("
+    )
     # Match self._ib.sleep, self.ib.sleep, client.ib.sleep, etc.
     forbidden_paths = [
         project_root / "broker" / "order_manager.py",
@@ -286,3 +288,39 @@ def test_ts11_daemon_call_with_stopped_loop_raises(bg_event_loop):
 
     with pytest.raises(RuntimeError, match="main loop is not running"):
         _run_on_thread(client.qualify_contract, SimpleNamespace())
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TS-12..13 — ib_place_order / ib_cancel_order
+#
+# These cover the root cause of the SECOND breakage layer:
+# Client.sendMsg() calls getLoop() → asyncio.get_event_loop_policy().get_event_loop()
+# which raises "There is no current event loop in thread X" from any daemon thread.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_ts12_ib_place_order_daemon_routes_to_main_loop(bg_event_loop):
+    """ib_place_order from a daemon thread executes ib.placeOrder on the main loop."""
+    from types import SimpleNamespace
+
+    fake_trade = SimpleNamespace(order=SimpleNamespace(orderId=42))
+
+    ib = MagicMock()
+    ib.placeOrder.return_value = fake_trade
+    client = _make_client(ib, main_loop=bg_event_loop)
+
+    result = _run_on_thread(client.ib_place_order, SimpleNamespace(), SimpleNamespace())
+
+    ib.placeOrder.assert_called_once()
+    assert result is fake_trade
+
+
+def test_ts13_ib_cancel_order_daemon_routes_to_main_loop(bg_event_loop):
+    """ib_cancel_order from a daemon thread executes ib.cancelOrder on the main loop."""
+    ib = MagicMock()
+    ib.cancelOrder.return_value = None
+    client = _make_client(ib, main_loop=bg_event_loop)
+
+    _run_on_thread(client.ib_cancel_order, SimpleNamespace())
+
+    ib.cancelOrder.assert_called_once()
