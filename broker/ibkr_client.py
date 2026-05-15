@@ -201,10 +201,11 @@ class IBKRClient:
         try:
             if self._needs_threadsafe_route():
                 assert self._main_loop is not None  # narrowed by _needs_threadsafe_route
-                fut = asyncio.run_coroutine_threadsafe(  # type: ignore[var-annotated]
-                    self.ib.reqCurrentTimeAsync(),  # type: ignore[arg-type]
-                    self._main_loop,
-                )
+
+                async def _heartbeat():  # type: ignore[return]
+                    return await self.ib.reqCurrentTimeAsync()  # type: ignore[attr-defined]
+
+                fut = asyncio.run_coroutine_threadsafe(_heartbeat(), self._main_loop)
                 t = fut.result(timeout=_HEARTBEAT_TIMEOUT)
             else:
                 t = self.ib.reqCurrentTime()
@@ -468,9 +469,11 @@ class IBKRClient:
         """
         if self._needs_threadsafe_route():
             assert self._main_loop is not None
-            fut = asyncio.run_coroutine_threadsafe(
-                self.ib.qualifyContractsAsync(contract), self._main_loop
-            )
+
+            async def _qualify() -> list:
+                return await self.ib.qualifyContractsAsync(contract)  # type: ignore[attr-defined]
+
+            fut = asyncio.run_coroutine_threadsafe(_qualify(), self._main_loop)
             qualified = fut.result(timeout=_QUALIFY_TIMEOUT + _THREADSAFE_RESULT_SLACK)
         else:
             qualified = self.ib.qualifyContracts(contract)
@@ -498,7 +501,11 @@ class IBKRClient:
         """
         if self._needs_threadsafe_route():
             assert self._main_loop is not None
-            fut = asyncio.run_coroutine_threadsafe(self.ib.accountSummaryAsync(), self._main_loop)
+
+            async def _fetch_summary() -> list:
+                return await self.ib.accountSummaryAsync()  # type: ignore[attr-defined]
+
+            fut = asyncio.run_coroutine_threadsafe(_fetch_summary(), self._main_loop)
             return fut.result(timeout=_ACCOUNT_TIMEOUT + _THREADSAFE_RESULT_SLACK)
         return self.ib.accountSummary()
 
