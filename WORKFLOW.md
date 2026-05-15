@@ -441,3 +441,40 @@ possibly-stale flat snapshot. Both are the same defect -- "the broker can
 look flat right after a fill." Stating that invariant once in the plan, and
 ruling that no path places an order on a flat *snapshot* (only on a
 positively-confirmed position), would have closed both at plan time.
+
+---
+
+## Pending-flag pattern CR checklist
+
+When a strategy uses an `_order_pending` (or any analogous "in-flight order"
+boolean), the pre-impl and post-impl CRs MUST trace this exact sequence,
+explicitly, and quote the result:
+
+1. `on_tick` calls `safe_place_order(request, price)`.
+2. Inside `OrderManager.place_order`, `self._client.sleep(0.5)` yields to
+   the IB asyncio event loop.
+3. For a fast-filling MKT order on a liquid symbol, `orderStatus=Filled`
+   fires DURING that 0.5s sleep.
+4. The fill event walks `_on_fill_callbacks` synchronously and calls the
+   strategy's `on_fill`, which runs `_clear_pending()` and updates
+   `_in_position`.
+5. `place_order` returns to `on_tick`.
+
+The CR question every time: **"after step 5, what does `on_tick` do?"** If
+the answer is "unconditionally re-set `_order_pending=True`" or "stamp
+`_pending_order_id` with the now-terminal id," that's a BLOCKING bug — the
+strategy will be silent for at least one full timeout cycle and possibly
+indefinitely (especially if the strategy_name late-write also drops the
+callback — see below).
+
+Companion invariant on the OM side: any per-order metadata that an
+`on_fill` callback might READ (e.g. `_strategy_name_by_order_id`) must be
+WRITTEN before `_client.sleep` is called, not after. The fill event can
+read it during the sleep; a late write means the fill arrives missing the
+metadata and downstream filters drop it. (2026-05-15: `BaseStrategy.
+_dispatch_on_fill` filtered out a `strategy_name=None` fill for exactly
+this reason.)
+
+Locked by `tests/test_test_pingpong.py::test_pp24,test_pp25` (strategy
+side) and `tests/test_multi_strategy_runner.py::test_ms12_strategy_name_set_before_sleep_so_fast_fill_carries_tag`
+(OM side).
