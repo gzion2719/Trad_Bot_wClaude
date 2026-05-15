@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Callable, Optional
 
-from ib_insync import IB, Contract, Stock, Ticker
+from ib_insync import IB, Contract, Order, Stock, Ticker, Trade
 
 from config.settings import IB_HOST, IB_PORT, IB_CLIENT_ID
 
@@ -26,6 +26,7 @@ _PRICE_CANCEL_WAIT = 0.5  # cooldown after cancelMktData (respects IBKR pacing)
 _QUALIFY_TIMEOUT = 10  # seconds to wait for qualifyContracts
 _ACCOUNT_TIMEOUT = 10  # seconds to wait for accountSummary / portfolio (reuses same value)
 _HEARTBEAT_TIMEOUT = 10  # seconds to wait for reqCurrentTime
+_ORDER_TIMEOUT = 10  # seconds to wait for placeOrder / cancelOrder wire send
 _THREADSAFE_RESULT_SLACK = 5  # extra seconds on Future.result vs the in-coroutine deadline
 _RECONNECT_DELAYS = [2, 5, 10, 30, 60]  # backoff schedule in seconds
 
@@ -530,6 +531,50 @@ class IBKRClient:
             fut = asyncio.run_coroutine_threadsafe(_fetch(), self._main_loop)
             return fut.result(timeout=_ACCOUNT_TIMEOUT + _THREADSAFE_RESULT_SLACK)
         return self.ib.portfolio()
+
+    # ------------------------------------------------------------------
+    # Order-submission wire calls (thread-safe)
+    # ------------------------------------------------------------------
+
+    def ib_place_order(self, contract: Contract, ib_order: Order) -> Trade:
+        """
+        Thread-safe wrapper around ib.placeOrder.
+
+        ib.placeOrder → Client.placeOrder → Client.send → Client.sendMsg calls
+        getLoop() (asyncio.get_event_loop_policy().get_event_loop()), which raises
+        'There is no current event loop in thread X' from any non-main thread.
+        Routing via run_coroutine_threadsafe ensures sendMsg executes on the main
+        loop thread where the loop is always available.
+
+        Returns the Trade object returned by ib.placeOrder.
+        """
+        if self._needs_threadsafe_route():
+            assert self._main_loop is not None
+
+            async def _place() -> Trade:
+                return self.ib.placeOrder(contract, ib_order)
+
+            fut = asyncio.run_coroutine_threadsafe(_place(), self._main_loop)
+            return fut.result(timeout=_ORDER_TIMEOUT + _THREADSAFE_RESULT_SLACK)
+        return self.ib.placeOrder(contract, ib_order)
+
+    def ib_cancel_order(self, order: Order, manual_cancel_time: str = "") -> None:
+        """
+        Thread-safe wrapper around ib.cancelOrder.
+
+        Same sendMsg / getLoop issue as ib_place_order. cancelOrder return value
+        (Optional[Trade]) is discarded; callers rely on cancelOrderEvent callbacks.
+        """
+        if self._needs_threadsafe_route():
+            assert self._main_loop is not None
+
+            async def _cancel() -> None:
+                self.ib.cancelOrder(order, manual_cancel_time)
+
+            fut = asyncio.run_coroutine_threadsafe(_cancel(), self._main_loop)
+            fut.result(timeout=_ORDER_TIMEOUT + _THREADSAFE_RESULT_SLACK)
+        else:
+            self.ib.cancelOrder(order, manual_cancel_time)
 
     def get_account_summary_threadsafe(self) -> list:
         """Deprecated alias for get_account_summary() -- kept for back-compat.
