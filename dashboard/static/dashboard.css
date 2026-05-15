@@ -1,125 +1,355 @@
+/*
+ * TradeBot dashboard — neon-glass theme (ported from docs/mockups/dashboard-mock2.html).
+ *
+ * Semantic color mapping (do not refactor without updating dashboard.js):
+ *   ok    = gain  / buy  / healthy / live  = blue-neon  (#38bdf8)
+ *   err   = loss  / sell / error           = pink-neon  (#ff4d8d)
+ *   warn  = risk  / restart / awaiting     = amber      (#ffaa44)
+ *   accent = brand atmosphere               = blue-neon  (alias of ok)
+ *   violet = brand orb + atmosphere only    = #a855f7
+ *
+ * dashboard.js writes these classes at runtime — every one is locked in here:
+ *   - kpi-value / kpi-positive / kpi-negative / kpi-zero / kpi-stale
+ *   - big / ok / warn / err
+ *   - freshness-pill / fresh-red / fresh-orange
+ *   - chip / active
+ *   - strat-tab + aria-selected="true"
+ *   - body[data-tab] (set by JS to gate the global KPI strip on Strategies tab)
+ *   - visible (toggled on console-banner + login-overlay)
+ *   - equity-line / equity-area
+ *   - ctrl-msg / ctrl-msg.ok / ctrl-msg.err
+ *   - muted (rendered as <span class="muted"> in fills strategy_name placeholder)
+ *
+ * Notes:
+ *   - All glow is CSS class-driven; no inline style= attributes (CSP style-src 'self').
+ *   - System font stack only — no @import, no external fonts (CSP font-src 'self').
+ *   - backdrop-filter: blur(12px) — degrades gracefully on Firefox <103 / Safari <9
+ *     (no blur, translucent gradient cards still readable on dark radial bg).
+ */
+
 :root {
-  --bg: #0e1116;
-  --card: #161b22;
-  --border: #30363d;
-  --text: #c9d1d9;
-  --muted: #8b949e;
-  --ok: #3fb950;
-  --ok-color: #3fb950;
-  --warn: #d29922;
-  --err: #f85149;
-  --err-color: #f85149;
-  --accent: #58a6ff;
-  --accent-color: #58a6ff;
+  /* Palette */
+  --blue-neon:  #38bdf8;
+  --pink-neon:  #ff4d8d;
+  --amber:      #ffaa44;
+  --violet:     #a855f7;
+
+  /* Live class tokens — semantic mapping above. Both `--ok` and `--ok-color`
+     etc. are preserved because dashboard.css + console.css + dashboard.js
+     reference each variant independently. */
+  --ok:           var(--blue-neon);
+  --ok-color:     var(--blue-neon);
+  --err:          var(--pink-neon);
+  --err-color:    var(--pink-neon);
+  --warn:         var(--amber);
+  --accent:       var(--blue-neon);
+  --accent-color: var(--blue-neon);
+
+  /* Surface + text */
+  --bg:             #0b0920;
+  --card:           rgba(30, 28, 65, 0.55);
+  --card-grad:      linear-gradient(135deg, rgba(30, 28, 65, 0.55) 0%, rgba(14, 12, 32, 0.6) 100%);
+  --border:         rgba(129, 140, 248, 0.14);
+  --border-strong:  rgba(129, 140, 248, 0.28);
+  --text:           #dde0ff;
+  --text-primary:   #f2f3ff;
+  --muted:          #a3a8cc;
+  --text-tertiary:  #868cb5;
+
+  font-variant-numeric: tabular-nums;
 }
 * { box-sizing: border-box; }
+
 body {
-  margin: 0; padding: 1.5rem;
+  margin: 0;
+  padding: 1.5rem;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: var(--bg); color: var(--text);
+  color: var(--text);
+  background: radial-gradient(ellipse at top left, #161235 0%, #0b0920 50%, #050310 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+  position: relative;
+  -webkit-font-smoothing: antialiased;
 }
-h1 { margin: 0 0 0.25rem 0; font-size: 1.4rem; font-weight: 600; }
-.sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem; }
-.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+/* Atmospheric blobs — decorative, never block interaction. position: fixed so
+   they don't scroll. body > * gets z-index: 1 below to stay above them. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: 50%;
+  filter: blur(2px);
+}
+body::before {
+  top: -40%;
+  right: -15%;
+  width: 620px;
+  height: 620px;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.09) 0%, transparent 60%);
+}
+body::after {
+  bottom: -30%;
+  left: -10%;
+  width: 540px;
+  height: 540px;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.09) 0%, transparent 60%);
+}
+body > * { position: relative; z-index: 1; }
+
+h1 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+.sub { color: var(--muted); font-size: 0.78rem; }
+
+/* ── Topbar (brand orb + heading + live pill) ────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.1rem 0.25rem;
+}
+.topbar > h1 { flex-shrink: 0; }
+.topbar > .sub { margin-right: auto; }
+.brand {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--blue-neon) 0%, var(--violet) 100%);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.45);
+  flex-shrink: 0;
+}
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--blue-neon);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.dot-live {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--blue-neon);
+  box-shadow: 0 0 8px var(--blue-neon);
+  display: inline-block;
+}
+
+/* ── Grid + cards ────────────────────────────────────────────────────────── */
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
 .card {
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: 6px; padding: 1rem;
+  background: var(--card-grad);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1rem;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  /* Force GPU compositing — the dashboard re-renders every 5s and the
+     translucent-gradient card is one of the most expensive paint ops. */
+  transform: translateZ(0);
 }
-.card h2 { margin: 0 0 0.75rem 0; font-size: 0.9rem; color: var(--muted);
-           text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
-.big { font-size: 1.6rem; font-weight: 600; }
-.ok { color: var(--ok); }
+.card h2 {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+.big {
+  font-size: 1.55rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+.ok   { color: var(--ok); }
 .warn { color: var(--warn); }
-.err { color: var(--err); }
-.row { display: flex; justify-content: space-between; padding: 0.25rem 0; font-size: 0.9rem; }
-.row .k { color: var(--muted); }
+.err  { color: var(--err); }
+/* Glow on the headline values that carry the most semantic weight. */
+.big.ok  { text-shadow: 0 0 12px rgba(56, 189, 248, 0.55); }
+.big.err { text-shadow: 0 0 12px rgba(255, 77, 141, 0.55); }
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.25rem 0;
+  font-size: 0.85rem;
+  border-bottom: 1px solid rgba(129, 140, 248, 0.07);
+}
+.row:last-child { border-bottom: none; }
+.row .k { color: var(--text-tertiary); }
+
+/* Generic muted utility — JS at dashboard.js:124 writes <span class="muted">. */
+.muted { color: var(--text-tertiary); }
+
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
-th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.05em; }
+th, td {
+  text-align: left;
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid rgba(129, 140, 248, 0.07);
+}
+tbody tr:last-child td { border-bottom: none; }
+th {
+  color: var(--text-tertiary);
+  font-weight: 500;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+}
 td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.footer { margin-top: 2rem; color: var(--muted); font-size: 0.75rem; }
+.footer { margin-top: 2rem; color: var(--text-tertiary); font-size: 0.7rem; }
+
+/* ── Liveness pulse ──────────────────────────────────────────────────────── */
 .pulse {
-  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-  background: var(--ok); margin-right: 0.4rem;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok);
+  margin-right: 0.4rem;
   animation: pulse 2s infinite ease-in-out;
 }
+.pulse.warn { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+.pulse.err  { background: var(--err); box-shadow: 0 0 6px var(--err); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-.pulse.warn { background: var(--warn); }
-.pulse.err { background: var(--err); }
+
+/* ── Controls ────────────────────────────────────────────────────────────── */
 .controls { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .btn {
-  padding: 0.5rem 0.9rem; border-radius: 4px; border: 1px solid var(--border);
-  background: #21262d; color: var(--text); font: inherit; font-size: 0.85rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: rgba(129, 140, 248, 0.07);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
   cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 }
-.btn:hover { background: #30363d; }
+.btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn.warn { border-color: var(--warn); color: var(--warn); }
-.btn.err  { border-color: var(--err);  color: var(--err);  }
-.btn.accent { border-color: var(--accent); color: var(--accent); }
-.ctrl-msg { margin-top: 0.6rem; font-size: 0.8rem; color: var(--muted); min-height: 1em; }
+.btn.warn   { color: var(--warn);  border-color: rgba(255, 170, 68, 0.30);  background: rgba(255, 170, 68, 0.07); }
+.btn.err    { color: var(--err);   border-color: rgba(255, 77, 141, 0.32);  background: rgba(255, 77, 141, 0.07); }
+.btn.accent { color: var(--accent);border-color: rgba(56, 189, 248, 0.32);  background: rgba(56, 189, 248, 0.09); }
+
+.ctrl-msg { margin-top: 0.6rem; font-size: 0.78rem; color: var(--text-tertiary); min-height: 1em; }
 .ctrl-msg.ok  { color: var(--ok); }
 .ctrl-msg.err { color: var(--err); }
+
+/* ── Login overlay (palette-swapped) ─────────────────────────────────────── */
 .login-overlay {
-  display: none; position: fixed; inset: 0;
-  background: rgba(14,17,22,0.92); z-index: 100;
-  align-items: center; justify-content: center;
+  display: none;
+  position: fixed;
+  inset: 0;
+  /* Opaque-enough to fully dim the radial bg without color tint. */
+  background: rgba(11, 9, 32, 0.88);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
 }
 .login-overlay.visible { display: flex; }
 .login-box {
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: 8px; padding: 1.5rem; width: 320px;
+  background: var(--card-grad);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 320px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
-.login-box h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+.login-box h2 { margin: 0 0 0.75rem; font-size: 1rem; color: var(--text-primary); }
 .login-box input {
-  width: 100%; padding: 0.45rem 0.6rem; margin-bottom: 0.75rem;
-  background: #0e1116; border: 1px solid var(--border); border-radius: 4px;
-  color: var(--text); font: inherit; font-size: 0.9rem;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  margin-bottom: 0.75rem;
+  background: rgba(14, 12, 32, 0.8);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
 }
-.login-box .login-err { font-size: 0.8rem; color: var(--err); min-height: 1em; margin-bottom: 0.5rem; }
+.login-box .login-err { font-size: 0.78rem; color: var(--err); min-height: 1em; margin-bottom: 0.5rem; }
+.login-btn-wide { width: 100%; }
+
+/* ── System card split ───────────────────────────────────────────────────── */
 .sys-status-row { display: flex; align-items: center; gap: 1rem; }
 .sys-status-row > div { flex: 1; }
-.sys-divider { flex: 0 0 1px !important; width: 1px; background: var(--border); align-self: stretch; }
-.sys-label { font-size: 0.65rem; color: var(--muted); letter-spacing: 0.1em; font-weight: 600; margin-bottom: 0.25rem; }
+.sys-divider {
+  flex: 0 0 1px !important;
+  width: 1px;
+  background: var(--border);
+  align-self: stretch;
+}
+.sys-label {
+  font-size: 0.6rem;
+  color: var(--text-tertiary);
+  letter-spacing: 0.12em;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+}
+
+/* ── Console banner (gateway-console-held warning) ───────────────────────── */
 .console-banner {
   display: none;
-  background: rgba(210, 153, 34, 0.12);
+  background: rgba(255, 170, 68, 0.10);
   border: 1px solid var(--warn);
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 0.4rem 0.6rem;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--warn);
   margin-top: 0.6rem;
 }
 .console-banner.visible { display: block; }
-.muted-center { color: var(--muted); text-align: center; }
+
+.muted-center { color: var(--text-tertiary); text-align: center; }
 .sys-margin-top { margin-top: 0.75rem; }
 .fills-card { margin-top: 1rem; }
-.login-btn-wide { width: 100%; }
 
-/* ── Tabs ────────────────────────────────────────────────────────────────── */
+/* ── Primary tabs ────────────────────────────────────────────────────────── */
 .tabs {
   display: flex;
-  border-bottom: 1px solid var(--border);
+  gap: 0.5rem;
   margin-bottom: 1rem;
-  gap: 0;
+  padding: 0;
 }
 .tab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   color: var(--muted);
   cursor: pointer;
   font: inherit;
-  font-size: 0.9rem;
-  padding: 0.5rem 1rem;
-  margin-bottom: -1px;
-}
-.tab:hover { color: var(--text); }
-.tab[aria-selected="true"] {
-  border-bottom-color: var(--accent-color);
-  color: var(--text);
+  font-size: 0.78rem;
   font-weight: 600;
+  padding: 0.4rem 0.9rem;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.tab:hover { color: var(--text); border-color: var(--border-strong); }
+.tab[aria-selected="true"] {
+  background: rgba(56, 189, 248, 0.10);
+  border-color: rgba(56, 189, 248, 0.32);
+  color: var(--blue-neon);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.18) inset;
 }
 
 /* ── KPI strip ───────────────────────────────────────────────────────────── */
@@ -132,38 +362,40 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .kpi {
   flex: 1;
   min-width: 160px;
-  background: var(--card);
+  background: var(--card-grad);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 12px;
   padding: 0.75rem 1rem;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transform: translateZ(0);
 }
 .kpi-label {
-  font-size: 0.7rem;
-  color: var(--muted);
+  font-size: 0.65rem;
+  color: var(--text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.1em;
   margin-bottom: 0.3rem;
+  font-weight: 500;
 }
 .kpi-value {
-  font-size: 1.3rem;
+  font-size: 1.25rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   text-align: right;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  color: var(--text-primary);
 }
-.kpi-positive { color: var(--ok-color); }
-.kpi-negative { color: var(--err-color); }
-.kpi-zero { color: var(--muted); }
-.kpi-stale { color: var(--muted); opacity: 0.5; }
+.kpi-positive { color: var(--ok-color); text-shadow: 0 0 8px rgba(56, 189, 248, 0.45); }
+.kpi-negative { color: var(--err-color); text-shadow: 0 0 8px rgba(255, 77, 141, 0.45); }
+.kpi-zero     { color: var(--muted); }
+.kpi-stale    { color: var(--muted); opacity: 0.5; }
 
-/* ── IBKR Account tab — sub-cards ───────────────────────────────────────── */
+/* ── IBKR Account tab — sub-cards ────────────────────────────────────────── */
 .acct-dash,
 .acct-positions,
-.acct-balances {
-  margin-top: 1rem;
-}
+.acct-balances { margin-top: 1rem; }
 
-/* acct-dash header: netliq on left, freshness pill on right */
 .acct-dash-header {
   display: flex;
   justify-content: space-between;
@@ -171,74 +403,76 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   margin-bottom: 0.75rem;
 }
 .acct-netliq-label {
-  font-size: 0.7rem;
-  color: var(--muted);
+  font-size: 0.65rem;
+  color: var(--text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.1em;
   margin-bottom: 0.2rem;
+  font-weight: 500;
 }
 .acct-netliq {
   font-variant-numeric: tabular-nums;
+  font-size: 1.8rem;
 }
-.acct-change {
-  font-size: 0.8rem;
-  color: var(--muted);
-  margin-top: 0.2rem;
-}
+.acct-change { font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
 
-/* Range chips */
-.range-chips {
-  display: flex;
-  gap: 0.4rem;
-  margin-bottom: 0.75rem;
-}
+.range-chips { display: flex; gap: 0.4rem; margin-bottom: 0.75rem; }
 .chip {
-  background: none;
+  background: transparent;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
   color: var(--muted);
   cursor: pointer;
   font: inherit;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   padding: 0.2rem 0.6rem;
+  transition: border-color 0.15s ease, color 0.15s ease;
 }
-.chip:hover { color: var(--text); border-color: var(--text); }
-.chip.active { border-color: var(--accent-color); color: var(--accent-color); }
+.chip:hover { color: var(--text); border-color: var(--border-strong); }
+.chip.active {
+  background: rgba(56, 189, 248, 0.10);
+  border-color: rgba(56, 189, 248, 0.36);
+  color: var(--blue-neon);
+}
 
-/* Equity SVG chart */
-.equity-chart {
-  width: 100%;
-  height: 240px;
-  display: block;
-}
+/* Equity SVG chart — area fill + glowing line. The area is rendered as a
+   <polygon class="equity-area"> in index.html behind the <polyline>; its
+   points are set by renderChart() in dashboard.js (ptStr + " 800,240 0,240").
+   The <defs><linearGradient id="eqFill"> lives inside the SVG. */
+.equity-chart { width: 100%; height: 240px; display: block; }
+.equity-area { fill: url(#eqFill); }
 .equity-line {
   fill: none;
   stroke: var(--accent-color);
-  stroke-width: 2;
+  stroke-width: 1.6;
   stroke-linejoin: round;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 4px var(--accent-color));
 }
 
-/* Freshness pill */
+/* Freshness pill — glow stays inside the pill, doesn't bleed into text bg. */
 .freshness-pill {
   font-size: 0.7rem;
   font-weight: 600;
-  border-radius: 99px;
-  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
   white-space: nowrap;
   align-self: flex-start;
 }
-.fresh-orange { background: #f59e0b; color: #000; }
-.fresh-red    { background: #dc2626; color: #fff; }
+.fresh-orange { background: var(--warn); color: #1a0f00; box-shadow: 0 0 10px rgba(255, 170, 68, 0.4); }
+.fresh-red    { background: var(--err);  color: #1a000a; box-shadow: 0 0 10px rgba(255, 77, 141, 0.4); }
 
-/* Account mismatch banner */
+/* Account-mismatch banner — DELIBERATELY opaque, not the translucent glass
+   treatment. This warns the user that the snapshot account differs from the
+   dashboard account; readability beats aesthetic consistency. */
 .acct-mismatch {
-  background: #7f1d1d;
+  background: rgba(127, 29, 29, 0.92);
   color: #fecaca;
-  border-radius: 6px;
+  border: 1px solid rgba(255, 77, 141, 0.5);
+  border-radius: 8px;
   padding: 0.6rem 1rem;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 600;
   margin-bottom: 1rem;
   position: sticky;
@@ -246,11 +480,9 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   z-index: 10;
 }
 
-/* Positions table */
 .pos-table { width: 100%; }
 .pos-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
-/* Balances dl */
 .balances-list {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -259,12 +491,12 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 .balances-list dt {
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   display: flex;
   align-items: center;
 }
 .balances-list dd {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   text-align: right;
@@ -274,18 +506,16 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   justify-content: flex-end;
 }
 
-/* Empty state */
 .empty {
   color: var(--muted);
   text-align: center;
   padding: 1.5rem 0;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
-/* ── Strategies tab ─────────────────────────────────────────────────────── */
-/* Hide the always-on KPI strip when Strategies is the active tab — the
-   per-strategy KPI strip takes its place there. Mission Control and IBKR
-   Account keep the global strip visible. */
+/* ── Strategies tab ──────────────────────────────────────────────────────── */
+/* Hide global KPI strip when Strategies tab is active — the per-strategy KPI
+   strip takes its place. body[data-tab="strats"] is set by dashboard.js. */
 body[data-tab="strats"] > .kpi-strip { display: none; }
 
 .strat-shell { display: flex; flex-direction: column; gap: 1rem; }
@@ -295,23 +525,17 @@ body[data-tab="strats"] > .kpi-strip { display: none; }
   justify-content: space-between;
   align-items: baseline;
   gap: 1rem;
-  padding: 0.25rem 0 0.5rem 0;
+  padding: 0.25rem 0 0.6rem 0;
   border-bottom: 1px solid var(--border);
 }
 .strat-title {
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
-.strat-meta {
-  font-size: 0.8rem;
-  color: var(--muted);
-  letter-spacing: 0.03em;
-}
+.strat-meta { font-size: 0.78rem; color: var(--muted); letter-spacing: 0.03em; }
 
-/* Secondary tab strip — subordinate to primary tabs.
-   Smaller, lighter border, padded chips instead of underline. */
 .strat-tabs {
   display: flex;
   gap: 0.5rem;
@@ -319,39 +543,41 @@ body[data-tab="strats"] > .kpi-strip { display: none; }
   padding: 0.25rem 0;
 }
 .strat-tab {
-  background: none;
+  background: transparent;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 999px;
   color: var(--muted);
   cursor: pointer;
   font: inherit;
-  font-size: 0.8rem;
-  padding: 0.3rem 0.7rem;
-}
-.strat-tab:hover { color: var(--text); border-color: var(--text); }
-.strat-tab[aria-selected="true"] {
-  border-color: var(--accent-color);
-  color: var(--accent-color);
+  font-size: 0.75rem;
   font-weight: 600;
+  padding: 0.3rem 0.8rem;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
-.strat-empty { color: var(--muted); font-size: 0.85rem; padding: 0.3rem 0; }
+.strat-tab:hover { color: var(--text); border-color: var(--border-strong); }
+.strat-tab[aria-selected="true"] {
+  background: rgba(56, 189, 248, 0.10);
+  border-color: rgba(56, 189, 248, 0.32);
+  color: var(--blue-neon);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.18) inset;
+}
+.strat-empty { color: var(--muted); font-size: 0.82rem; padding: 0.3rem 0; }
 
 .strat-error-pill {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--err);
   border: 1px solid var(--err);
-  border-radius: 4px;
-  padding: 0.3rem 0.6rem;
-  background: rgba(248, 81, 73, 0.08);
+  border-radius: 6px;
+  padding: 0.3rem 0.65rem;
+  background: rgba(255, 77, 141, 0.08);
 }
-
 .strat-warn {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--warn);
   border: 1px solid var(--warn);
-  border-radius: 4px;
-  padding: 0.3rem 0.6rem;
-  background: rgba(210, 153, 34, 0.08);
+  border-radius: 6px;
+  padding: 0.3rem 0.65rem;
+  background: rgba(255, 170, 68, 0.08);
 }
 
 /* Per-strategy history table */
@@ -364,34 +590,31 @@ body[data-tab="strats"] > .kpi-strip { display: none; }
   padding: 0.4rem 0;
 }
 .strat-history-pagesize {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--muted);
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
 }
-/* The export control is an <a download>, not a <button> — strip the anchor
-   underline and dim it while it has no href (no strategy active yet). */
+/* Export-CSV anchor: dim while it has no href (no active strategy). */
 a.btn {
   text-decoration: none;
   display: inline-flex;
   align-items: center;
 }
-a.btn:not([href]) {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+a.btn:not([href]) { opacity: 0.5; cursor: not-allowed; }
+
 .strat-history-pagesize select {
-  background: var(--bg);
+  background: rgba(14, 12, 32, 0.8);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+  padding: 0.2rem 0.45rem;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
 }
 .strat-history-status {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -399,7 +622,7 @@ a.btn:not([href]) {
 #strat-history[aria-busy="true"] tbody { opacity: 0.5; }
 #strat-history td.params {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--muted);
   max-width: 24rem;
   overflow: hidden;
@@ -414,13 +637,39 @@ a.btn:not([href]) {
   padding: 0.5rem 0;
 }
 .strat-history-page {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   min-width: 7rem;
   text-align: center;
 }
-.strat-history-pager .btn[disabled] {
-  opacity: 0.4;
-  cursor: not-allowed;
+.strat-history-pager .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Print stylesheet ────────────────────────────────────────────────────── */
+@media print {
+  body {
+    background: white;
+    color: black;
+  }
+  body::before,
+  body::after { display: none; }
+  .card,
+  .kpi,
+  .login-box {
+    background: white;
+    border: 1px solid #888;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    color: black;
+  }
+  .login-overlay { display: none !important; }
+  .brand,
+  .dot-live,
+  .pulse,
+  .freshness-pill { box-shadow: none; }
+  .big.ok,
+  .big.err,
+  .kpi-positive,
+  .kpi-negative,
+  .equity-line { text-shadow: none; filter: none; }
 }
