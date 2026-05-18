@@ -416,6 +416,10 @@ The trigger is the moment you are about to tell the user \u2014 or yourself, in 
 
 Example (2026-05-16): asked "what is MS-C2?", Claude described it from CLAUDE.md's summary ("design item \u2014 needs auto_adjust resolution") and offered it as a next-session option. The authoritative `docs/BACKLOG.md` entry said MS-C2 was **measurement-gated** \u2014 explicitly deferred until a 30-day yfinance-outage report runs on 2026-06-12, with "don't design or build before then." The user caught the contradiction. Reading the BACKLOG line first would have made the answer correct and removed a dead option from the focus list.
 
+**Session-state corollary.** The same rule applies to questions about session state \u2014 "was X deployed?", "did PR Y merge?", "what's the VPS actually running?", "why isn't Z working today?". The authoritative source is `CHATLOG.md`'s newest entry, NOT CLAUDE.md's "Current state" / "Immediate next steps" sections. Those sections are the same kind of stale-prone index summary; they routinely lag the log entry by a session or more because they get updated opportunistically. Treat them as a pointer, not a source. When CLAUDE.md and the newest CHATLOG entry conflict, trust the CHATLOG.
+
+Example (2026-05-18): asked "why isn't PingPong trading today?", Claude's first-turn answer confidently asserted "B-12 fix not deployed to VPS" based on a CLAUDE.md "Immediate next steps" line that still read "Deploy B-12 to VPS + verify". The newest CHATLOG entry (2026-05-19) had explicitly recorded the 5/18 deploy of PingPong ("all three strategies started cleanly") and the user-restart of `tradebot-dashboard`. The actual root cause was a different threadsafe-routing bug entirely (B-13: `_set_market_data_type` raising from the daemon-thread reconnect). The wrong hypothesis cost one diagnostic turn before journal evidence overrode it. Reading the newest CHATLOG entry first would have re-grounded the diagnosis ("PingPong is deployed and was running; the question is why it stopped today") and skipped the wrong hypothesis entirely.
+
 ---
 
 ## Broker-state-authority rule
