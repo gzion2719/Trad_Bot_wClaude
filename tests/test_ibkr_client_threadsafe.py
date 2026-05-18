@@ -344,21 +344,49 @@ def test_ts13_ib_cancel_order_daemon_routes_to_main_loop(bg_event_loop):
 def test_ts14_set_market_data_type_daemon_routes_to_main_loop(bg_event_loop):
     """_set_market_data_type from a daemon thread routes ib.reqMarketDataType
     onto the main loop -- the only place Client.sendMsg's getLoop() can run.
+
+    The previous incarnation of this test only asserted that
+    reqMarketDataType was called; a MagicMock satisfies that even if the call
+    runs on the daemon thread (the very bug being fixed). Lock the regression
+    by recording the thread the call actually ran on and asserting it is NOT
+    the daemon worker.
     """
     ib = MagicMock()
-    ib.reqMarketDataType.return_value = None
+    call_threads: list = []
+
+    def _record(mode: int) -> None:
+        call_threads.append(threading.current_thread())
+
+    ib.reqMarketDataType.side_effect = _record
     client = _make_client(ib, main_loop=bg_event_loop)
 
     _run_on_thread(client._set_market_data_type, 3)
 
     ib.reqMarketDataType.assert_called_once_with(3)
+    assert len(call_threads) == 1
+    assert (
+        call_threads[0].name != "ts-test-worker"
+    ), "reqMarketDataType ran on the daemon thread -- routing did not happen"
 
 
-def test_ts15_set_market_data_type_main_thread_uses_sync():
+def test_ts15_set_market_data_type_main_thread_uses_sync(monkeypatch):
     """Main-thread caller uses the direct ib.reqMarketDataType wrapper.
 
-    No routing required and no inner coroutine is scheduled.
+    No routing required: verify run_coroutine_threadsafe was not invoked.
+    Without this guard the test passes even if the code accidentally takes
+    the daemon-routing path on the main thread.
     """
+    import asyncio
+
+    routed: list = []
+    original = asyncio.run_coroutine_threadsafe
+
+    def _spy(coro, loop):
+        routed.append(coro)
+        return original(coro, loop)
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", _spy)
+
     ib = MagicMock()
     ib.reqMarketDataType.return_value = None
     client = _make_client(ib)  # no _main_loop -> main path stays sync
@@ -366,3 +394,4 @@ def test_ts15_set_market_data_type_main_thread_uses_sync():
     client._set_market_data_type(3)
 
     ib.reqMarketDataType.assert_called_once_with(3)
+    assert routed == [], "Main-thread caller should not schedule via run_coroutine_threadsafe"

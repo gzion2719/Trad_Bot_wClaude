@@ -27,6 +27,7 @@ _QUALIFY_TIMEOUT = 10  # seconds to wait for qualifyContracts
 _ACCOUNT_TIMEOUT = 10  # seconds to wait for accountSummary / portfolio (reuses same value)
 _HEARTBEAT_TIMEOUT = 10  # seconds to wait for reqCurrentTime
 _ORDER_TIMEOUT = 10  # seconds to wait for placeOrder / cancelOrder wire send
+_MKT_DATA_TYPE_TIMEOUT = 5  # seconds for reqMarketDataType (small wire ping, no ack)
 _THREADSAFE_RESULT_SLACK = 5  # extra seconds on Future.result vs the in-coroutine deadline
 _RECONNECT_DELAYS = [2, 5, 10, 30, 60]  # backoff schedule in seconds
 
@@ -319,13 +320,9 @@ class IBKRClient:
 
             async def _set() -> None:
                 self.ib.reqMarketDataType(mode)
-                # reqMarketDataType is fire-and-forget; yield briefly so the
-                # wire message clears before the caller (or the next reqMktData)
-                # proceeds. 100 ms is well under the strategy tick interval.
-                await asyncio.sleep(0.1)
 
             fut = asyncio.run_coroutine_threadsafe(_set(), self._main_loop)
-            fut.result(timeout=_ORDER_TIMEOUT + _THREADSAFE_RESULT_SLACK)
+            fut.result(timeout=_MKT_DATA_TYPE_TIMEOUT + _THREADSAFE_RESULT_SLACK)
         else:
             self.ib.reqMarketDataType(mode)
 
