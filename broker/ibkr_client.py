@@ -27,6 +27,7 @@ _QUALIFY_TIMEOUT = 10  # seconds to wait for qualifyContracts
 _ACCOUNT_TIMEOUT = 10  # seconds to wait for accountSummary / portfolio (reuses same value)
 _HEARTBEAT_TIMEOUT = 10  # seconds to wait for reqCurrentTime
 _ORDER_TIMEOUT = 10  # seconds to wait for placeOrder / cancelOrder wire send
+_MKT_DATA_TYPE_TIMEOUT = 5  # seconds for reqMarketDataType (small wire ping, no ack)
 _THREADSAFE_RESULT_SLACK = 5  # extra seconds on Future.result vs the in-coroutine deadline
 _RECONNECT_DELAYS = [2, 5, 10, 30, 60]  # backoff schedule in seconds
 
@@ -302,7 +303,29 @@ class IBKRClient:
     # ------------------------------------------------------------------
 
     def _set_market_data_type(self, mode: int) -> None:
-        self.ib.reqMarketDataType(mode)
+        """
+        Set the market-data mode (REALTIME/FROZEN/DELAYED/DELAYED_FROZEN).
+
+        Thread-safe: ib.reqMarketDataType -> Client.send -> Client.sendMsg calls
+        getLoop() from the calling thread, which raises from a daemon thread
+        (ReconnectManager). Without routing here, a reconnect that runs on the
+        daemon thread fails inside connect()'s post-handshake step; TWS resets
+        the data mode to REALTIME on every fresh session, and subsequent
+        reqMktData calls on a paper account hit error 10089. Symptom: strategies
+        that pull live prices (PingPong AAPL) stop trading after the first
+        gateway auto-restart.
+        """
+        if self._needs_threadsafe_route():
+            assert self._main_loop is not None
+
+            async def _set() -> None:
+                self.ib.reqMarketDataType(mode)
+
+            fut = asyncio.run_coroutine_threadsafe(_set(), self._main_loop)
+            fut.result(timeout=_MKT_DATA_TYPE_TIMEOUT + _THREADSAFE_RESULT_SLACK)
+        else:
+            self.ib.reqMarketDataType(mode)
+
         labels = {1: "realtime", 2: "frozen", 3: "delayed", 4: "delayed-frozen"}
         logger.info("Market data mode: %s", labels.get(mode, mode))
 

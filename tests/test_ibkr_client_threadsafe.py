@@ -192,7 +192,7 @@ def test_ts07_no_direct_ib_sync_calls_outside_client():
     """
     project_root = Path(__file__).resolve().parent.parent
     dangerous_pattern = re.compile(
-        r"\.ib\.(sleep|qualifyContracts|reqCurrentTime|placeOrder|cancelOrder)\("
+        r"\.ib\.(sleep|qualifyContracts|reqCurrentTime|placeOrder|cancelOrder|reqMarketDataType)\("
     )
     # Match self._ib.sleep, self.ib.sleep, client.ib.sleep, etc.
     forbidden_paths = [
@@ -324,3 +324,74 @@ def test_ts13_ib_cancel_order_daemon_routes_to_main_loop(bg_event_loop):
     _run_on_thread(client.ib_cancel_order, SimpleNamespace())
 
     ib.cancelOrder.assert_called_once()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TS-14..15 — _set_market_data_type
+#
+# Bug being prevented: ib.reqMarketDataType -> Client.send -> Client.sendMsg
+# calls getLoop() from the calling thread. From ReconnectManager's daemon
+# thread this raises "There is no current event loop in thread 'ReconnectManager'".
+# connect()'s post-handshake step then fails, ReconnectManager retries, the next
+# connect() short-circuits on `if ib.isConnected(): return`, and the data mode
+# is never re-applied. TWS resets the mode to REALTIME on every fresh session,
+# so reqMktData on a paper account returns error 10089 forever. Symptom: any
+# strategy that pulls live prices (PingPong AAPL) stops trading after the
+# nightly gateway auto-restart.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_ts14_set_market_data_type_daemon_routes_to_main_loop(bg_event_loop):
+    """_set_market_data_type from a daemon thread routes ib.reqMarketDataType
+    onto the main loop -- the only place Client.sendMsg's getLoop() can run.
+
+    The previous incarnation of this test only asserted that
+    reqMarketDataType was called; a MagicMock satisfies that even if the call
+    runs on the daemon thread (the very bug being fixed). Lock the regression
+    by recording the thread the call actually ran on and asserting it is NOT
+    the daemon worker.
+    """
+    ib = MagicMock()
+    call_threads: list = []
+
+    def _record(mode: int) -> None:
+        call_threads.append(threading.current_thread())
+
+    ib.reqMarketDataType.side_effect = _record
+    client = _make_client(ib, main_loop=bg_event_loop)
+
+    _run_on_thread(client._set_market_data_type, 3)
+
+    ib.reqMarketDataType.assert_called_once_with(3)
+    assert len(call_threads) == 1
+    assert (
+        call_threads[0].name != "ts-test-worker"
+    ), "reqMarketDataType ran on the daemon thread -- routing did not happen"
+
+
+def test_ts15_set_market_data_type_main_thread_uses_sync(monkeypatch):
+    """Main-thread caller uses the direct ib.reqMarketDataType wrapper.
+
+    No routing required: verify run_coroutine_threadsafe was not invoked.
+    Without this guard the test passes even if the code accidentally takes
+    the daemon-routing path on the main thread.
+    """
+    import asyncio
+
+    routed: list = []
+    original = asyncio.run_coroutine_threadsafe
+
+    def _spy(coro, loop):
+        routed.append(coro)
+        return original(coro, loop)
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", _spy)
+
+    ib = MagicMock()
+    ib.reqMarketDataType.return_value = None
+    client = _make_client(ib)  # no _main_loop -> main path stays sync
+
+    client._set_market_data_type(3)
+
+    ib.reqMarketDataType.assert_called_once_with(3)
+    assert routed == [], "Main-thread caller should not schedule via run_coroutine_threadsafe"
