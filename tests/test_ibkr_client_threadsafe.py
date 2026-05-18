@@ -192,7 +192,7 @@ def test_ts07_no_direct_ib_sync_calls_outside_client():
     """
     project_root = Path(__file__).resolve().parent.parent
     dangerous_pattern = re.compile(
-        r"\.ib\.(sleep|qualifyContracts|reqCurrentTime|placeOrder|cancelOrder)\("
+        r"\.ib\.(sleep|qualifyContracts|reqCurrentTime|placeOrder|cancelOrder|reqMarketDataType)\("
     )
     # Match self._ib.sleep, self.ib.sleep, client.ib.sleep, etc.
     forbidden_paths = [
@@ -324,3 +324,45 @@ def test_ts13_ib_cancel_order_daemon_routes_to_main_loop(bg_event_loop):
     _run_on_thread(client.ib_cancel_order, SimpleNamespace())
 
     ib.cancelOrder.assert_called_once()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TS-14..15 — _set_market_data_type
+#
+# Bug being prevented: ib.reqMarketDataType -> Client.send -> Client.sendMsg
+# calls getLoop() from the calling thread. From ReconnectManager's daemon
+# thread this raises "There is no current event loop in thread 'ReconnectManager'".
+# connect()'s post-handshake step then fails, ReconnectManager retries, the next
+# connect() short-circuits on `if ib.isConnected(): return`, and the data mode
+# is never re-applied. TWS resets the mode to REALTIME on every fresh session,
+# so reqMktData on a paper account returns error 10089 forever. Symptom: any
+# strategy that pulls live prices (PingPong AAPL) stops trading after the
+# nightly gateway auto-restart.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_ts14_set_market_data_type_daemon_routes_to_main_loop(bg_event_loop):
+    """_set_market_data_type from a daemon thread routes ib.reqMarketDataType
+    onto the main loop -- the only place Client.sendMsg's getLoop() can run.
+    """
+    ib = MagicMock()
+    ib.reqMarketDataType.return_value = None
+    client = _make_client(ib, main_loop=bg_event_loop)
+
+    _run_on_thread(client._set_market_data_type, 3)
+
+    ib.reqMarketDataType.assert_called_once_with(3)
+
+
+def test_ts15_set_market_data_type_main_thread_uses_sync():
+    """Main-thread caller uses the direct ib.reqMarketDataType wrapper.
+
+    No routing required and no inner coroutine is scheduled.
+    """
+    ib = MagicMock()
+    ib.reqMarketDataType.return_value = None
+    client = _make_client(ib)  # no _main_loop -> main path stays sync
+
+    client._set_market_data_type(3)
+
+    ib.reqMarketDataType.assert_called_once_with(3)
