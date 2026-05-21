@@ -144,6 +144,17 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 
 ---
 
+## 2026-05-12 — MS-C2 measurement-gated: yfinance outage report script shipped
+
+- Pivoted from MS-C2 (IBKR historical-data fallback) design to B-lite (measure first). Two-pass CR on the original plan found CRITICAL flaws — `ADJUSTED_LAST` doesn't match yfinance dividend handling and paper-account entitlement was unverified — and HIGH that the 0.5% SMA threshold was the wrong metric (gate is binary). Premise itself wasn't validated either: no data on how often yfinance actually fails.
+- Shipped `scripts/yfinance_outage_report.py` — parses `journalctl -u tradebot --grep "history refresh"` and summarizes outages. Zero production code touched. VPS baseline at 2026-05-12: **0 outages in 30 days**. Re-run on/after 2026-06-12 to set the build/won't-build threshold.
+- `docs/BACKLOG.md` MS-C2 entry re-tagged P2 (measurement-gated). Operator sets the threshold after seeing the first 30-day number.
+- Five commits to ship a 130-line script: original + gitleaks allowlist for `yfinance_outage_report` (entropy false positive, same class as `Feed/IBKRFeed/BarScheduler`) + 3 journalctl semantics patches (--grep pre-filter, exit-code-1 handling, "-- No entries --" banner). All five rounds were due to guessing at external CLI behavior instead of running the bare CLI first.
+- **Process improvement:** WORKFLOW.md "Debugging discipline" gains the "External CLI corollary" — when a script wrapping `journalctl`/`gh`/`systemctl`/`git`/etc. fails on the target, run the bare CLI on the target first, capture exit code + stdout + stderr, then patch. Birthed by today's 3-round journalctl iteration loop.
+- **Next session:** GC-4 (TLS for the dashboard via Caddy or nginx + tailscale-cert), Phase 6 monitoring tick (`TradeLog.daily_summary()` daily review since both strategies deployed 2026-05-11), or MS-C2 re-evaluation when the 2026-06-12 report shows real numbers.
+
+---
+
 ## 2026-05-12 — Dashboard Phase 5 Session 1: per-strategy API + metadata extraction
 
 - Shipped three new dashboard endpoints (`/api/strategies`, `/api/strategies/{name}/summary` with 30s TTL cache keyed on `(name, MAX(id))`, `/api/strategies/{name}/fills` with server-side `strategy_params` JSON parsing). `_resolve_strategy` dependency validates `{name}` against `STRATEGY_METADATA` → 404 on traversal/unknown. Added Strategy column to Mission Control Recent Fills.
