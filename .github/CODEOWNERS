@@ -1,0 +1,5 @@
+# Every file in this repo is owned by the single project maintainer.
+# Combined with branch protection's "Require review from Code Owners" toggle,
+# this means every PR (including from forks) needs an explicit approval from
+# @gzion2719 before it can merge into a protected branch.
+*    @gzion2719
