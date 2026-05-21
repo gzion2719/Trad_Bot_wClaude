@@ -233,6 +233,10 @@ Before hypothesizing failure modes for a "stopped" or "stale" symptom, read the 
 
 Example (2026-05-02): dashboard "stale liveness" alarm chased a phantom BarScheduler-stopped bug for several rounds before someone asked "could it just be the weekend?" — the SMA strategy fires `on_tick()` once daily at 16:10 ET, and the 72h weekend gap exceeded a 26h threshold. Reading `main.py` first would have surfaced this immediately.
 
+**External CLI corollary.** When a script wraps an external CLI (`journalctl`, `gh`, `systemctl`, `git`, etc.) and the script fails on the target environment, run the *bare* CLI on the target *first* — capture the exit code, stdout, and stderr exactly as the script would see them — *before* patching the script. Guessing at semantics like "exit code 1 means no matches" or "stdout is empty on no-match" without verifying produces a multi-PR iteration loop in which each commit fixes only the symptom that was guessed about.
+
+Example (2026-05-12): the `scripts/yfinance_outage_report.py` `journalctl --grep` wrapper took 3 patch commits to ship cleanly — `check=True` → `check=False with returncode 1 + empty stdout` → `accept any output for returncode in (0, 1)` — because each iteration was a guess about `journalctl`'s behavior with no matches (actual answer: exit 1 + `"-- No entries --"` on stdout). One `journalctl ... --grep ... ; echo "exit=$?"` on the VPS after the first failure would have shown the truth and produced one clean patch instead of three.
+
 ---
 
 ## "Verify before asking" rule
@@ -499,3 +503,15 @@ Before ANY git operation that moves, deletes, or rewrites working-tree files on 
 If a stale `.git/index.lock` blocks everything after a crash, confirm no git GUI is open, then `Remove-Item ".git\index.lock" -Force`.
 
 Example (2026-05-21): the protocol-split commit took ~6 extra round-trips because OneDrive wasn't paused first (index.lock + repeated `deep-review` deletion prompts) and `git checkout develop` was attempted despite `develop` living in a worktree.
+
+---
+
+## Deploy verification checklist (dashboard)
+
+After every `systemctl restart tradebot-dashboard` that includes JS or HTML changes:
+1. Hard-refresh the browser (Ctrl+Shift+R) to bypass cache.
+2. Open DevTools → Console (F12). Zero red errors required before declaring done.
+3. Click Login → confirm the session cookie is set and `/api/today` returns 200.
+4. If the feature adds a new tab or KPI strip — navigate to it and confirm data renders.
+
+Do NOT call a deploy verified based only on "bot uptime shows" or "gateway logged in" in the System card — those reflect the bot process, not the JS bundle. (Lesson: 2026-05-04 Phase 4 deploy — all system indicators green, but Login button was unresponsive due to a JS error that was only discovered when the user tried to use the dashboard.)
