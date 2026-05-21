@@ -206,7 +206,7 @@ When a code review (`/ultrareview` or an in-chat unbiased review) identifies fix
 3. **Wait for explicit go on scope** — even if the user already said "yes apply fixes", treat that as authorization to plan, not authorization to code. A second "go" on the plan is required.
 4. Only then edit code.
 
-Step 7 in `SESSION_PROTOCOL.md` already covers production-code changes; this rule is its CR-pipeline corollary, written because CR fixes feel like rubber-stamp work but routinely touch core paths (this session: `OrderManager._handle_order_status`, `BaseStrategy.__init__`).
+Step 7 in `OPEN_SESSION_PROTOCOL.md` already covers production-code changes; this rule is its CR-pipeline corollary, written because CR fixes feel like rubber-stamp work but routinely touch core paths (this session: `OrderManager._handle_order_status`, `BaseStrategy.__init__`).
 
 Example (2026-05-07): user said "yes apply B1+B2+tests" after a Phase-A CR; I jumped to code, expanded scope unilaterally to also include M4 + cosmetic test-helper changes, and edited 4 production-code files without restating the plan. The user flagged the procedure break ("you are not working according to procedure"). The fix pass was correct in outcome but should have been gated by a 30-second restated plan.
 
@@ -420,6 +420,10 @@ Example (2026-05-16): asked "what is MS-C2?", Claude described it from CLAUDE.md
 
 Example (2026-05-18): asked "why isn't PingPong trading today?", Claude's first-turn answer confidently asserted "B-12 fix not deployed to VPS" based on a CLAUDE.md "Immediate next steps" line that still read "Deploy B-12 to VPS + verify". The newest CHATLOG entry (2026-05-19) had explicitly recorded the 5/18 deploy of PingPong ("all three strategies started cleanly") and the user-restart of `tradebot-dashboard`. The actual root cause was a different threadsafe-routing bug entirely (B-13: `_set_market_data_type` raising from the daemon-thread reconnect). The wrong hypothesis cost one diagnostic turn before journal evidence overrode it. Reading the newest CHATLOG entry first would have re-grounded the diagnosis ("PingPong is deployed and was running; the question is why it stopped today") and skipped the wrong hypothesis entirely.
 
+**Prior-decision corollary (the "writing" mirror of Describe-from-source).** When about to *sketch* a new architectural surface — a new risk cap, a new capital model, a new persistence schema, a new order-flow check, anything touching a domain the project has already made a recorded decision on — grep `docs/BACKLOG.md` + `docs/ROADMAP.md` for that domain BEFORE writing the proposal. The Describe-from-source rule governs READING existing entries; this corollary governs WRITING new ones that could collide with them. One `Grep` is cheaper than a BLOCKING reviewer-finding that a sketched architecture re-introduces coupling a prior decision was made to remove.
+
+Example (2026-05-21): the IMPROVEMENT_PLAN sketched a `GlobalRiskManager` aggregating across strategies in F-BR-03 — without grepping for "Decision B". The unbiased plan reviewer caught it as BLOCKING: Decision B (BACKLOG, 2026-05-06) is "independent 2% per strategy"; a global cap re-introduces the cross-strategy capital coupling MS-A/MS-B were architected to remove. The fix was reframing F-BR-03 as an operational order-*count* cap (IBKR wire budget), explicitly preserving Decision B's capital independence. A 30-second `grep` of BACKLOG before writing F-BR-03 would have produced the clarified version on the first pass.
+
 ---
 
 ## Broker-state-authority rule
@@ -482,3 +486,16 @@ this reason.)
 Locked by `tests/test_test_pingpong.py::test_pp24,test_pp25` (strategy
 side) and `tests/test_multi_strategy_runner.py::test_ms12_strategy_name_set_before_sleep_so_fast_fill_carries_tag`
 (OM side).
+
+---
+
+## Git surgery on the OneDrive repo (pause sync + check worktrees first)
+
+Before ANY git operation that moves, deletes, or rewrites working-tree files on this repo — `stash`, `rebase`, `checkout <other-branch>`, `reset --hard`, `merge` — do two things first:
+
+1. **Pause or quit OneDrive.** This folder is OneDrive-synced; OneDrive holds open handles on files (especially `.claude/skills/*`) and causes `Deletion of directory '...' failed. Should I try again? (y/n)` loops plus stale `.git/index.lock` files that abort the operation mid-flight. "Pause syncing" does not always release existing handles — **Quit OneDrive** is the reliable fix. An interrupted `git stash -u` can leave a phantom `WIP` stash AND restore the working tree while deleting an untracked file; recover it with `git checkout "stash@{N}^3" -- <path>`.
+2. **Run `git worktree list` before `git checkout <branch>`.** Several branches (notably `develop`) are permanently checked out in `.claude/worktrees/*`, so `git checkout develop` fails with "already used by worktree." To base new work on such a branch without checking it out, use `git checkout -b <new> origin/<branch>` or `git rebase --onto origin/<branch> <old-base>`.
+
+If a stale `.git/index.lock` blocks everything after a crash, confirm no git GUI is open, then `Remove-Item ".git\index.lock" -Force`.
+
+Example (2026-05-21): the protocol-split commit took ~6 extra round-trips because OneDrive wasn't paused first (index.lock + repeated `deep-review` deletion prompts) and `git checkout develop` was attempted despite `develop` living in a worktree.

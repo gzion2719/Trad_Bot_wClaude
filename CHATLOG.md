@@ -3,6 +3,27 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-21 (cont.) — Full-project review + phased IMPROVEMENT_PLAN toward 24/7 production
+
+- User asked for a full-project review and a real roadmap toward live 24/7 multi-strategy production. Spawned four parallel deep-review subagents (runtime, broker/risk, dashboard, repo/ops) — strong specific reports in one round, no re-spawn needed. Synthesized into `docs/IMPROVEMENT_PLAN.md`: 7 phases (0 hygiene → 1 safety floor → 2 observability keystone → 3 money-safety → 4 plug-in surface → 5 dashboard UX → 6 ops hardening; 7 long-term), 8–10 sessions to pre-live gate.
+- Ran the code-review skill on the draft plan. Unbiased reviewer found 3 BLOCKING (CLAUDE.md trim has no successor index, `GlobalRiskManager` conflicts with Decision B, F-BR-01 grep tripwire needs the protective-order helper to already exist) + 8 MAJOR + 4 MINOR + 3 NITS + 5 QUESTIONS. Full agree-and-fix cycle, zero disagreements; all 23 findings resolved in one revision pass.
+- Key plan revisions: F-BR-03 reframed as operational order-count cap (Decision B preserved); F-RT-04 MarketClock loses the missed-tick replay (behavior change deferred); heartbeat math gains `bot_started_at` floor; F-BR-05 adds weekly synthetic ntfy ping (monitoring-of-monitoring); Phase 6 reframed as serialized between phase boundaries, not concurrent; Phase 2 sizing bumped to 2–3 sessions; F-DOC-08 softened to ≤150 lines, only incident-narrative moves.
+- Plan-for-the-plan checkpoints baked in (re-review after Phase 2 ships; go/no-go after Phase 3; F-RT-02 decision by msg-rate measurement after Phase 4). Review reports themselves go to `docs/reviews/2026-05-21/` as a Phase 0 deliverable so F-tag references stay dereferenceable.
+- **Process improvement:** `WORKFLOW.md` Describe-from-source rule gains a **Prior-decision corollary** — before SKETCHING a new architectural surface in a domain that has a recorded decision (risk caps, capital model, order-flow, persistence schema), grep BACKLOG + ROADMAP for that domain first. Codifies the writing-mirror of the existing reading rule; birthed by today's `GlobalRiskManager` vs Decision B BLOCKING that a 30-second grep would have prevented.
+- **Next session:** Phase 0 of the new plan (branch prune + daily DB/state backup + restore validator + CLAUDE.md narrative extraction + commit the 4 review reports), OR keep GC-4 (dashboard TLS) as the immediate next focus before starting the new plan — both are legitimate; pick at Step 6.
+
+---
+
+## 2026-05-21 — Git hygiene: protocol-split commit untangled + .gitignore fix
+- Fixed a half-finished `.gitignore` that had dropped the `.claude/` ignore rule (truncated, would have committed `settings.local.json` + worktrees); rewrote it to ignore local Claude state while committing `.claude/skills/` (deep-review + session-rituals).
+- Untangled the uncommitted protocol split (SESSION_PROTOCOL.md → OPEN/CLOSE/SESSION_RULES + stub) that was parked on `feature/dashboard-neon-glass-port`; committed it on a fresh `chore/split-session-protocol`, then `rebase --onto origin/develop d4c8c15` to drop the 3 dashboard commits. Merged to develop.
+- Resolved a large `WORKFLOW.md` rebase conflict by taking develop's newer version (our base predated a WORKFLOW.md expansion), then re-applied the split's one stale reference (`SESSION_PROTOCOL.md` → `OPEN_SESSION_PROTOCOL.md` at the CR-pipeline rule).
+- Cleared heavy OneDrive/git friction: stale `index.lock`, `deep-review` deletion loops (recovered the deleted untracked SKILL.md via `stash@{0}^3`), and `develop`-in-a-worktree blocking `git checkout develop`.
+- **Process improvement:** Added "Git surgery on the OneDrive repo" rule to `WORKFLOW.md` — pause/quit OneDrive + `git worktree list` before any file-moving git op.
+- **Next session:** Open the `feature/dashboard-neon-glass-port` PR (its 3 commits are intact + unmerged), or GC-4 (dashboard TLS).
+
+---
+
 ## 2026-05-18 (cont. 2) — B-13 `_set_market_data_type` threadsafe routing (PingPong 10089 fix)
 
 - Bug: PingPongTest-AAPL had 0 fills today. Journal evidence on the VPS: at Sun 23:59 UTC the gateway AutoRestartTime dropped the TCP connection; ReconnectManager's daemon-thread reconnect raised `RuntimeError: no current event loop in thread 'ReconnectManager'` inside `_set_market_data_type` (the last unrouted `sendMsg` call in `ibkr_client.py`); subsequent ReconnectManager `connect()` calls short-circuited on `if ib.isConnected(): return` so the data mode was never re-applied. TWS resets the mode to REALTIME on every fresh session → every `reqMktData(AAPL)` returned code 10089. SMA/RSI2MR weren't affected (yfinance, not real-time IBKR).

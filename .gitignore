@@ -36,10 +36,11 @@ data/equity_history_*.jsonl
 .idea/
 *.swp
 
-# Claude
-.claude/
+# Claude — ignore local state, but commit project skills (.claude/skills/)
+.claude/settings.json
+.claude/settings.local.json
+.claude/worktrees/
 
 # OS
 .DS_Store
 Thumbs.db
-

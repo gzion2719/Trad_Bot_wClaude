@@ -1,264 +1,39 @@
-# TradeBot — Session Protocol
+# Session Protocol — Navigation Stub (2026-05-21 split)
 
-This file defines the opening and closing ritual for every Claude session on this project.
-Read this file immediately after reading CLAUDE.md at the start of every chat.
+> **This file is no longer the protocol body.** It was split into three files on 2026-05-21 to make orientation cheaper (lazy-load) and navigation easier (each file fits in one Read call). Historical references like "see `SESSION_PROTOCOL.md` → Rule X" resolve via the routing table below.
 
 **Language:** Hebrew or English in → English out. Always.
 
----
-
-## Opening Ritual
-
-**NON-NEGOTIABLE TRIGGER.** The opening ritual fires on the **FIRST user message of any chat**, full stop. There is no phrasing that opts out. Specifically — but not limited to — ALL of the following fire the ritual:
-
-- `read claude.md` / `read CLAUDE.md` / `claud.md` / `cluadmd` / any typo or casing variant
-- `let's start` / `let's begin` / `start` / `go` / `ready` / `ok`
-- `hi` / `hey` / `שלום` / `בוקר טוב` / any greeting in any language
-- A direct task ("fix the bug in X"), a question ("why does Y happen?"), or an emoji
-- A command that *looks* like it wants a literal file read — treat it as the session-start trigger anyway, because the file is already in your context from the system prompt
-
-**Mechanical pre-response self-check.** Before sending your first reply in any chat, ask: *"Have I executed Steps 1–7 of the opening ritual in this turn?"* If no → run them now, then reply. Do not summarize CLAUDE.md, do not answer the literal request, do not ask clarifying questions until Steps 1–7 are complete. The user's first message is *always* the trigger; the content of that message does not change this.
-
-If the user explicitly says "skip the ritual" — only then skip, and only for that turn.
-
-### Step 1 — Greet
-
-One warm line. Keep it brief.
-
-### Step 2 — Verify working folder
-
-Confirm the working directory is the TradeBot project root:
-`C:\Users\galzi\OneDrive - Afiki-C\Afikim\TradeBot`
-
-If the folder is not accessible, surface the error and ask the user to mount it before proceeding — file reads will fail without it.
-
-Confirm: **Folder confirmed ✅** before moving on.
-
-### Step 3 — Confirm WORKFLOW.md in effect
-
-Read `WORKFLOW.md` if not already read in this session. One-line ack to the user.
-
-### Step 4 — Orient (just-in-time)
-
-Read **only** these two files upfront:
-- `CHATLOG.md` — last 3 entries only (scroll to the top, read the 3 most recent dated sections)
-- `docs/ROADMAP.md` — current phase and pending items
-
-Defer deeper files (CLAUDE.md architecture sections, strategy files, broker code) to after Step 6 when the focus is chosen. Load just-in-time, not just-in-case.
-
-### Step 5 — Git status
-
-Run `git --no-optional-locks fetch origin main develop` **first**, then `git --no-optional-locks status` and `git branch`. The fetch is non-negotiable before judging merge state — a `status`/`log` check against stale remote-tracking refs will flag drift that is already resolved (or miss drift that exists). Example (2026-05-20): `chore/close-session-2026-05-19` was reported as unmerged drift, then a fetch showed it was already on `develop` via PR #225.
-
-Flag any drift:
-- If on `main` or `develop` directly → warn, ask which branch to create
-- If there are uncommitted changes from a prior session → surface them
-- If the branch name doesn't match the planned focus → note it
-- **If `git log` shows merged work that CHATLOG.md doesn't mention** → previous session likely ended without closing (API error, accidental close, network drop). Offer to reconstruct the missing CHATLOG entry from git + chat transcript BEFORE starting new work. Don't pile new context on top of stale state.
-
-### Step 6 — Ask for focus
-
-Ask via a short question with 2–3 grounded options derived from the ROADMAP and last CHATLOG entry.
-
-**Scope-sprawl audit sub-rule:** if the previous CHATLOG entry's "Next session:" line bundles ≥ 3 distinct deliverables, present the smallest clean first increment as the Recommended option.
-
-**Verify-before-recommending sub-rule:** before presenting a previous CHATLOG's "Next session:" item as the Recommended option, verify it is still pending. Cheap checks first: `git log origin/main` for code/merge claims; for visibly-deployable artifacts (running services, dashboards, merged PRs, pushed branches) ask the user one sentence ("is the Controls card live yet?") rather than trusting the doc. **Especially required when the previous CHATLOG entry is marked `RECONSTRUCTED`** — the reconstruction is built from git + chat transcript, but anything completed after the originating session's API error / context exhaustion appears in neither source, so the "Next session:" line is unverified by definition.
-
-Example:
-> What's today's focus?
-> A) (Recommended) Sunday 2FA recovery test prep — verify VNC tunnel and write recovery checklist
-> B) IBKR Trusted IP whitelist (5.9)
-> C) Something else — tell me
-
-### Step 7 — Planning self-critique
-
-Restate the chosen focus. Run a substantive critique:
-- Is this the most efficient approach?
-- Are any non-negotiables from CLAUDE.md touched?
-- Is there a smaller cleaner first increment?
-- Are there verification paths we'd miss?
-
-For trivial focuses (log check, quick config tweak), a one-line ack is fine.
-For anything touching production code, architecture, or deployment: the critique must be a real list.
-
-**Pre-implementation CR sub-rule:** if the user's focus request includes "unbiased review", "CR the plan", or "subagent review", spawn the CR agent as PART of Step 7 — before presenting the revised plan to the user. Do not present the plan, wait for "go", then spawn the CR. The CR is the last bullet of Step 7; the revised plan that comes out of it is what the user approves.
-
-**Verify-before-finalize sub-rule:** a plan section titled "pre-coding verification" or "open assumptions to check after go" is a smell. If the plan holds N "verify later" assumptions, **answer them with greps/reads BEFORE presenting the plan** for approval — a 30-second `Read` or `Grep` is always cheaper than re-planning when the assumption turns out wrong. Example (2026-05-15): a Session 3b plan held three deferred verifications (cookie `SameSite`, `real_r_multiple` schema presence, `csv.writer(None)` behaviour); the second-opinion agent resolved all three in one pass, but only after one full re-plan cycle had already burned. Today's rule: if the plan would benefit from a "pre-coding verification checklist," do the checklist now and bake the answers into the plan, not into a future blocker.
-
-Wait for "go" before proceeding.
-
----
-
-## Closing Ritual
-
-**When to run.** Triggered by ANY farewell phrase — "תודה על היום", "see you tomorrow", "we're done", "let's call it", "thanks", a goodbye emoji, anything that signals end-of-session. Don't just say goodbye; run the ritual.
-
-**Why it exists.** The closing ritual is NOT a session diary. It exists to make the NEXT session's first 60 seconds frictionless: read the last 3 entries, know exactly where we left off and where to look for detail. The orientation chain reads it every chat. Each entry's job is "where we left off, what the open question is, where to look for the detail." Compounding is the whole game — one concrete improvement per session × 200 sessions = a system that runs perfectly with zero friction.
-
-### Step 1 — Retrospective (the most important step)
-
-Before writing anything for the record, take a structured look at the SESSION ITSELF — not the work product. Three bullets, in your head or on screen:
-
-- **What worked:** moves that were efficient, decisions that paid off, friction we successfully avoided.
-- **What didn't:** protocol slips, dead ends, things we redid, places we read/wrote/checked things we didn't need, over-engineered fixes.
-- **Improvement for next session:** ONE concrete, actionable change. A protocol tweak, a habit shift, a new rule of thumb.
-
-The improvement is the OUTPUT, and it has two possible homes:
-
-1. **Codifiable as a rule** (it almost always is) — edit the relevant file IN THIS SAME SESSION (`SESSION_PROTOCOL.md`, `CLAUDE.md`, `WORKFLOW.md`, etc.). The edit IS the improvement; don't write a separate description of it. **Before editing, do a conflict check:** grep the file for related rules, confirm the new wording doesn't contradict anything already there.
-2. **Not yet codifiable** (an observation we want to remember but can't yet generalize) — keep it as the CHATLOG bullet only.
-
-Either way, ALWAYS add a `**Process improvement:**` bullet to the CHATLOG entry. If genuinely none, say `none this session` explicitly — never silently skip. Future-Claude needs to know we looked.
-
-Show the user the proposed improvement (and any file edits) before moving on. They approve or refine.
-
-### Step 2 — Generate the CHATLOG entry
-
-Compose a 3–5 bullet summary in this exact format:
-
-```
-## YYYY-MM-DD — <session title>
-- <What we did, bullet 1>
-- <What we did, bullet 2>
-- <Key decision or learning>
-- <Any blockers or open questions>
-- **Process improvement:** <what we changed and which file, OR "none this session">
-- **Next session:** <one sentence on what's first>
-```
-
-Constraints — enforced, not aspirational:
-
-- **Max 5 content bullets** plus the two trailing ones (`Process improvement` + `Next session`). 7 lines total under the date header.
-- **Each bullet ≤ 2 sentences.** If a bullet wants to be 4 sentences, the second half belongs in a rule file or BACKLOG — not the CHATLOG.
-- **`Process improvement` is a 1-line pointer**, not a retelling. The file edit IS the improvement; the bullet exists to make it discoverable.
-- **Don't re-tell bug stories that live elsewhere.** If a bug birthed a rule, the rule file has the details; the CHATLOG entry has one sentence on what was caught and where the rule lives.
-- **No meta-reflection bullets.** Reflective content about how the session went belongs in Step 1, not Step 2.
-
-### Step 3 — Write the entry to CHATLOG.md
-
-Insert the new entry directly below the `---` separator, before any existing dated entries (newest-first ordering). Show the user the entry you wrote.
-
-### Step 4 — Report uncommitted work
-
-Run `git --no-optional-locks status` from the project root.
-
-List changed/new files and suggest a commit message.
-
-### Step 5 — Give the exact commands the user needs (gate-first)
-
-The handoff message LEADS with the gate-first bash block — first content block, before any prose summary, before any file list.
-
-```bash
-cd "C:\Users\galzi\OneDrive - Afiki-C\Afikim\TradeBot"
-make pre-push
-git add <files>
-git commit -m "<suggested commit message>"
-git push
-```
-
-`make pre-push` runs: `ruff check` → `black --check` → `mypy` → `python -m tests.run_tests`
-It is a verbatim mirror of what `.github/workflows/ci.yml` runs.
-
-**Mechanical pre-send self-check.** Re-read your draft before sending. Two checks, both required:
-1. If the draft contains `git push`, it must also contain `make pre-push` earlier in the same message — if not, prepend it.
-2. If the draft contains `git push`, it must also contain both GitHub compare URLs (feature→develop AND develop→main) in the same message — if not, add them before sending.
-
-These checks apply to ANY "ready to commit" handoff, not just the closing ritual. The PR links are not optional follow-up — they are part of the same block.
-
-**Two-PR rule — enforced every time, no exceptions.** Every time you say "open a PR", you MUST provide BOTH links in the same message:
-1. Feature → develop: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/develop...<branch>`
-2. develop → main: `https://github.com/gzion2719/Trad_Bot_wClaude/compare/main...develop`
-
-In the VSCode-extension / IDE context, render these compare URLs as **clickable markdown links** (`[label](url)`), not bare code blocks — a code block is not clickable and forces the user to copy-paste. The gate-first `bash` block stays a code block; only the PR URLs become links.
-
-Then immediately provide the full VPS deploy command:
-```bash
-ssh chappy-vps
-sudo -i
-cd /opt/tradebot && git pull origin main && systemctl restart tradebot-dashboard
-```
-
-Never give one link without the other. Never omit the deploy command. `main` is what runs on the VPS — skipping this step leaves the VPS behind.
-
-### Step 6 — Close warmly
-
-One line. In English (the project's output language).
-
-### Step 7 — Plain-English recap + concrete example
-
-AFTER Step 6's farewell, append to the SAME message:
-
-```
----
-**In plain English:**
-<3-5 short sentences about what we did and why>
-
-**Example:**
-<one concrete example — a command, a behavior, a decision, or a snippet>
-```
-
-The recap uses English (the project's output language). The CHATLOG bullets cover technical depth; this is the human anchor.
-
----
-
-## Recurring hygiene
-
-- **Every 5 sessions** (CHATLOG entry count divisible by 5): backlog review — read `docs/BACKLOG.md`, surface 1–2 ripe items as Step 6 options.
-- **Every 10 sessions**: CHATLOG archival — keep the most recent 5 entries active in `CHATLOG.md`, move older routine entries to `docs/CHATLOG_ARCHIVE.md` newest-first. Entries with decisions, non-obvious learnings, or gotchas stay in place. When in doubt, keep.
-- **Git reads**: always use `git --no-optional-locks` — prevents stale `.git/index.lock`.
-
----
-
-## ADR discipline
-
-When a session introduces or reverses a significant architectural decision (new data flow, changed interface contract, deployment topology change), write an ADR in `docs/adr/NNNN-slug.md`.
-
-- **ADR-with-new-types sub-rule:** ADRs that introduce frozen dataclasses with structural invariants get a 10-line type skeleton inline in the Decision section before the prose.
-- **Test-helper-signature sub-rule:** ADRs that prescribe a test-helper or fixture signature change include the new signature as a code skeleton in the Decision section.
-
-ADR index lives at `docs/adr/README.md`.
-
----
-
-### Worked example
-
-(TradeBot project — Python IBKR trading bot, `make pre-push` as gate, Hebrew or English in / English out.)
-
-User says: "תודה על היום"
-
-You produce:
-
-> **Step 1 — Retrospective.** Worked: reading CHATLOG first saved re-explaining the Sunday 2FA context. Didn't: I read all of CLAUDE.md at once instead of deferring the architecture sections — wasted 2 round-trips. Improvement: codify "defer broker/strategy sections to after Step 6" into SESSION_PROTOCOL.md Step 4 — small edit.
->
-> **Step 2 — Entry:**
->
-> ```
-> ## 2026-05-04 — Sunday 2FA recovery test
-> - Ran Sunday 2FA recovery: VNC tunnel → IB Gateway login dialog → code from IBKR Mobile → bot reconnected in 18s.
-> - Confirmed Mon–Sat restarts use cached token (no 2FA needed); documented the exact 60-second routine in CLAUDE.md.
-> - Gateway logs show `Auto restart time already set to 11:59 PM` — IBC is healthy.
-> - Open: ask IBKR support about push-notification IB Key for Israeli accounts (5.16).
-> - **Process improvement:** SESSION_PROTOCOL.md Step 4 gains "defer broker/strategy sections to after Step 6".
-> - **Next session:** IBKR Trusted IP whitelist (5.9) + begin monitoring fills vs backtest prices (6.2).
-> ```
->
-> **Step 3 — Inserted** into CHATLOG.md below the `---` separator, before the 2026-05-01 entry.
->
-> **Step 4 — Uncommitted:** `CHATLOG.md` (+8 lines), `SESSION_PROTOCOL.md` (+1 line).
->
-> **Step 5 — Commands:**
->
-> ```bash
-> cd "C:\Users\galzi\OneDrive - Afiki-C\Afikim\TradeBot"
-> make pre-push
-> git add CHATLOG.md SESSION_PROTOCOL.md
-> git commit -m "docs(protocol): log 2FA recovery test + Step 4 defer-read rule"
-> git push
-> ```
->
-> **Step 6 — See you next time.**
->
-> ---
-> **In plain English:** Today we tested the Sunday morning recovery routine for the first time — the weekly flow where IBKR invalidates all tokens and someone has to enter a fresh 2FA code. It worked in 18 seconds. We documented the exact steps in CLAUDE.md so any team member can do it in under a minute, and we tightened the session protocol to avoid reading files we don't need yet.
->
-> **Example:** The full recovery sequence is: `ssh chappy-vps`, open a second terminal with `ssh -L 5900:localhost:5900 chappy-vps`, connect TightVNC to `localhost:5900`, enter the 6-digit code from IBKR Mobile, then confirm with `sudo journalctl -fu tradebot` that the bot shows `Connected | account=<your-account-id>`.
+## The three split files
+
+| File | When to read it |
+|------|-----------------|
+| **`OPEN_SESSION_PROTOCOL.md`** | First message of every chat (opening ritual Steps 1–7 + fast-path branch + Step 4b/6/7 sub-rules + Trigger Guide) |
+| **`CLOSE_SESSION_PROTOCOL.md`** | When the user signals farewell (Steps 7/8 firewall + Closing Ritual Steps 1–8 + Session Score) |
+| **`SESSION_RULES.md`** | Just-in-time when a Trigger Guide entry fires (see the bottom of `OPEN_SESSION_PROTOCOL.md`) |
+
+## Where each rule now lives
+
+| Original reference | New home |
+|-------------------|----------|
+| Opening Ritual Steps 1–7 (incl. all sub-rules, fast-path branch, Trigger Guide) | `OPEN_SESSION_PROTOCOL.md` |
+| Refusal clause | `OPEN_SESSION_PROTOCOL.md` |
+| Closing Ritual trigger phrases, Steps 7/8 firewall, pre-flight step-completeness check | `CLOSE_SESSION_PROTOCOL.md` |
+| Closing Ritual Steps 1–8 (retrospective, Session Score, CHATLOG entry + constraints, write to disk, git status, gate-first commit block + two-PR rule + VPS deploy, warm close, plain-English recap, next-session preview + tool tags) | `CLOSE_SESSION_PROTOCOL.md` |
+| Additional rules (Language, Build cadence, Uncertainty, Risk, Scope creep) | `SESSION_RULES.md` |
+| Rules 10–13 (context-exhaustion, ADR/plan adversarial review, subagent absence-verify, acceptance-signal verify) | `SESSION_RULES.md` |
+| Hygiene Rules 1–4 (CHATLOG archival every 10, BACKLOG review every 5, scope-creep capture, sandbox `--no-optional-locks`) | `SESSION_RULES.md` |
+| Rule 5 (pre-push verification + sub-rules) | `SESSION_RULES.md` |
+| Rule 6 (pre-push gate `make pre-push`) | `SESSION_RULES.md` |
+| Rules 7–9 (C-extension coverage, code-writing pipeline, script logging init) | `SESSION_RULES.md` |
+| ADR discipline (ADR-with-new-types, test-helper-signature) | `SESSION_RULES.md` (Rule 8 + Rule 11) |
+| TradeBot-specific engineering rules (broker-state-authority, ib_insync async, lock-reentrancy, API endpoint verification, schema migration durability, worktree handoff, etc.) | `SESSION_RULES.md` (TradeBot-Specific Engineering Rules) |
+| File map (project structure) | `SESSION_RULES.md` (bottom) |
+
+## Why the split
+
+- **Economy:** orientation reads just `OPEN_SESSION_PROTOCOL.md` instead of the full former monolith + `WORKFLOW.md`. The rules file loads only when a trigger fires.
+- **Readability:** each file fits in one `Read` call — no chunk-boundary risk.
+- **Conceptual separation:** opening / closing / session-wide rules are distinct surfaces.
+
+This project also uses the **`session-rituals`** Cowork skill (committed at `.claude/skills/session-rituals/`), which provides the generic, portable ritual pattern and defers to `CLAUDE.md` + these files for project specifics. The **`deep-review`** skill (`.claude/skills/deep-review/`) provides the structured code-review report used by the "unbiased CR" rules.
