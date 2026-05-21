@@ -206,7 +206,7 @@ When a code review (`/ultrareview` or an in-chat unbiased review) identifies fix
 3. **Wait for explicit go on scope** — even if the user already said "yes apply fixes", treat that as authorization to plan, not authorization to code. A second "go" on the plan is required.
 4. Only then edit code.
 
-Step 7 in `SESSION_PROTOCOL.md` already covers production-code changes; this rule is its CR-pipeline corollary, written because CR fixes feel like rubber-stamp work but routinely touch core paths (this session: `OrderManager._handle_order_status`, `BaseStrategy.__init__`).
+Step 7 in `OPEN_SESSION_PROTOCOL.md` already covers production-code changes; this rule is its CR-pipeline corollary, written because CR fixes feel like rubber-stamp work but routinely touch core paths (this session: `OrderManager._handle_order_status`, `BaseStrategy.__init__`).
 
 Example (2026-05-07): user said "yes apply B1+B2+tests" after a Phase-A CR; I jumped to code, expanded scope unilaterally to also include M4 + cosmetic test-helper changes, and edited 4 production-code files without restating the plan. The user flagged the procedure break ("you are not working according to procedure"). The fix pass was correct in outcome but should have been gated by a 30-second restated plan.
 
