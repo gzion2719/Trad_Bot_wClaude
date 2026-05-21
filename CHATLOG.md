@@ -3,6 +3,18 @@
 Newest entry first. Max 5 content bullets + `**Process improvement:**` + `**Next session:**` per entry.
 Read the last 3 entries at the start of every session (Step 4 of the opening ritual).
 
+## 2026-05-21 (cont. 2) — Phase 0 hygiene sweep: 102→3 branches, account-ID hardening, drifted-content reconciliation
+
+- Phase 0 mechanical bundle shipped (PRs #260 CODEOWNERS + #261 hygiene + #262 regex widen + #263 drifted-content restore + #264 review-report stubs): F-OPS-09 gitleaks 8.24.3→8.30.1, F-OPS-10 account-ID tripwire `DUE[0-9]{6,9}`→`DUE?[0-9]{6,9}` (catches both DU<digits> real format AND DUE<digits> historic form), HANDOFF_DEVOPS root-SSH lines replaced with `ssh chappy-vps`. Gate green throughout: 390 passed / 49 skipped under `GITHUB_ACTIONS=true`, ruff/black/mypy clean.
+- Branch graveyard collapse 102→3 (well past Phase 0's ≤15 exit criterion): 92 fully-merged branches batch-deleted via `xargs -n 30 git push origin --delete`; auto-delete-on-merge enabled via `gh api`; trailing 2 chore branches (pre-autodelete merges) cleaned up. Final survivors: main, develop, HEAD.
+- Drifted-branch investigation showed exact section headings from 4 unmerged branches were NOT on main — diff-vs-develop check turned up the 2026-05-12 MS-C2 entry as genuinely unique (the existing 5/12 entry is a *different* session on the same day: "Dashboard Phase 5 Session 1"). Restored via PR #263: CHATLOG MS-C2 entry inserted above existing 5/12, WORKFLOW.md gains "External CLI corollary" + "Deploy verification checklist". 2026-05-16 + 5/03 + 5/04 branch content all superseded by existing develop entries — no-ops, branches deleted.
+- Security finding mid-session: `docs-vps-deployment-handoff` (1 commit, April 2026) had a literal `DUE`+6-digit account ID in its commit message body, sitting on the public remote. Deleted the branch + widened the regex to cover both DU and DUE forms going forward. Commit SHA still GC-reachable (GitHub Support purge is the hard step; not done).
+- Four review reports from the 2026-05-21 plan-drafting session were never persisted — they lived only as subagent tool-results, then got synthesized into IMPROVEMENT_PLAN.md. PR #264 stubs `docs/reviews/2026-05-21/{runtime,broker,dashboard,ops}.md` honestly: "status: stub" + pointer to the F-tag families each would have covered, so plan references resolve to *something* without fabricating reconstructions.
+- **Process improvement:** WORKFLOW.md should gain a "Provide a compare URL ≠ open a PR" sub-rule under the existing PR URL section — when surfacing PRs for the user, run `gh pr list --state open` and only call a PR "awaiting your merge" if it actually exists on GitHub. Birthed by this session's mid-stream "develop→main PR awaiting your merge" claim that you had to call out — there was no such PR, I had conflated "I gave you a compare URL" with "I opened the PR".
+- **Next session:** open + merge the develop→main ship PR ([compare/main...develop](https://github.com/gzion2719/Trad_Bot_wClaude/compare/main...develop), 10+ commits) so Phase 0 lands on main; then either F-DOC-08 (CLAUDE.md slim — own session per the Step 7 self-critique) OR Phase 1 (safety floor: fail-fast `start_all`, `safe_place_protective_order` for bracket legs, ntfy alerting). Phase 0 backups (F-OPS-02) still blocked on B2 bucket creation.
+
+---
+
 ## 2026-05-21 (cont.) — Full-project review + phased IMPROVEMENT_PLAN toward 24/7 production
 
 - User asked for a full-project review and a real roadmap toward live 24/7 multi-strategy production. Spawned four parallel deep-review subagents (runtime, broker/risk, dashboard, repo/ops) — strong specific reports in one round, no re-spawn needed. Synthesized into `docs/IMPROVEMENT_PLAN.md`: 7 phases (0 hygiene → 1 safety floor → 2 observability keystone → 3 money-safety → 4 plug-in surface → 5 dashboard UX → 6 ops hardening; 7 long-term), 8–10 sessions to pre-live gate.
@@ -141,6 +153,17 @@ Read the last 3 entries at the start of every session (Step 4 of the opening rit
 - Pre-push: ruff/black/mypy ✅, pytest 305 pass / 49 skipped / 5 deselected. Verified locally via new `scripts/dev_dashboard.py` + `scripts/seed_dashboard_db.py` against the seeded `paper_trades.db`; confirmed every KPI value, tab switch, sessionStorage round-trip, and global-KPI-hide CSS rule. PR #197 merged to develop; develop→main pending at session close.
 - **Process improvement:** WORKFLOW.md gains "Pre-fixture wiring check" rule — before staging fixture data to verify a feature, grep the code under test for the source it actually reads. Birthed by the DB-path bug above.
 - **Next session:** Phase 5 Session 3 (paginated history table + streaming CSV export endpoint + DB-X5 shared TestClient auth-failure fixture) OR pick up the spawned FastAPI `+inf` fix first since it directly affects S2's profit-factor rendering.
+
+---
+
+## 2026-05-12 — MS-C2 measurement-gated: yfinance outage report script shipped
+
+- Pivoted from MS-C2 (IBKR historical-data fallback) design to B-lite (measure first). Two-pass CR on the original plan found CRITICAL flaws — `ADJUSTED_LAST` doesn't match yfinance dividend handling and paper-account entitlement was unverified — and HIGH that the 0.5% SMA threshold was the wrong metric (gate is binary). Premise itself wasn't validated either: no data on how often yfinance actually fails.
+- Shipped `scripts/yfinance_outage_report.py` — parses `journalctl -u tradebot --grep "history refresh"` and summarizes outages. Zero production code touched. VPS baseline at 2026-05-12: **0 outages in 30 days**. Re-run on/after 2026-06-12 to set the build/won't-build threshold.
+- `docs/BACKLOG.md` MS-C2 entry re-tagged P2 (measurement-gated). Operator sets the threshold after seeing the first 30-day number.
+- Five commits to ship a 130-line script: original + gitleaks allowlist for `yfinance_outage_report` (entropy false positive, same class as `Feed/IBKRFeed/BarScheduler`) + 3 journalctl semantics patches (--grep pre-filter, exit-code-1 handling, "-- No entries --" banner). All five rounds were due to guessing at external CLI behavior instead of running the bare CLI first.
+- **Process improvement:** WORKFLOW.md "Debugging discipline" gains the "External CLI corollary" — when a script wrapping `journalctl`/`gh`/`systemctl`/`git`/etc. fails on the target, run the bare CLI on the target first, capture exit code + stdout + stderr, then patch. Birthed by today's 3-round journalctl iteration loop.
+- **Next session:** GC-4 (TLS for the dashboard via Caddy or nginx + tailscale-cert), Phase 6 monitoring tick (`TradeLog.daily_summary()` daily review since both strategies deployed 2026-05-11), or MS-C2 re-evaluation when the 2026-06-12 report shows real numbers.
 
 ---
 

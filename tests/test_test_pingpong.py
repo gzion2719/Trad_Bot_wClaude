@@ -146,7 +146,7 @@ def _position(symbol=_SYMBOL, qty=1, avg_cost=240.0):
         market_value=None,
         unrealized_pnl=None,
         realized_pnl=None,
-        account="DU0000000",
+        account="PAPER",
     )
 
 

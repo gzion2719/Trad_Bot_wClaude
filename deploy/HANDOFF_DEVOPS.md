@@ -20,8 +20,9 @@ GitHub: https://github.com/gzion2719/Trad_Bot_wClaude
 |---|---|
 | Provider | Hostinger KVM 1 |
 | OS | Ubuntu 24.04 LTS |
-| IP | 2.24.222.199 |
-| SSH | `ssh root@2.24.222.199` |
+| Public IP | 2.24.222.199 — **port 22 blocked by UFW; do NOT SSH here** |
+| Tailscale IP | 100.113.140.69 — only network path for SSH |
+| SSH | `ssh chappy-vps` (alias for `chappy@100.113.140.69`, key `~/.ssh/chappy_v3`); root SSH is disabled, use `sudo -i` after login |
 | Bot directory | `/opt/tradebot` |
 | IB Gateway install | `/opt/ibgateway` |
 | IBC install | `/opt/ibc` |
@@ -101,7 +102,7 @@ display so we can SEE what dialog is showing and interact with it manually:
 ```bash
 apt-get install -y x11vnc
 x11vnc -display :99 -nopw -listen localhost -xkb &
-ssh -L 5900:localhost:5900 root@2.24.222.199
+ssh -L 5900:localhost:5900 chappy-vps
 ```
 Then connect a VNC viewer on the PC to `localhost:5900` to see the login screen.
 
