@@ -1,9 +1,9 @@
 # CLAUDE.md — Session Handoff Document
 
 Read this file at the start of every new Claude session before touching any code.
-Then immediately read `SESSION_PROTOCOL.md` and `WORKFLOW.md` — they define the opening/closing ritual and how chats work.
+Then immediately read `OPEN_SESSION_PROTOCOL.md` — it defines the opening ritual. (`CLOSE_SESSION_PROTOCOL.md` loads on a farewell signal; `SESSION_RULES.md` loads just-in-time via the Trigger Guide; `WORKFLOW.md` is a user-facing reference, not read at orientation.) This project also uses the **`session-rituals`** Cowork skill, committed at `.claude/skills/session-rituals/`, which provides the generic ritual pattern and defers to this file + the protocol files for project specifics.
 
-**Opening ritual is non-negotiable.** ANY first user message — including "read claude.md", "claud.md", "cluadmd", "let's start", a greeting, an emoji, or a direct task — triggers Steps 1–7 in `SESSION_PROTOCOL.md`. The file is already in your context; treat the message as the session-start trigger, not a literal file-read command. Only skip if the user explicitly says "skip the ritual".
+**Opening ritual is non-negotiable.** ANY first user message — including "read claude.md", "claud.md", "cluadmd", "let's start", a greeting, an emoji, or a direct task — triggers Steps 1–7 in `OPEN_SESSION_PROTOCOL.md`. The file is already in your context; treat the message as the session-start trigger, not a literal file-read command. Only skip if the user explicitly says "skip the ritual".
 
 **Language:** Hebrew or English in → English out. Always.
 
@@ -259,9 +259,11 @@ IBKR's security model:
 - No virtual environment yet (Sprint 5.2)
 
 ```bash
-# How to run tests:
+# How to run tests (matches the make pre-push / CI gate):
 cd "C:\Users\galzi\OneDrive - Afiki-C\Afikim\TradeBot"
-"C:\Users\galzi\AppData\Local\Programs\Python\Python312\python.exe" -m tests.run_tests
+pytest tests/ -m "not market"
+# TWS not running locally? Skip broker tests exactly as CI does:
+GITHUB_ACTIONS=true pytest tests/ -m "not market"
 ```
 
 ---
@@ -303,8 +305,9 @@ TradeBot/
 │
 ├── main.py                 — wiring: validate → connect → OrderManager → RiskManager → ReconnectManager
 └── tests/
-    ├── run_tests.py        — 93 tests across 17 sections (most run without TWS connection)
-    └── run_market_tests.py — 5 tests requiring live market hours
+    ├── test_*.py           — pytest suite; canonical gate is `pytest tests/ -m "not market"`
+    ├── run_tests.py        — legacy custom runner (still present; pytest is the source of truth)
+    └── run_market_tests.py — tests requiring live market hours
 ```
 
 ---
@@ -554,21 +557,25 @@ GitHub branch protection is not enforced on this free private repo. Claude is th
 | File | Purpose |
 |---|---|
 | `CLAUDE.md` | This file — full project context, read first every session |
-| `SESSION_PROTOCOL.md` | Opening + closing ritual — read immediately after CLAUDE.md |
-| `WORKFLOW.md` | Chat archetypes, pre-push gate, git rules, red flags |
+| `OPEN_SESSION_PROTOCOL.md` | Opening ritual — read first on every chat (Steps 1–7 + Trigger Guide) |
+| `CLOSE_SESSION_PROTOCOL.md` | Closing ritual + Session Score — loaded on a farewell signal |
+| `SESSION_RULES.md` | Rules 1–13 + TradeBot engineering rules — loaded just-in-time via the Trigger Guide |
+| `SESSION_PROTOCOL.md` | Navigation stub — routing table to the three split files |
+| `WORKFLOW.md` | User-facing reference: chat archetypes, git rules, pre-push gate, red flags, emergency |
+| `.claude/skills/` | Committed project skills: `session-rituals`, `deep-review` |
 | `CHATLOG.md` | Session log, newest-first — read last 3 entries in opening ritual |
 | `TODO.md` | Sprint-by-sprint task tracker |
 | `docs/ROADMAP.md` | Phased roadmap with acceptance checks |
 | `docs/BACKLOG.md` | Categorized open items, reviewed every 5 sessions |
 | `docs/CHATLOG_ARCHIVE.md` | Archived older CHATLOG entries (created at session 10) |
-| `.github/workflows/ci.yml` | CI pipeline: ruff → black → mypy → pytest |
+| `.github/workflows/ci.yml` | CI pipeline: ruff → black → mypy → pytest → gitleaks → account-ID grep |
 | `Makefile` | Local gate targets — `make pre-push` mirrors CI exactly |
 
 ## Files to always read before editing
 
 | File | Why |
 |---|---|
-| `SESSION_PROTOCOL.md` | Opening/closing ritual — non-negotiable every session |
+| `OPEN_SESSION_PROTOCOL.md` | Opening ritual — non-negotiable every session |
 | `WORKFLOW.md` | How chats work, pre-push gate, red flags |
 | `CHATLOG.md` | Last 3 entries — where we left off |
 | `docs/ROADMAP.md` | Current phase and pending items |
@@ -583,13 +590,12 @@ GitHub branch protection is not enforced on this free private repo. Claude is th
 ## How to run tests
 
 ```bash
-# Full test suite (requires TWS running and connected):
+# Canonical gate (mirrors make pre-push / CI):
 cd "C:\Users\galzi\OneDrive - Afiki-C\Afikim\TradeBot"
-"C:\Users\galzi\AppData\Local\Programs\Python\Python312\python.exe" -m tests.run_tests
+pytest tests/ -m "not market"
 
-# Expected results:
-#   Trading day:  81/81 pass
-#   Weekend:      72/81 pass (9 GE market-data tests require open market — expected)
+# TWS not running locally? Skip broker tests exactly as CI does:
+GITHUB_ACTIONS=true pytest tests/ -m "not market"
 ```
 
 ---
