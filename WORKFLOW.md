@@ -482,3 +482,16 @@ this reason.)
 Locked by `tests/test_test_pingpong.py::test_pp24,test_pp25` (strategy
 side) and `tests/test_multi_strategy_runner.py::test_ms12_strategy_name_set_before_sleep_so_fast_fill_carries_tag`
 (OM side).
+
+---
+
+## Git surgery on the OneDrive repo (pause sync + check worktrees first)
+
+Before ANY git operation that moves, deletes, or rewrites working-tree files on this repo — `stash`, `rebase`, `checkout <other-branch>`, `reset --hard`, `merge` — do two things first:
+
+1. **Pause or quit OneDrive.** This folder is OneDrive-synced; OneDrive holds open handles on files (especially `.claude/skills/*`) and causes `Deletion of directory '...' failed. Should I try again? (y/n)` loops plus stale `.git/index.lock` files that abort the operation mid-flight. "Pause syncing" does not always release existing handles — **Quit OneDrive** is the reliable fix. An interrupted `git stash -u` can leave a phantom `WIP` stash AND restore the working tree while deleting an untracked file; recover it with `git checkout "stash@{N}^3" -- <path>`.
+2. **Run `git worktree list` before `git checkout <branch>`.** Several branches (notably `develop`) are permanently checked out in `.claude/worktrees/*`, so `git checkout develop` fails with "already used by worktree." To base new work on such a branch without checking it out, use `git checkout -b <new> origin/<branch>` or `git rebase --onto origin/<branch> <old-base>`.
+
+If a stale `.git/index.lock` blocks everything after a crash, confirm no git GUI is open, then `Remove-Item ".git\index.lock" -Force`.
+
+Example (2026-05-21): the protocol-split commit took ~6 extra round-trips because OneDrive wasn't paused first (index.lock + repeated `deep-review` deletion prompts) and `git checkout develop` was attempted despite `develop` living in a worktree.
