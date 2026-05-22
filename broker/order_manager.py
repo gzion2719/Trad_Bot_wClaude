@@ -235,6 +235,13 @@ class OrderManager:
         """Register a callback fired when an order is fully filled."""
         self._on_fill_callbacks.append(callback)
 
+    def remove_on_fill(self, callback: Callable[[OrderResult], None]) -> None:
+        """Unregister a previously-registered on_fill callback. No-op if absent."""
+        try:
+            self._on_fill_callbacks.remove(callback)
+        except ValueError:
+            pass
+
     def on_cancel(self, callback: Callable[[OrderResult], None]) -> None:
         """Register a callback fired when an order is cancelled (any source)."""
         self._on_cancel_callbacks.append(callback)
