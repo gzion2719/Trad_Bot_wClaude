@@ -65,7 +65,7 @@ def _long_position(symbol: str = "AAPL", qty: float = 100.0) -> Position:
         market_value=qty * 155.0,
         unrealized_pnl=qty * 5.0,
         realized_pnl=0.0,
-        account="DU000000",
+        account="paper-test",
     )
 
 
@@ -78,7 +78,7 @@ def _short_position(symbol: str = "AAPL", qty: float = 100.0) -> Position:
         market_value=-qty * 145.0,
         unrealized_pnl=qty * 5.0,
         realized_pnl=0.0,
-        account="DU000000",
+        account="paper-test",
     )
 
 
