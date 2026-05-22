@@ -40,6 +40,8 @@ Findings are tagged `F-RT-NN` (runtime), `F-BR-NN` (broker/risk), `F-UX-NN`/`F-D
 
 ## Phase 0 — Repo hygiene & safety nets
 
+**Status (2026-05-22):** F-OPS-01 ✅, F-OPS-09 ✅, F-OPS-10 ✅, HANDOFF_DEVOPS fix ✅, F-DOC-08 ✅ (CLAUDE.md 615→290, new `docs/HISTORY.md` + `docs/REFERENCE.md`), Phase 0 wrap (worktree prune) ✅, review reports stubbed ✅. **F-OPS-02 backups still blocked on B2 bucket creation** — to be revisited during the new-VPS bring-up since it's the natural moment to design backups correctly. Phase 0 effectively complete pending F-OPS-02.
+
 **Why now.** Cheap wins. Unblocks everything else. Reduces cognitive load. None of it touches trading code.
 
 **Scope:**
@@ -61,6 +63,8 @@ Findings are tagged `F-RT-NN` (runtime), `F-BR-NN` (broker/risk), `F-UX-NN`/`F-D
 ---
 
 ## Phase 1 — Pre-multi-strategy safety floor
+
+**Status (2026-05-22):** F-RT-01 ✅ shipped (PRs #271/#272 — `StartupError` + clean rollback + `OrderManager.remove_on_fill` + 5 tests). F-BR-01a ✅ shipped (PRs #273/#275 + hotfix #274 — `safe_place_protective_order` + `RiskManager.check_protective` + reduce-only carve-out + AST grep tripwire + 14 tests). F-BR-01b folded into F-BR-01a as a side effect (the new helper enforces the open-order + value caps through `check_protective`). **F-RT-09 (`stop_all` thread `join`) + F-BR-05 (ntfy alerting + weekly synthetic ping) remain open** — wire F-BR-05 during the new-VPS bring-up so monitoring exists from day 1.
 
 **Why now.** Two recent incidents (B-12 PingPong silence 17:21–17:42, B-13 PingPong dead for 5 days from a 10089 chain) had the same root cause class: a strategy goes wrong and *nobody is told*. We must not add more strategies until that's fixed.
 
