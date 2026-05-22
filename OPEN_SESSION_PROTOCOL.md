@@ -58,8 +58,8 @@ The first message is **only the body the user typed in this chat turn**. User-pr
 That's it. `CLAUDE.md` is already loaded and contains the non-negotiables; do NOT re-read `README.md` or deeper docs here. Hygiene Rules 1 (every 10 sessions) and 2 (every 5 sessions) fire here when the CHATLOG entry count triggers them; Rule 2 conditionally adds a `docs/BACKLOG.md` read so promotion candidates surface in Step 6.
 
 **Step 4b (just-in-time, AFTER Step 6 focus is chosen):** read only the deeper docs the chosen focus actually needs. TradeBot routing:
-- Focus = **risk code** (RiskManager / position sizing / stops / circuit breaker / live Phase work) → read the risk component sections in `CLAUDE.md` + `risk/risk_manager.py` (TradeBot has no separate `docs/RISK_MANAGEMENT.md`).
-- Focus = **new or modified strategy / broker / runtime code** → read `strategies/base_strategy.py` + the relevant module + the Architecture section in `CLAUDE.md`.
+- Focus = **risk code** (RiskManager / position sizing / stops / circuit breaker / live Phase work) → read the `RiskManager` + `PositionSizer` sections in `docs/REFERENCE.md` + `risk/risk_manager.py` (TradeBot has no separate `docs/RISK_MANAGEMENT.md`).
+- Focus = **new or modified strategy / broker / runtime code** → read `strategies/base_strategy.py` + the relevant module + the Architecture section in `docs/REFERENCE.md`.
 - Focus = **backtest work** → read `backtester/engine.py`.
 - Focus = **library/tooling pick** → read `requirements.txt` + the relevant `CLAUDE.md` section.
 - Focus = **first chat ever, or a major scope/vision conversation** → read `README.md`.
