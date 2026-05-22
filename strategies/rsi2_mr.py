@@ -610,7 +610,7 @@ class RSI2MR_SPY(BaseStrategy):
                 tif=TimeInForce.GTC,
                 backtest_slippage_bps=slippage_bps,  # type: ignore[call-arg]
             )
-            sr = self.om.place_order(stop_req, allow_duplicate=True)
+            sr = self.safe_place_protective_order(stop_req)
             self._stop_order_id = sr.order_id
         except Exception as exc:
             logger.error("%s: failed to place protective STP — %s", self.name, exc)
@@ -626,7 +626,7 @@ class RSI2MR_SPY(BaseStrategy):
                 tif=TimeInForce.GTC,
                 backtest_slippage_bps=0.0,  # type: ignore[call-arg]
             )
-            lr = self.om.place_order(lmt_req, allow_duplicate=True)
+            lr = self.safe_place_protective_order(lmt_req)
             self._target_order_id = lr.order_id
         except Exception as exc:
             logger.warning("%s: failed to place placeholder LMT — %s", self.name, exc)

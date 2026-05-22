@@ -202,6 +202,106 @@ class RiskManager:
         )
 
     # ------------------------------------------------------------------
+    # Protective-order check (F-BR-01a)
+    # ------------------------------------------------------------------
+
+    def check_protective(self, request: OrderRequest, effective_price: float) -> None:
+        """
+        Slim risk check for bracket-leg / protective orders (STP, LMT, STP LMT).
+
+        Enforces: sane-price + max_order_value + conditional halt check.
+        Skips: per-symbol exposure cap, open-order-count cap, R/R rule. Those
+        rules belong to entry orders. A protective leg is not opening exposure;
+        it is bounding the risk on a position the strategy already opened.
+
+        Halt is conditional: a halted strategy must still be able to set a stop
+        on an already-open position, otherwise the fix creates a worse hole
+        than the bug (naked positions during halt). This method only enforces
+        the halt when it can affirmatively determine the order ADDS risk (no
+        opposite-sign position exists). Fail-open on unknown / read errors —
+        protective legs default to allowed.
+
+        Args:
+            request:         The protective order about to be placed.
+            effective_price: For STP / STOP_LIMIT → stop_price (trigger /
+                             worst-case fill bound). For LMT → limit_price.
+
+        Raises:
+            RiskViolationError: invalid price, value cap exceeded, or halt
+                                active AND order does not reduce existing
+                                exposure.
+        """
+        # Sane price. NaN is the load-bearing case here — OrderRequest.__post_init__
+        # rejects <= 0 but `nan <= 0` is False, so a stale indicator computation
+        # producing NaN slips past the model layer.
+        if not math.isfinite(effective_price) or effective_price <= 0:
+            raise RiskViolationError(
+                f"Protective order rejected: invalid effective_price={effective_price} "
+                f"(must be finite and > 0). request={request.action.value} "
+                f"{request.symbol} x{request.quantity} type={request.order_type.value}"
+            )
+
+        # Value cap — always enforced. quantity is positive in OrderRequest;
+        # abs() is defensive.
+        order_value = abs(request.quantity) * effective_price
+        if order_value > self.max_order_value:
+            raise RiskViolationError(
+                f"Protective order value ${order_value:.2f} exceeds max_order_value "
+                f"${self.max_order_value:.2f} ({request.quantity} × {effective_price:.4f})."
+            )
+
+        # Halt — conditional on whether the order ADDS or REDUCES risk.
+        with self._lock:
+            daily_pnl = self._daily_realized_pnl
+            sticky_halted = self._halted_today
+        is_halted_state = sticky_halted or daily_pnl <= self.max_daily_loss
+        if is_halted_state:
+            if not self._is_reduce_only_protective(request):
+                raise RiskViolationError(
+                    f"Protective order rejected: halt active "
+                    f"(P&L={daily_pnl:.2f}, limit={self.max_daily_loss:.2f}, "
+                    f"sticky={sticky_halted}) and order does not reduce existing "
+                    f"exposure in {request.symbol}."
+                )
+            logger.critical(
+                "PROTECTIVE order placed UNDER HALT (reduce-only): %s %s x%s @ %.4f "
+                "— existing position is being closed, halt bypass intentional.",
+                request.action.value,
+                request.symbol,
+                request.quantity,
+                effective_price,
+            )
+
+    def _is_reduce_only_protective(self, request: OrderRequest) -> bool:
+        """Return True if this protective leg closes/reduces an existing position.
+
+        Fail-OPEN policy:
+          - get_positions() raises → return True (allow; broker read errors must
+            not block a protective stop on an already-open position).
+          - no matching symbol → return True (on_fill race window: the position
+            may not yet be visible to OrderManager when on_fill is dispatched).
+          - matching position, opposite sign → True (the safety case).
+          - matching position, same sign → False (this is an add-risk order).
+        """
+        try:
+            positions = self._om.get_positions()
+        except Exception as exc:
+            logger.warning(
+                "get_positions failed during protective check (%s); fail-OPEN.",
+                exc,
+                exc_info=True,
+            )
+            return True
+        for p in positions:
+            if p.symbol.upper() == request.symbol.upper():
+                if p.is_long and request.action == OrderAction.SELL:
+                    return True
+                if p.is_short and request.action == OrderAction.BUY:
+                    return True
+                return False
+        return True
+
+    # ------------------------------------------------------------------
     # Trade setup validation + sizing — primary entry point for strategies
     # ------------------------------------------------------------------
 
