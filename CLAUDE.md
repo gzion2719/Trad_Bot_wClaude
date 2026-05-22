@@ -30,28 +30,27 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## Current state (update this section each session)
 
-**Phase 6 — paper trading.** Bot running on VPS (paper account). Open work tracking → `docs/BACKLOG.md` + `docs/IMPROVEMENT_PLAN.md`. Incident archaeology → `docs/HISTORY.md`. Component contracts → `docs/REFERENCE.md`.
+**Phase 6 — paper trading — BOT IS OFFLINE.** Hostinger VPS is gone (2026-05-22). Bot is not running anywhere. Code on main is fully shipped (F-RT-01 + F-BR-01a + F-DOC-08 all in); nothing to deploy *to* until the new VPS is up. Open work tracking → `docs/BACKLOG.md` + `docs/IMPROVEMENT_PLAN.md`. Incident archaeology → `docs/HISTORY.md`. Component contracts → `docs/REFERENCE.md`.
 
-**What's live (3 strategies, all paper account):**
-- **SMACrossover-QQQ** — daily-bar SMA crossover; uses yfinance, not real-time IBKR. Healthy-and-quiet (no signal in recent weeks).
+**Strategies — paused (code on main, will redeploy after new VPS):**
+- **SMACrossover-QQQ** — daily-bar SMA crossover; uses yfinance, not real-time IBKR.
 - **RSI2MR-SPY** — mean-reversion with bracket orders + VIX filter (shipped 2026-05-08; baseline backtest 2006–2025: Sharpe 0.34, 59.7% win, PF 1.48 — full details in `docs/HISTORY.md#2026-05-08`).
-- **PingPongTest-AAPL** — deliberately trivial alternating BUY 1 / SELL 1 every 5 min during RTH, built to make the bot visibly trade and verify the dashboard end-to-end (P&L is not a goal). Off-switch = delete its `STRATEGY_METADATA` + `_STRATEGY_CLASSES` entries and redeploy.
+- **PingPongTest-AAPL** — deliberately trivial BUY 1 / SELL 1 every 5 min during RTH (test-only).
 
-**Last shipped fix:** B-13 `_set_market_data_type` threadsafe routing (2026-05-18, commits `d142517` + `03d2ab7`, deployed). Full root-cause writeup → `docs/HISTORY.md#b-13--_set_market_data_type-threadsafe-routing`. Companion fixes B-11 (thread-safety, three commits) and B-12 (fast-fill race) also in HISTORY.
+**Last shipped fixes (on main, not yet deployed):** F-RT-01 fail-fast `start_all` + clean rollback. F-BR-01a `safe_place_protective_order` + halt-aware reduce-only carve-out + AST grep tripwire. Previously: B-13 `_set_market_data_type` threadsafe routing. Full writeups → `docs/HISTORY.md`.
 
-**Last shipped infra:** F-DOC-08 — CLAUDE.md slim (this restructure, 2026-05-22). Phase 0 mechanical sweep + protocol Step 7 CR-mandate (2026-05-21 / 2026-05-22, PRs #260–#268, all on main).
-
-**Dashboard:** Phase 5 read side complete (per-strategy view + CSV export `/api/strategies/{name}/fills?format=csv`). Profit-factor `+inf → null` wire-format fix shipped 2026-05-14.
+**Last shipped infra (2026-05-22 session):** Step 7 pre-impl CR is now mandatory by default (PRs #267/#268). F-DOC-08 CLAUDE.md slim (#269/#270). F-RT-01 (#271/#272). F-BR-01a (#273/#275 + hotfix #274). Gitleaks diagnostic CI step (#276). All on main.
 
 **1 open code-review item:** CR-07 (`ib_insync` migration to `ib_async` fork — BACKLOG, multi-week).
 
 ### Immediate next steps
 
-1. **Verify B-13 across the next nightly auto-restart** — Sun 2026-05-24 23:59 UTC should show a clean `Market data mode: delayed` log line after the daemon-thread reconnect, no `RuntimeError`, no `Error 10089` Monday morning.
-2. **Phase 1 (safety floor)** — fail-fast `start_all`, `safe_place_protective_order` for bracket legs + grep tripwire, ntfy alerting on halt/CB/error storms + weekly synthetic ping. See `docs/IMPROVEMENT_PLAN.md` Phase 1.
-3. **MS-C2 (P2)** — IBKR `reqHistoricalData` fallback for `_refresh_history`. **MEASUREMENT-GATED** — do not design or build before 2026-06-12 when `scripts/yfinance_outage_report.py` runs.
-4. **GC-4 — TLS for the dashboard** (Caddy/nginx + tailscale-cert). Reprioritized into Phase 6 by IMPROVEMENT_PLAN but available as an immediate-next swap if preferred.
-5. **F-OPS-02 backups** — daily sqlite + state-file off-VPS push + restore validator. **Blocked** on B2 bucket + app-key creation.
+1. **Stand up new VPS on DigitalOcean Droplet** — provision Ubuntu 24.04, harden SSH (key-only, no root), install Tailscale, install IBKR Gateway + IBC + xvfb/x11vnc systemd chain, clone `/opt/tradebot`, install Python 3.12 + deps, paper account 2FA, verify all 3 strategies start cleanly + dashboard reachable via Tailscale. Mirror the old `deploy/HANDOFF_DEVOPS.md` runbook — that's the source of truth.
+2. **After bot is back live: verify F-RT-01 + F-BR-01a behave on real fills** (the Sun 2026-05-24 B-13 auto-restart verification is moot — fresh VPS, fresh session).
+3. **F-BR-05 — ntfy alerting** (Phase 1 P1) on halt/CB/error storms + weekly synthetic ping. Wire as part of the new VPS bring-up so monitoring exists from day 1.
+4. **MS-C2 (P2)** — IBKR `reqHistoricalData` fallback. **MEASUREMENT-GATED** — do not design or build before 2026-06-12.
+5. **GC-4 — TLS for the dashboard** (Caddy/nginx + tailscale-cert). Wire on new VPS, not on old.
+6. **F-OPS-02 backups** — daily sqlite + state-file off-VPS push + restore validator. **Blocked** on B2 bucket + app-key creation; revisit during the new-VPS bring-up since this is the moment to design backup correctly.
 
 ### Open decisions
 
@@ -62,7 +61,9 @@ Built for the user (Afikim team) to run multiple trading strategies on paper and
 
 ## VPS / Deployment
 
-| Setting | Value |
+> ⚠️ **STALE as of 2026-05-22 — Hostinger VPS no longer exists.** Next session brings up a fresh DigitalOcean Droplet; this section will be rewritten then. Leaving the old table for reference (account names, paths, systemd unit naming convention) — DO NOT attempt `ssh chappy-vps`, that host is gone.
+
+| Setting | Value (HISTORICAL — Hostinger, decommissioned 2026-05-22) |
 |---|---|
 | Provider | Hostinger KVM 1 |
 | Public IP | 2.24.222.199 — **port 22 BLOCKED by UFW. Do NOT SSH to this IP.** |
