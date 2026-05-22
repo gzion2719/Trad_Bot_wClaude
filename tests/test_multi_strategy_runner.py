@@ -20,7 +20,7 @@ import pytest
 from config.strategies import DailyAt, Interval, RiskCaps, StrategyConfig
 from config.validator import ConfigError
 from models.order import OrderResult, OrderStatus
-from runtime.strategy_runner import StrategyRunner
+from runtime.strategy_runner import StartupError, StrategyRunner
 from strategies.base_strategy import BaseStrategy
 
 # ── Fakes ─────────────────────────────────────────────────────────────────────
@@ -34,6 +34,12 @@ class _FakeOrderManager:
 
     def on_fill(self, cb: Callable[[OrderResult], None]) -> None:
         self._on_fill_callbacks.append(cb)
+
+    def remove_on_fill(self, cb: Callable[[OrderResult], None]) -> None:
+        try:
+            self._on_fill_callbacks.remove(cb)
+        except ValueError:
+            pass
 
     def fire(self, result: OrderResult) -> None:
         for cb in list(self._on_fill_callbacks):
@@ -586,3 +592,202 @@ def test_ms11_real_registry_builds_cleanly():
     # Each strategy got its own independent RiskManager instance.
     rms = [h.risk_manager for h in runner.handles]
     assert len(set(id(rm) for rm in rms)) == len(rms)
+
+
+# ── MS-FF: F-RT-01 fail-fast start_all ────────────────────────────────────────
+
+
+class _FailingStartStrategy(_RecordingStrategy):
+    """Recording strategy whose on_start raises a controlled exception."""
+
+    class _Boom(RuntimeError):
+        pass
+
+    def on_start(self) -> None:
+        super().on_start()  # mark start_called=True to simulate partial mutation
+        raise _FailingStartStrategy._Boom("simulated on_start failure")
+
+
+class _FailingStopStrategy(_RecordingStrategy):
+    """Recording strategy whose on_start raises AND whose on_stop also raises.
+
+    Locks the "rollback continues even if on_stop fails" contract (m3).
+    """
+
+    class _BoomStart(RuntimeError):
+        pass
+
+    class _BoomStop(RuntimeError):
+        pass
+
+    def on_start(self) -> None:
+        super().on_start()
+        raise _FailingStopStrategy._BoomStart("simulated on_start failure")
+
+    def on_stop(self) -> None:
+        super().on_stop()
+        raise _FailingStopStrategy._BoomStop("simulated on_stop failure")
+
+
+def test_ms_ff01_start_all_raises_when_first_on_start_fails():
+    """First strategy's on_start raises → StartupError; second never invoked."""
+    cfg_a = StrategyConfig(
+        name="A",
+        strategy_class=_FailingStartStrategy,
+        symbol="AAPL",
+        params={"test_label": "A"},
+        schedule=Interval(seconds=60),
+        risk_caps=_basic_caps(),
+    )
+    cfg_b = StrategyConfig(
+        name="B",
+        strategy_class=_RecordingStrategy,
+        symbol="MSFT",
+        params={"test_label": "B"},
+        schedule=Interval(seconds=60),
+        risk_caps=_basic_caps(),
+    )
+    runner, om, _ = _make_runner(configs=[cfg_a, cfg_b])
+    runner.build()
+    callbacks_before = list(om._on_fill_callbacks)
+    assert len(callbacks_before) == 6  # 3 per strategy: _dispatch + risk + log
+
+    with pytest.raises(StartupError):
+        runner.start_all()
+
+    # B's on_start never ran.
+    assert runner.handles[1].strategy.start_called is False
+    # No thread is alive (A never started; B never reached start).
+    assert runner.handles[0].thread is not None and runner.handles[0].thread.is_alive() is False
+    assert runner.handles[1].thread is not None and runner.handles[1].thread.is_alive() is False
+    # A's callbacks unregistered; B's preserved (B was never started/rolled-back).
+    assert len(om._on_fill_callbacks) == 3
+    for cb in runner.handles[0].fill_callbacks:
+        assert cb not in om._on_fill_callbacks
+
+
+def test_ms_ff02_start_all_rolls_back_already_started_interval_and_daily():
+    """Second strategy's on_start raises → first (Interval) AND second cleaned up.
+
+    Uses one Interval + one DailyAt to exercise both scheduler types' wake-on-stop
+    behavior, per CR M2.
+    """
+    cfg_a = StrategyConfig(
+        name="A",
+        strategy_class=_RecordingStrategy,
+        symbol="AAPL",
+        params={"test_label": "A"},
+        schedule=Interval(seconds=60),
+        risk_caps=_basic_caps(),
+    )
+    cfg_b = StrategyConfig(
+        name="B",
+        strategy_class=_FailingStartStrategy,
+        symbol="MSFT",
+        params={"test_label": "B"},
+        schedule=DailyAt(hour=23, minute=59),
+        risk_caps=_basic_caps(),
+    )
+    runner, om, _ = _make_runner(configs=[cfg_a, cfg_b])
+    runner.build()
+
+    with pytest.raises(StartupError):
+        runner.start_all()
+
+    # A started successfully, then was rolled back.
+    assert runner.handles[0].strategy.start_called is True
+    assert runner.handles[0].strategy.stop_called is True
+    # B's on_start ran (and raised); rollback called its on_stop defensively.
+    assert runner.handles[1].strategy.start_called is True
+    assert runner.handles[1].strategy.stop_called is True
+    # Both threads dead. A's thread woke from stop_event.set(); B never started.
+    if runner.handles[0].thread is not None:
+        runner.handles[0].thread.join(timeout=2.0)
+        assert runner.handles[0].thread.is_alive() is False
+    # All callbacks gone (no leaked dispatch into dead RMs / dead TradeLog hooks).
+    assert om._on_fill_callbacks == []
+
+
+def test_ms_ff03_start_all_success_path_unchanged():
+    """Happy path: every on_start succeeds → every thread alive, no exceptions."""
+    cfg_a = StrategyConfig(
+        name="A",
+        strategy_class=_RecordingStrategy,
+        symbol="AAPL",
+        params={"test_label": "A"},
+        schedule=Interval(seconds=60),
+        risk_caps=_basic_caps(),
+    )
+    cfg_b = StrategyConfig(
+        name="B",
+        strategy_class=_RecordingStrategy,
+        symbol="MSFT",
+        params={"test_label": "B"},
+        schedule=Interval(seconds=60),
+        risk_caps=_basic_caps(),
+    )
+    runner, om, _ = _make_runner(configs=[cfg_a, cfg_b])
+    runner.build()
+    try:
+        runner.start_all()
+        for h in runner.handles:
+            assert h.strategy.start_called is True
+            assert h.thread is not None and h.thread.is_alive() is True
+        assert len(om._on_fill_callbacks) == 6  # 3 per strategy: _dispatch + risk + log
+    finally:
+        runner.stop_all()
+        for h in runner.handles:
+            if h.thread is not None:
+                h.thread.join(timeout=2.0)
+
+
+def test_ms_ff04_rollback_continues_when_on_stop_also_raises():
+    """on_start raises AND on_stop raises during rollback → StartupError still propagates."""
+    cfg_a = StrategyConfig(
+        name="A",
+        strategy_class=_FailingStopStrategy,
+        symbol="AAPL",
+        params={"test_label": "A"},
+        schedule=Interval(seconds=60),
+        risk_caps=_basic_caps(),
+    )
+    cfg_b = StrategyConfig(
+        name="B",
+        strategy_class=_RecordingStrategy,
+        symbol="MSFT",
+        params={"test_label": "B"},
+        schedule=Interval(seconds=60),
+        risk_caps=_basic_caps(),
+    )
+    runner, om, _ = _make_runner(configs=[cfg_a, cfg_b])
+    runner.build()
+
+    with pytest.raises(StartupError):
+        runner.start_all()
+
+    # on_stop raised but rollback continued — callbacks still removed.
+    for cb in runner.handles[0].fill_callbacks:
+        assert cb not in om._on_fill_callbacks
+
+
+def test_ms_ff05_rollback_when_thread_is_none():
+    """Missing scheduler thread (build skipped) → RuntimeError, rollback runs."""
+    cfg_a = StrategyConfig(
+        name="A",
+        strategy_class=_RecordingStrategy,
+        symbol="AAPL",
+        params={"test_label": "A"},
+        schedule=Interval(seconds=60),
+        risk_caps=_basic_caps(),
+    )
+    runner, om, _ = _make_runner(configs=[cfg_a])
+    runner.build()
+    runner.handles[0].thread = None  # simulate the "didn't call build" branch
+
+    with pytest.raises(RuntimeError, match="scheduler thread not built"):
+        runner.start_all()
+
+    # on_start ran (and succeeded), then rollback called on_stop and removed callbacks.
+    assert runner.handles[0].strategy.start_called is True
+    assert runner.handles[0].strategy.stop_called is True
+    assert om._on_fill_callbacks == []
