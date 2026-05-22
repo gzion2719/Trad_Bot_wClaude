@@ -3,9 +3,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
+import logging
+
 from broker.ibkr_client import IBKRClient
 from broker.order_manager import OrderManager
-from models.order import OrderRequest, OrderResult
+from models.order import OrderRequest, OrderResult, OrderType
+
+logger = logging.getLogger(__name__)
 
 
 class BaseStrategy(ABC):
@@ -159,12 +163,62 @@ class BaseStrategy(ABC):
         """
         if self.risk_manager is not None:
             self.risk_manager.check(request, current_price)
-        # Tag the request so OrderManager can route fills back to this strategy
-        # via OrderResult.strategy_name. _strategy_name is set by StrategyRunner
-        # in multi-strategy mode; None in single-strategy / backtest paths.
+        self._stamp_strategy_name(request)
+        return self.om.place_order(request, allow_duplicate=allow_duplicate)
+
+    def safe_place_protective_order(
+        self,
+        request: OrderRequest,
+        allow_duplicate: bool = True,
+    ) -> OrderResult:
+        """
+        Place a bracket-leg / protective order with the slim risk check (F-BR-01a).
+
+        Use this — never `self.om.place_order` directly — for every STP, LMT,
+        or STP LMT protective leg (entry stops, take-profits, trailing stops,
+        re-place after cancel). A CI grep tripwire enforces this rule.
+
+        Effective price (used for the value cap):
+          - STOP / STOP_LIMIT → request.stop_price (trigger / worst-case bound)
+          - LIMIT             → request.limit_price
+
+        See `RiskManager.check_protective` for the rule set: sane-price + value
+        cap + conditional halt (skipped for reduce-only protective legs so a
+        halt doesn't leave an open position naked).
+        """
+        if request.order_type in (OrderType.STOP, OrderType.STOP_LIMIT):
+            effective_price = request.stop_price
+        elif request.order_type == OrderType.LIMIT:
+            effective_price = request.limit_price
+        else:
+            raise ValueError(
+                f"safe_place_protective_order requires STOP / LIMIT / STOP_LIMIT, "
+                f"got {request.order_type.value}"
+            )
+        if effective_price is None:
+            raise ValueError(f"Protective order missing price field for {request.order_type.value}")
+        if self.risk_manager is not None:
+            self.risk_manager.check_protective(request, effective_price)
+        self._stamp_strategy_name(request)
+        logger.info(
+            "Protective order: %s %s x%d %s @ %.4f (strategy=%s)",
+            request.action.value,
+            request.symbol,
+            request.quantity,
+            request.order_type.value,
+            effective_price,
+            request.strategy_name,
+        )
+        return self.om.place_order(request, allow_duplicate=allow_duplicate)
+
+    def _stamp_strategy_name(self, request: OrderRequest) -> None:
+        """Stamp `request.strategy_name` so OrderManager routes fills back here.
+
+        `_strategy_name` is set by StrategyRunner.build() in multi-strategy mode;
+        None in single-strategy / backtest paths (fills carry strategy_name=None).
+        """
         if request.strategy_name is None and self._strategy_name is not None:
             request.strategy_name = self._strategy_name
-        return self.om.place_order(request, allow_duplicate=allow_duplicate)
 
     # ------------------------------------------------------------------
     # Strategy metadata
