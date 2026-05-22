@@ -40,7 +40,7 @@ pre-push: lint
 	mypy . --ignore-missing-imports --exclude 'tests/'
 	pytest tests/ -m "not market"
 	gitleaks detect --redact --no-git -s .
-	@if grep -rn "DUE[0-9]\{6,9\}" --include='*.py' --include='*.sh' --include='*.yml' \
+	@if grep -rn "DUE\?[0-9]\{6,9\}" --include='*.py' --include='*.sh' --include='*.yml' \
 	    --include='*.md' --include='*.txt' --include='*.service' --include='*.timer' \
 	    --include='*.ini' --include='*.env*' . 2>/dev/null | grep -v '^Binary'; then \
 	    echo "ERROR: account ID literal found in tracked files" >&2; \
