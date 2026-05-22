@@ -271,7 +271,7 @@ class SMACrossover(BaseStrategy):
                                     tif=TimeInForce.GTC,
                                 )
                                 try:
-                                    sr = self.om.place_order(stop_req, allow_duplicate=True)
+                                    sr = self.safe_place_protective_order(stop_req)
                                     self._stop_order_id = sr.order_id
                                     logger.warning(
                                         "%s: protective STOP placed for reconciled "
@@ -399,7 +399,7 @@ class SMACrossover(BaseStrategy):
                     tif=TimeInForce.GTC,
                 )
                 try:
-                    stop_result = self.om.place_order(stop_req, allow_duplicate=True)
+                    stop_result = self.safe_place_protective_order(stop_req)
                     self._stop_order_id = stop_result.order_id
                     logger.info(
                         "%s protective STOP placed | %s @ %.2f (order %d)",
@@ -497,7 +497,7 @@ class SMACrossover(BaseStrategy):
                 tif=TimeInForce.GTC,
             )
             try:
-                sr = self.om.place_order(stop_req, allow_duplicate=True)
+                sr = self.safe_place_protective_order(stop_req)
                 self._stop_order_id = sr.order_id
                 logger.warning(
                     "%s: re-armed broker STOP for unprotected position "
