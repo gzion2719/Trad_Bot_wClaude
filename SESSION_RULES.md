@@ -120,7 +120,7 @@ If the sandbox can't run a check (Python-version mismatch, missing dep), say so 
 
 **Why:** Rule 5 verifies in the sandbox, but the sandbox can't always run the full pytest suite (Python-version mismatch, no TWS). CI is the source of truth, but every CI cycle costs ~25 sec + a round-trip. `make pre-push` runs the same checks locally before the push leaves the machine.
 
-**Rule:** every push runs `make pre-push` first — **NOT the individual tools piecemeal.** `make pre-push` runs the gitleaks secret scan + the account-ID grep, neither of which is invoked when you run `ruff check . && black --check . && mypy ... && pytest ...` by hand. Running tools individually is a Rule 6 violation even if all four piecemeal checks pass. **Trigger:** any session that runs ruff/black/mypy/pytest individually before a push (codified 2026-05-22 after `DU000000` test fixture matched the account-ID regex and broke CI on a PR that had passed piecemeal checks locally).
+**Rule:** every push runs `make pre-push` first — **NOT the individual tools piecemeal.** `make pre-push` runs the gitleaks secret scan + the account-ID grep, neither of which is invoked when you run `ruff check . && black --check . && mypy ... && pytest ...` by hand. Running tools individually is a Rule 6 violation even if all four piecemeal checks pass. **Trigger:** any session that runs ruff/black/mypy/pytest individually before a push (codified 2026-05-22 after a `DU`+8-zeros test fixture matched the account-ID regex and broke CI on a PR that had passed piecemeal checks locally).
 
 It is a verbatim mirror of `.github/workflows/ci.yml`:
 
