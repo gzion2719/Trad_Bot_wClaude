@@ -44,6 +44,20 @@ jobs:
           GITLEAKS_VERSION=8.30.1
           curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             | tar -xz -C /tmp gitleaks
+          # Run twice so we can both fail-loud (--redact for logs) AND emit
+          # a JSON report with rule+file+line (no secret value) for triage.
+          /tmp/gitleaks detect --no-git --source . --config .gitleaks.toml \
+            --report-format json --report-path /tmp/gl-report.json --exit-code 0 || true
+          if [ -s /tmp/gl-report.json ] && [ "$(cat /tmp/gl-report.json)" != "[]" ]; then
+            echo "::error::gitleaks findings (rule/file/line only — secret values redacted):"
+            python3 -c "
+          import json, sys
+          with open('/tmp/gl-report.json') as f:
+              findings = json.load(f)
+          for f in findings:
+              print(f\"  rule={f.get('RuleID')} file={f.get('File')} line={f.get('StartLine')} match_len={len(f.get('Secret', ''))}\")
+          " || cat /tmp/gl-report.json
+          fi
           /tmp/gitleaks detect --redact --no-git --source . --config .gitleaks.toml --exit-code 1
 
       - name: Account-ID leak check
